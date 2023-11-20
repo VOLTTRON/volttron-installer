@@ -10,6 +10,5 @@
   "publish_breadth_first": false,
   "campus": "campus",
   "building": "building",
-  "unit": "fake_device",
-  "test": 10
+  "unit": "fake_device"
 }

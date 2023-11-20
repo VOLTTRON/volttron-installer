@@ -9,29 +9,29 @@ class Backer:
 
 mybacker = Backer()
 
-def create_config_file(config, option):
-    if option == "json":
-        f = open("test.config", "w")
-    else:
-        f = open("test.csv", "w")
+def filter_name(name):
+    return name.replace("/", "|")
 
+def create_config_file(name, config, format):
+    save_path = os.getcwd() + "/configs/"
+    # replace backslashes in name with pipes
+    name = filter_name(name)
+    # this ensures the file is saved to configs
+    full_name = os.path.join(save_path, name+format)
+    f = open(full_name, "w")
     f.write(config)
     f.close()
 
 def add_config(identity, name):
-    # write/create config file
-    #create_config_file(mybacker.data, mybacker.option)
-    # get path to config file
-    # if mybacker.option == "json":
-    #     config_path = os.getcwd() + "/test.config"
-    # else:
-    #     config_path = os.getcwd() + "/test.csv"
-    print(f'identity: {identity}, name: {name}')
-    print(f'config: {mybacker.data}, option: {mybacker.option}')
+    create_config_file(name, mybacker.data, mybacker.option)
 
 def update_backer_json(data):
     setattr(mybacker, 'data', data)
-    setattr(mybacker, 'option', 'json')
+    setattr(mybacker, 'option', '.json')
+
+def update_backer_csv(data):
+    setattr(mybacker, 'data', data)
+    setattr(mybacker, 'option', '.csv')
 
 def render_config_form():
     ui.label("Save a config").style("font-size: 20px")
@@ -47,22 +47,17 @@ def render_config_form():
             ui.json_editor({'content': {'json': json}}, 
                            on_change=lambda e: update_backer_json(e.content['text']))
         with ui.tab_panel(two):
-            ui.label('Second tab')
+            ui.editor(on_change=lambda e: update_backer_csv(e.value))
     ui.button("Save Config", on_click=lambda: add_config(identity.value, name.value))
 
-@ui.page('/new-config')
-def add_config_page():
-    ui.link("Back to list", config_list_page)
-    render_config_form()
-
-@ui.page('/')
-def config_list_page():
+def render_config_list():
     columns = [
         {'name': 'config', 'label': 'Config', 'field': 'config', 'align': 'left'},
         {'name': 'platform', 'label': 'Platform', 'field': 'platform', 'align': 'left'},
     ]
     rows = [
         {'config': 'Config 1', 'platform': 'platform.driver'},
+        {'config': 'Config 2', 'platform': 'platform.driver'},
     ]
     ui.link("Add to config", add_config_page)
     table = ui.table(columns=columns, rows=rows, row_key='config').classes('w-72')
@@ -92,6 +87,15 @@ def config_list_page():
             </q-td>
         </q-tr>
     ''')
+
+@ui.page('/new-config')
+def add_config_page():
+    ui.link("Back to list", config_list_page)
+    render_config_form()
+
+@ui.page('/')
+def config_list_page():
+    render_config_list()
 
 def main():
     config_list_page()
