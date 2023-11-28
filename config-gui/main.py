@@ -41,13 +41,14 @@ def render_config_form():
     with ui.tabs() as tabs:
         one = ui.tab('json')
         two = ui.tab('csv')
-    with ui.tab_panels(tabs, value=one):
+    with ui.tab_panels(tabs, value=one).classes("w-full"):
         with ui.tab_panel(one):
             json = {}
             ui.json_editor({'content': {'json': json}}, 
                            on_change=lambda e: update_backer_json(e.content['text']))
         with ui.tab_panel(two):
-            ui.editor(on_change=lambda e: update_backer_csv(e.value))
+            # ui.editor(on_change=lambda e: update_backer_csv(e.value))
+            pass
     ui.button("Save Config", on_click=lambda: add_config(identity.value, name.value))
 
 def render_config_list():

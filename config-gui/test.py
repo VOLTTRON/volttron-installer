@@ -1,21 +1,26 @@
 from nicegui import ui
+
 data = [
-    {"name": "Alice", "age": 18},
-    {"name": "Bob", "age": 21},
-    {"name": "Carol", "age": 42},
+    {"col 1": "", "col 2": "", "col 3": ""},
 ]
+
+columns = [
+    {"field": "col 1", "editable": True},
+    {"field": "col 2", "editable": True},
+    {"field": "col 3", "editable": True},
+]
+
+global new_column_start
+new_column_start = 4
 
 def update_data_from_table_change(e):
     data[e.args["rowIndex"]] = e.args["data"]
 
 table = ui.aggrid({
-    "columnDefs": [
-        {"field": "name", "editable": True, "sortable": True},
-        {"field": "age", "editable": True},
-    ],
+    "columnDefs": columns,
     "rowData": data,
     "rowSelection": "multiple",
-    "stopEditingWhenCellsLoseFocus": True,
+    "stopEditingWhenCellsLoseFocus": True, 
 }).on("cellValueChanged", update_data_from_table_change)
 
 async def delete_selected():
@@ -24,11 +29,27 @@ async def delete_selected():
     table.update()
 
 def new_row():
-    data.append({"name": "New default name", "age": None})
+    row_dict = {}
+    for col in columns:
+        row_dict.update({col["field"]: ""})
+    data.append(row_dict)
+    table.update()
+
+def new_column():
+    global new_column_start
+    new_column = {"field": f'col {new_column_start}', "editable": True}
+    columns.append(new_column)
+
+    # update rows with new column
+    for row in data:
+        row.update({f'col {new_column_start}': ""})
+
+    new_column_start += 1
     table.update()
 
 ui.button("Delete selected", on_click=delete_selected)
 ui.button("New row", on_click=new_row)
+ui.button("New column", on_click=new_column)
 
 ui.label().bind_text_from(globals(), "data", lambda data: f"Current data: {data}")
 
