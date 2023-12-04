@@ -1,40 +1,41 @@
 from dataclasses import dataclass
-import os
 from nicegui import ui
+import os, csv
 
 @dataclass
 class Backer:
     data: str = ''
-    option: str = ''
 
 mybacker = Backer()
 
 global new_column_start
 new_column_start = 4
 
-def filter_name(name):
-    return name.replace("/", "|")
+def update_backer_json(data):
+    setattr(mybacker, 'data', data)
+    setattr(mybacker, 'option', '.json')
 
-def create_config_file(name, config, format):
+def save_json_config(name, config, format):
     save_path = os.getcwd() + "/configs/"
     # replace backslashes in name with pipes
-    name = filter_name(name)
+    name = name.replace("/", "|")
     # this ensures the file is saved to configs
     full_name = os.path.join(save_path, name+format)
     f = open(full_name, "w")
     f.write(config)
     f.close()
 
-def add_config(identity, name):
-    create_config_file(name, mybacker.data, mybacker.option)
+def save_csv_config(name, config):
+    data = []
+    csv_file_path = os.getcwd() + "/configs/" + name
+    for row in config:
+        data.append(list(row.values()))
+    
+    with open(csv_file_path, 'w', newline='') as csv_file:
+        writer = csv.writer(csv_file)
 
-def update_backer_json(data):
-    setattr(mybacker, 'data', data)
-    setattr(mybacker, 'option', '.json')
-
-def update_backer_csv(data):
-    setattr(mybacker, 'data', data)
-    setattr(mybacker, 'option', '.csv')
+        # Write the data
+        writer.writerows(data)
 
 def render_config_form():
     data = [
@@ -86,7 +87,7 @@ def render_config_form():
             json = {}
             ui.json_editor({'content': {'json': json}}, 
                            on_change=lambda e: update_backer_json(e.content['text']))
-            ui.button("Save Config")
+            ui.button("Save Config", on_click=lambda: save_json_config(name.value, mybacker.data, ".json"))
         with ui.tab_panel(two):
             ui.button("New row", on_click=new_row)
             ui.button("New column", on_click=new_column)
@@ -97,8 +98,7 @@ def render_config_form():
                 "rowSelection": "multiple",
                 "stopEditingWhenCellsLoseFocus": True,
             }).on("cellValueChanged", update_data_from_table_change)
-            ui.button("Save Config")
-    #ui.button("Save Config", on_click=lambda: add_config(identity.value, name.value))
+            ui.button("Save Config", on_click=lambda: save_csv_config(name.value, data))
 
 def render_config_list():
     columns = [
