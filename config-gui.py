@@ -33,8 +33,6 @@ def save_csv_config(name, config):
     
     with open(csv_file_path, 'w', newline='') as csv_file:
         writer = csv.writer(csv_file)
-
-        # Write the data
         writer.writerows(data)
 
 def render_config_form():
@@ -75,6 +73,9 @@ def render_config_form():
         data[:] = [row for row in data if row not in selected_rows]
         table.update()
 
+    def handle_preset_choice():
+        pass
+
     ui.label("Save a config").style("font-size: 20px")
     with ui.row():
         identity = ui.input(label="identity")
@@ -82,16 +83,19 @@ def render_config_form():
     with ui.tabs() as tabs:
         one = ui.tab('json')
         two = ui.tab('csv')
-    with ui.tab_panels(tabs, value=one).classes("w-full"):
+    with ui.tab_panels(tabs, value=two).classes("w-full"):
         with ui.tab_panel(one):
             json = {}
             ui.json_editor({'content': {'json': json}}, 
                            on_change=lambda e: update_backer_json(e.content['text']))
             ui.button("Save Config", on_click=lambda: save_json_config(name.value, mybacker.data, ".json"))
         with ui.tab_panel(two):
-            ui.button("New row", on_click=new_row)
-            ui.button("New column", on_click=new_column)
-            ui.button("Delete selected", on_click=delete_selected)
+            with ui.row():
+                ui.button("Add row", on_click=new_row, color="secondary")
+                ui.button("Add column", on_click=new_column, color="secondary")
+                ui.button("Delete selected row", on_click=delete_selected, color="red")
+                ui.select({1: 'None', 2: 'Bacnet', 3: 'DNP3', 4: 'Inverter Sample', 5: 'Catalyst'}, 
+                         value=1, label="Select a preset (optional)").classes("w-full")
             table = ui.aggrid({
                 "columnDefs": columns,
                 "rowData": data,
@@ -109,7 +113,6 @@ def render_config_list():
         {'config': 'Config 1', 'platform': 'platform.driver'},
         {'config': 'Config 2', 'platform': 'platform.driver'},
     ]
-    ui.link("Add to config", add_config_page)
     table = ui.table(columns=columns, rows=rows, row_key='config').classes('w-72')
     table.add_slot('header', r'''
         <q-tr :props="props">
@@ -145,6 +148,7 @@ def add_config_page():
 
 @ui.page('/')
 def config_list_page():
+    ui.link("Add to config", add_config_page)
     render_config_list()
 
 def main():
