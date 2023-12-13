@@ -22,7 +22,7 @@ def save_json_config(name, config, format):
     # this ensures the file is saved to configs
     full_name = os.path.join(save_path, name+format)
     f = open(full_name, "w")
-    f.write(config)
+    f.write(str(config))
     f.close()
 
 def save_csv_config(name, config):
@@ -90,7 +90,7 @@ def render_config_form():
         with ui.tab_panel(one):
             json = {}
             ui.json_editor({'content': {'json': json}}, 
-                           on_change=lambda e: update_backer_json(e.content['text']))
+                           on_change=lambda e: update_backer_json(e.content['json']))
             ui.button("Save Config", on_click=lambda: save_json_config(name.value, mybacker.data, ".json"))
         with ui.tab_panel(two):
             with ui.row():
