@@ -27,7 +27,7 @@ def save_json_config(name, config, format):
 
 def save_csv_config(name, config):
     data = []
-    csv_file_path = os.getcwd() + "/configs/" + name
+    csv_file_path = os.getcwd() + "/configs/" + name + ".csv"
     for row in config:
         data.append(list(row.values()))
     
@@ -45,6 +45,8 @@ def render_config_form():
         {"field": "col 2", "editable": True},
         {"field": "col 3", "editable": True},
     ]
+
+    preset_list = ["None", "Bacnet", "DNP3", "Inverter Sample", "Catalyst"]
 
     def update_data_from_table_change(e):
         data[e.args["rowIndex"]] = e.args["data"]
@@ -73,13 +75,14 @@ def render_config_form():
         data[:] = [row for row in data if row not in selected_rows]
         table.update()
 
-    def handle_preset_choice():
-        pass
+    def handle_preset_choice(choice):
+        if choice == "Bacnet":
+            pass
 
     ui.label("Save a config").style("font-size: 20px")
     with ui.row():
-        identity = ui.input(label="identity")
-        name = ui.input(label="name")
+        identity = ui.input(label="identity", validation={"Please add an identity.": lambda value: len(value) != 0})
+        name = ui.input(label="file name", validation={"Please add a file name.": lambda value: len(value) != 0})
     with ui.tabs() as tabs:
         one = ui.tab('json')
         two = ui.tab('csv')
@@ -94,8 +97,9 @@ def render_config_form():
                 ui.button("Add row", on_click=new_row, color="secondary")
                 ui.button("Add column", on_click=new_column, color="secondary")
                 ui.button("Delete selected row", on_click=delete_selected, color="red")
-                ui.select({1: 'None', 2: 'Bacnet', 3: 'DNP3', 4: 'Inverter Sample', 5: 'Catalyst'}, 
-                         value=1, label="Select a preset (optional)").classes("w-full")
+                ui.select(options=preset_list, 
+                         label="Select a preset (optional)", value=preset_list[0], 
+                         on_change=lambda e: handle_preset_choice(e.value)).classes("w-full")
             table = ui.aggrid({
                 "columnDefs": columns,
                 "rowData": data,
@@ -135,7 +139,7 @@ def render_config_list():
         </q-tr>
         <q-tr v-show="props.expand" :props="props">
             <q-td colspan="100%">
-                <q-btn size="sm" color="blue" label="Edit" />
+                <q-btn size="sm" color="blue" label="Edit" @click="onClick" />
                 <q-btn size="sm" color="red" label="Remove" />
             </q-td>
         </q-tr>
