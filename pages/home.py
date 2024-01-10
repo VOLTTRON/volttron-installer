@@ -1,10 +1,11 @@
 from nicegui import ui
 from typing import List
-from urllib import urlparse
+from urllib.parse import urlparse
 from yaml import safe_load
 
-from ..pages import Pages, show_global_header
-from ..classes import Instance, Inventory
+from new_volttron_installer.pages import Pages, show_global_header
+from new_volttron_installer.classes import Instance, Inventory
+
 import os
 
 def platform_table(rows: List[dict]):
@@ -110,15 +111,15 @@ def home_page():
 
 @ui.page("/")
 def show_home():
-        """Checks for existing existing instances/machines and redirects to appropriate home page"""
+    """Checks for existing existing instances/machines and redirects to appropriate home page"""
 
-        # Check if base directories exist; Redirect to appropriate home page
-        if os.path.exists(os.path.expanduser("~/.volttron_installer/platforms")):
-            if os.path.exists(os.path.expanduser("~/.volttron_installer/platforms/machines.yml")):
-                home_page()
-            else:
-                default_home_page()
+    # Check if base directories exist; Redirect to appropriate home page
+    if os.path.exists(os.path.expanduser("~/.volttron_installer/platforms")):
+        if os.path.exists(os.path.expanduser("~/.volttron_installer/platforms/machines.yml")):
+            home_page()
         else:
-            os.makedirs(os.path.expanduser("~/.volttron_installer"), exist_ok=True)
-            os.makedirs(os.path.expanduser("~/.volttron_installer/platforms"), exist_ok=True)
             default_home_page()
+    else:
+        os.makedirs(os.path.expanduser("~/.volttron_installer"), exist_ok=True)
+        os.makedirs(os.path.expanduser("~/.volttron_installer/platforms"), exist_ok=True)
+        default_home_page()
