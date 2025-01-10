@@ -4,6 +4,7 @@ from functools import partial
 from .home import home_view
 from .config_manager import config_manager_view
 from .platform_manager import platform_manager_view
+from .deploy_platform import deploy_platform_view
 
 class _InstallerView(BaseModel):
     route: str
@@ -18,6 +19,8 @@ class _InstallerViews(BaseModel):
                                                         message="Woot this is a message sent"))
     platform_manager: _InstallerView = _InstallerView(route="/platform_manager",
                                                 instance=partial(platform_manager_view))
+    deploy_platform: _InstallerView = _InstallerView(route="/deploy_platform",
+                                                     instance=partial(deploy_platform_view))
     # sender: _InstallerView = _InstallerView(route="/sender",
     #                                 instance=partial(
     #                                     sender_view,
