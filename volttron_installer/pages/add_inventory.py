@@ -46,7 +46,9 @@ def add_inventory() -> rx.Component:
                          on_change=FormState.set_entered_user),
                 rx.input(placeholder="Resolvable Host / IP",
                          name="ansible_host",
-                         on_change=FormState.set_entered_host),
+                         on_change=FormState.set_entered_host,
+                         value=f"{FormState.entered_host}"),
+
                 # rx.hstack(
                 #     rx.checkbox("Checked", name="check"),
                 #     rx.switch("Switched", name="switch"),
