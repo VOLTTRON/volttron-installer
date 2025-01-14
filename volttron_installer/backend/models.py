@@ -22,7 +22,7 @@ class Inventory(BaseModel):
     inventory: dict[str, InventoryItem] = {}
 
 
-class InventoryRequest(InventoryItem):
+class CreateInventoryRequest(InventoryItem):
     pass
 
 class SuccessResponse(BaseModel):
@@ -66,7 +66,7 @@ class PlatformConfig(BaseModel):
 
 
 class PlatformDefinition(BaseModel):
-    config: PlatformConfig
+    config: PlatformConfig = PlatformConfig()
     agents: dict[str, AgentDefinition] = {}
 
     def __getitem__(self, item):

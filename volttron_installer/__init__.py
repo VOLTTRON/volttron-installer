@@ -1,11 +1,13 @@
 from . import state, models
 
 from .pages import (
-    index
+    index,
+    add_inventory
 )
 
 __all__ = [
     "state",
     "models",
-    "index"
+    "index",
+    "add_inventory"
 ]
