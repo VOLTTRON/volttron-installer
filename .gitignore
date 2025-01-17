@@ -1,3 +1,11 @@
+# Ref;ex gitignore file for Python projects
+*.py[cod]
+.web
+__pycache__/
+*.db
+assets/external/
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -5,6 +13,11 @@ __pycache__/
 
 # C extensions
 *.so
+
+.idea/
+.vscode/
+
+persistence_files/
 
 # Distribution / packaging
 .Python

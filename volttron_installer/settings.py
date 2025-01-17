@@ -38,3 +38,4 @@ class _InstallerSettings(BaseSettings):
 __settings__ = _InstallerSettings()
 def get_settings() -> _InstallerSettings:
     return __settings__
+
