@@ -1,11 +1,6 @@
 import reflex as rx
 
-def upload_button( onClick = False ) -> rx.Component:
-    
-    def handle_onClick():
-        if onClick:
-            onClick()
-
+def upload_button( **props ) -> rx.Component:
     return rx.el.div(
         rx.hstack(
             rx.el.div(
@@ -35,4 +30,5 @@ def upload_button( onClick = False ) -> rx.Component:
             spacing="2"
         ),
         class_name="upload_button",
+        **props
     )

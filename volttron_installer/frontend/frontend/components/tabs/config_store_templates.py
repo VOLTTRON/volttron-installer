@@ -25,7 +25,7 @@ def config_store_templates_tab() -> rx.Component:
     return fcomps.form_tab.form_tab(
         fcomps.form_tile_column.form_tile_column_wrapper(
             setup_button(
-                "Add Template",
+                "Setup Template",
                 on_click = lambda : ConfigTemplatesTabState.generate_new_form_tile()
             ),
             rx.foreach(

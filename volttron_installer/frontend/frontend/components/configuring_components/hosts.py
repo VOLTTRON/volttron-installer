@@ -41,5 +41,11 @@ def host_form(component_id: str) -> rx.Component:
                 value=state.HostsTabState.host_forms[component_id]["ssh_port"],
                 on_change=lambda v: state.HostsTabState.update_form_field(component_id, "ssh_port", v)
             )
+        ),
+        rx.hstack(
+            rx.button(
+                "Save"
+            ),
+            justify="end"
         )
     )
