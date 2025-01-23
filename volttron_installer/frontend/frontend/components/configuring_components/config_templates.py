@@ -1,6 +1,7 @@
 import reflex as rx
 from ..form_components import *
 from ..tabs.state import ConfigTemplatesTabState
+from ..custom_fields import text_editor
 
 def config_templates_instance(component_id: str) -> list[rx.Component]:
     return form_view.form_view_wrapper(
@@ -14,7 +15,7 @@ def config_templates_instance(component_id: str) -> list[rx.Component]:
         form_entry.form_entry(
             "Config Type",
             rx.radio(
-                ["JSON", "YAML"],
+                ["JSON", "CSV"],
                 value=ConfigTemplatesTabState.config_template_forms[component_id]["config_type"],
                 on_change= lambda v: ConfigTemplatesTabState.update_form_field(component_id, "config_type", v)
             )
@@ -25,5 +26,11 @@ def config_templates_instance(component_id: str) -> list[rx.Component]:
                 value=ConfigTemplatesTabState.config_template_forms[component_id]["config"],
                 on_change= lambda v: ConfigTemplatesTabState.update_form_field(component_id, "config", v)
             )
+        ),
+        rx.hstack(
+            rx.button(
+                "Save"
+            ),
+            justify="end"
         )
     )

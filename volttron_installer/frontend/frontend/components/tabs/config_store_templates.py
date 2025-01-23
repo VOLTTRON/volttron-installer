@@ -1,6 +1,7 @@
 import reflex as rx 
 from .. import form_components as fcomps
 from .state import ConfigTemplatesTabState
+from ..buttons.setup_button import setup_button
 from ..configuring_components import config_templates 
 import typing
 
@@ -23,8 +24,8 @@ def craft_tile_from_data(entry: typing.List) -> rx.Component:
 def config_store_templates_tab() -> rx.Component:
     return fcomps.form_tab.form_tab(
         fcomps.form_tile_column.form_tile_column_wrapper(
-            rx.button(
-                "Setup a Template",
+            setup_button(
+                "Add Template",
                 on_click = lambda : ConfigTemplatesTabState.generate_new_form_tile()
             ),
             rx.foreach(

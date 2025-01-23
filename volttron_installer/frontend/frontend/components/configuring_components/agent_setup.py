@@ -28,5 +28,11 @@ def agent_setup_form(component_id: str) -> list[rx.Component]:
         form_entry.form_entry(
             "Config Store Entries",
             rx.button("Add")
+        ),
+        rx.hstack(
+            rx.button(
+                "Save"
+            ),
+            justify="end"
         )
     )

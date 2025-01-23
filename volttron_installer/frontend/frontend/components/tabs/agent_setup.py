@@ -1,6 +1,7 @@
 import reflex as rx
 from . import state
 from ..configuring_components import agent_setup
+from ..buttons.setup_button import setup_button
 from ..form_components import *
 import typing
 
@@ -23,7 +24,7 @@ def craft_tile_from_data(data: typing.Tuple) -> rx.Component:
 def agent_setup_tab() -> rx.Component:
     return form_tab.form_tab(
         form_tile_column.form_tile_column_wrapper(
-            rx.button(
+            setup_button(
                 "Setup an Agent",
                 on_click= lambda: state.AgentSetupTabState.generate_new_form_tile()
                 ),
