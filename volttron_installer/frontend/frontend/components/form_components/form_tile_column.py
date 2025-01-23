@@ -1,11 +1,10 @@
 import reflex as rx
 
-def form_tile_column_wrapper( content: rx.Component ) -> rx.Component:
+def form_tile_column_wrapper( *children ) -> rx.Component:
     
     return rx.container(
         rx.vstack(
-            content
+            *children
         ),
         padding=".75rem .75rem"
-        # padding="2rem"+\
     )

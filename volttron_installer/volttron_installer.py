@@ -6,6 +6,8 @@ import reflex as rx
 import os
 from rxconfig import config
 from pprint import pprint
+# from .frontend.frontend.styles import styles
+# from .frontend.frontend.pages import index
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -20,7 +22,11 @@ async def lifespan(app: FastAPI):
 # Create the fastapi app
 #app = FastAPI(lifespan=lifespan)
 #backend_app = FastAPI()
-app = rx.App()
+app = rx.App(
+    # style=styles.styles
+    )
+
+# app.add_page(index)
 
 # Register the lifespan task
 app.register_lifespan_task(lifespan)
@@ -29,3 +35,4 @@ from .backend import init as init_backend
 
 # Mount the backend app to the fastapi app.  More than one endpoint can be mounted to the same fastapi app.
 init_backend(app=app)
+

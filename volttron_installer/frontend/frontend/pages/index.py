@@ -5,17 +5,13 @@ import reflex as rx
 from rxconfig import config
 from ..components.buttons import upload_button
 from ..components.form_components import form_tab ,form_tile_column , form_view, form_entry
-from ..styles import styles
 from ..components import configuring_components
 
-from ..components.configuring_components.hosts import HostState
-from ..components.configuring_components.hosts import host_instance
+from ..components.tabs import hosts_tab, config_store_templates, agent_setup, platform_overview
 from ..volttron_installer_app import app
+from ..components.tabs.state import PlatformOverviewState
 
-
-class State(rx.State):
-    """The app state."""
-
+class IndexTabState(rx.State):
     ...
 
 
@@ -23,6 +19,7 @@ def index() -> rx.Component:
     # Welcome Page (Index)
     return rx.fragment(
         rx.vstack(
+            rx.button("hehe click me", on_click=lambda: PlatformOverviewState.generate_new_platform),
             rx.tabs.root(
                 rx.tabs.list(
                     rx.tabs.trigger("Hosts", value="tab_1"),
@@ -31,41 +28,20 @@ def index() -> rx.Component:
                     rx.tabs.trigger("Config Store Templates", value="tab_4"),
                 ),
                 rx.tabs.content(
-                    form_tab.form_tab(
-                        form_tile_column.form_tile_column_wrapper(
-                            rx.button("Setup a Host")
-                        ),
-                        host_instance()
-                    ),
+                    hosts_tab.host_tab(),
                     value="tab_1"
                 ),
                 rx.tabs.content(
-                    form_tab.form_tab(
-                        form_tile_column.form_tile_column_wrapper(
-                            rx.button("Setup an Agent")
-                        ),
-                        configuring_components.agent_setup.agent_setup_instance()
-                    ),
+                    agent_setup.agent_setup_tab(),
                     value="tab_2"
                 ),
                 rx.tabs.content(
-                    form_tab.form_tab(
-                        form_tile_column.form_tile_column_wrapper(
-                            rx.button("Setup a Host")
-                        ),
-                        rx.button("pls save me")
-                        # configuring_components.hosts.host_instance()
-                    ),
+                    platform_overview.platform_overview(),
                     value="tab_3"
                 ),
 
                 rx.tabs.content(
-                    form_tab.form_tab(
-                        form_tile_column.form_tile_column_wrapper(
-                            rx.button("Setup an Template")
-                        ),
-                        configuring_components.config_templates_instance()
-                    ),
+                    config_store_templates.config_store_templates_tab(),
                     value="tab_4"
                 ),
                 default_value="tab_1"

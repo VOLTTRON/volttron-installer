@@ -1,34 +1,29 @@
 import reflex as rx
 from ..form_components import *
+from ..tabs.state import ConfigTemplatesTabState
 
-
-def return_config_name_field() -> rx.Component:
-    return form_entry.form_entry(
-        "Config Name",
-        rx.text_field(
-
-        )
-    )
-
-def return_config_type_field() -> rx.Component:
-    return form_entry.form_entry(
-        "Config Type",
-        rx.radio(
-            ["JSON", "YAML"],
-            default_value="JSON",
-            # direction="row",
-        )
-    )
-
-
-def return_config_entries() -> list[rx.Component]:
-    return [
-            return_config_name_field(),
-            return_config_type_field()
-        ]
-
-
-def config_templates_instance () -> list[rx.Component]:
+def config_templates_instance(component_id: str) -> list[rx.Component]:
     return form_view.form_view_wrapper(
-        return_config_entries()
+        form_entry.form_entry(
+            "Config Name",
+            rx.text_field(
+                value= ConfigTemplatesTabState.config_template_forms[component_id]["config_name"],
+                on_change= lambda v: ConfigTemplatesTabState.update_form_field(component_id, "config_name", v)
+            )
+        ),
+        form_entry.form_entry(
+            "Config Type",
+            rx.radio(
+                ["JSON", "YAML"],
+                value=ConfigTemplatesTabState.config_template_forms[component_id]["config_type"],
+                on_change= lambda v: ConfigTemplatesTabState.update_form_field(component_id, "config_type", v)
+            )
+        ),
+        form_entry.form_entry(
+            "Config",
+            rx.text_field(    
+                value=ConfigTemplatesTabState.config_template_forms[component_id]["config"],
+                on_change= lambda v: ConfigTemplatesTabState.update_form_field(component_id, "config", v)
+            )
+        )
     )
