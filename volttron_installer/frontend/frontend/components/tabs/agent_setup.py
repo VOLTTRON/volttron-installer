@@ -30,7 +30,7 @@ def agent_setup_tab() -> rx.Component:
     return form_tab.form_tab(
         form_tile_column.form_tile_column_wrapper(
             setup_button(
-                "Setup an Agent",
+                "Create an Agent",
                 on_click= lambda: state.AgentSetupTabState.generate_new_form_tile()
                 ),
             rx.foreach(

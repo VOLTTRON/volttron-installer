@@ -65,6 +65,7 @@ class HostsTabState(rx.State):
                     "ssh_ip_address": "",
                     "ssh_port": ""
                     }
+                self.selected_id = new_id
                 return
 
 class AgentSetupTabState(rx.State):
@@ -111,6 +112,7 @@ class AgentSetupTabState(rx.State):
             new_id = generate_new_component_id()
             if new_id not in self.agent_forms:
                 self.agent_forms[new_id] = BASE_AGENT_DATA.copy()
+                self.selected_id = new_id
                 return
 
 class ConfigTemplatesTabState(rx.State):
@@ -149,6 +151,7 @@ class ConfigTemplatesTabState(rx.State):
             new_id = generate_new_component_id()
             if new_id not in self.config_template_forms:
                 self.config_template_forms[new_id] = BASE_CONFIG_TEMPLATE_DATA.copy()
+                self.selected_id = new_id
                 return
 
 class PlatformOverviewState(rx.State):

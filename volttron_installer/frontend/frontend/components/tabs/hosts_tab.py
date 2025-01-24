@@ -36,7 +36,7 @@ def host_tab() -> rx.Component:
     return form_components.form_tab.form_tab(
         form_components.form_tile_column.form_tile_column_wrapper(
             setup_button.setup_button(
-                "Add Host",
+                "Create a Host",
                 on_click = lambda : state.HostsTabState.generate_new_form_tile()
             ),
             rx.foreach(
