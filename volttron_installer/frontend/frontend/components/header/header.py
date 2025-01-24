@@ -2,11 +2,10 @@ import reflex as rx
 
 def header(*children, **props) -> rx.Component:
     return rx.flex( 
-        rx.hstack(
-                *children,
-                align="start",
-                **props,
-                spacing="6"
-            ),
+        *children,
+        **props,
+        align="start",
+        spacing="6",
+        direction="row",
         padding="1rem"
     )
