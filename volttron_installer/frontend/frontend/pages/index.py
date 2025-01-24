@@ -5,7 +5,7 @@ import reflex as rx
 from rxconfig import config
 from ..components.buttons import upload_button
 from ..components.form_components import form_tab ,form_tile_column , form_view, form_entry
-from ..components import configuring_components
+from ..components import configuring_components, header
 
 from ..components.tabs import hosts_tab, config_store_templates, agent_setup, platform_overview
 from ..volttron_installer_app import app
@@ -19,7 +19,15 @@ def index() -> rx.Component:
     # Welcome Page (Index)
     return rx.fragment(
         rx.vstack(
-            rx.button("hehe click me", on_click=lambda: PlatformOverviewState.generate_new_platform),
+            header.header.header(
+                rx.text("Overview", size="5"),
+                rx.button(
+                    "Add Platform",
+                    variant="soft",
+                    on_click=lambda: PlatformOverviewState.generate_new_platform
+                ),
+                justify="between"
+            ),
             rx.tabs.root(
                 rx.tabs.list(
                     rx.tabs.trigger("Hosts", value="tab_1"),

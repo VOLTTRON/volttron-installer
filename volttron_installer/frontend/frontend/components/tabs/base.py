@@ -3,14 +3,7 @@ import typing
 
 BASE_TYPE_ANNOTATION = typing.Dict[str, typing.Dict[str, typing.Any]]
 
-class BaseHostData(rx.Base):
-    host_id: str = ""
-    ssh_sudo_user: str = ""
-    identity_file: str = ""
-    ssh_ip_address: str = "~/.ssh/id_rsa"
-    ssh_port: str = ""
-
-HostDataTemplate: dict =  {
+BASE_HOST_TEMPLATE_DATA: BASE_TYPE_ANNOTATION =  {
                     "host_id": "",
                     "ssh_sudo_user": "",
                     "identity_file": "~/.ssh/id_rsa",

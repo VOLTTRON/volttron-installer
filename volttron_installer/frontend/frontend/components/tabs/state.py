@@ -4,40 +4,31 @@ import reflex as rx
 import random
 import asyncio
 import string
+import json
 from ...navigation.state import NavigationState
 from .base import BASE_CONFIG_TEMPLATE_DATA, BASE_TYPE_ANNOTATION, BASE_AGENT_DATA, BASE_PLATFORM_DATA
+
 # TODO
 # All of these states have very similar functionality, i want a way for these
 # states to inherit such functionality.
 
 
 class HostsTabState(rx.State):   
+
     # The plan is with this id, we can create tiles and forms from the id
-    host_forms: dict[str, dict[str, str]] = {
-        "hosts1": {
-            "host_id": "hosts1",
-            "ssh_sudo_user": "",
-            "identity_file": "~/.ssh/id_rsa",
-            "ssh_ip_address": "",
-            "ssh_port": ""
-            },
-
-        "hosts2": {
-            "host_id": "hosts33",
-            "ssh_sudo_user": "",
-            "identity_file": "~/.ssh/id_rsa",
-            "ssh_ip_address": "",
-            "ssh_port": ""
-            },
-
-        "hosts3": {
-            "host_id": "hosts555",
-            "ssh_sudo_user": "",
-            "identity_file": "~/.ssh/id_rsa",
-            "ssh_ip_address": "",
-            "ssh_port": ""
-            },    
+    committed_host_forms: dict [str, dict[str, str]] = {
+                    "kingfort": {
+                        "host_id": "king fortnite",
+                        "ssh_sudo_user": "",
+                        "identity_file": "~/.ssh/id_rsa",
+                        "ssh_ip_address": "",
+                        "ssh_port": ""
+                    }
     }
+
+    # dirty, untracked version of committed_host_forms
+    host_forms: dict[str, dict[str, str]] = committed_host_forms.copy()
+
     selected_id: str = ""
 
     @rx.event
@@ -45,6 +36,16 @@ class HostsTabState(rx.State):
         # NOTE
         # Needs confirmation modal
         del self.host_forms[component_id]
+
+    @rx.event
+    def save_form(self, form_id: str):
+
+        # Commits to the committed host forms
+        self.committed_host_forms[form_id] = self.host_forms[form_id]
+
+        # NOTE
+        # Confirmation modal or something like that
+        print(f"this is my new and improved commited host:\n{json.dumps(self.committed_host_forms, indent=3)}")#logging
 
     @rx.event
     def update_form_field(self, form_id: str, field: str, value: str):
@@ -75,10 +76,23 @@ class HostsTabState(rx.State):
                 return
 
 class AgentSetupTabState(rx.State):
-    agent_forms: dict[str, dict[str, str]] = {
-        
-    }
+    committed_agent_forms: dict[str, dict[str, str]] = {}
+    agent_forms: dict[str, dict[str, str]] = committed_agent_forms.copy()
+
     selected_id: str = ""
+
+    @rx.event
+    def handle_config_submit(self):
+        print("we saved")
+
+    @rx.event
+    def save_form(self, form_id: str):
+
+        self.committed_agent_forms[form_id] = self.agent_forms[form_id]
+
+        print("we saved the form to committed forms")
+        print("it looks like this now")
+        print(self.committed_agent_forms)
 
     @rx.event
     def handle_selected_tile(self, component_id: str):
@@ -108,9 +122,15 @@ class AgentSetupTabState(rx.State):
                 return
 
 class ConfigTemplatesTabState(rx.State):
-    config_template_forms: dict[str, dict[str, str]] = {}
+    committed_template_forms: dict[str, dict[str, str]] = {}
+    config_template_forms: dict[str, dict[str, str]] = committed_template_forms.copy()
     
     selected_id: str = ""
+
+    @rx.event
+    def save_form(self, form_id: str):
+
+        self.committed_template_forms[form_id] = self.config_template_forms[form_id]
 
     @rx.event
     def handle_selected_tile(self, component_id: str):
@@ -181,7 +201,7 @@ class PlatformOverviewState(rx.State):
 class PlatformState(rx.State):
     @rx.var(cache=True)
     def current_uid(self) -> str:
-        return self.router.page.params.get("uid", [""])
+        return self.router.page.params.get("uid", "")
     
     @rx.var(cache=True)
     def platform_data(self) -> dict:

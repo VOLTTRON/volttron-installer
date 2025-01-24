@@ -1,6 +1,6 @@
 import reflex as rx
 from ..form_components import *
-from ..tabs.state import PlatformOverviewState, HostsTabState, PlatformState
+from ..tabs.state import PlatformOverviewState, HostsTabState, PlatformState, AgentSetupTabState
 
 def platform_config_form(platform_uid: str) -> rx.Component:
 
@@ -9,10 +9,22 @@ def platform_config_form(platform_uid: str) -> rx.Component:
         form_view.form_view_wrapper(
             form_entry.form_entry(
                 "Hosts",
-                rx.select(
-                    ["host1", "host2", "host3", "host4"],
+                rx.select.root(
+                    rx.select.trigger(),
+                    rx.select.content(
+                        rx.select.group(
+                            rx.foreach(
+                                HostsTabState.committed_host_forms,
+                                lambda x: rx.select.item(
+                                    x[1]["host_id"], 
+                                    value=x[1]["host_id"]
+                                )
+                            )
+                        )
+                    ),
                     name="select_host"
-                )
+                ),
+                required_entry=True
             ),
             form_entry.form_entry(
                 "Name",
@@ -20,14 +32,16 @@ def platform_config_form(platform_uid: str) -> rx.Component:
                     value=PlatformOverviewState.platforms[platform_uid]["name"],
                     # value=PlatformOverviewState.get_platform_field(platform_uid=platform_uid, field="name"),
                     on_change=lambda v: PlatformOverviewState.update_form_field(platform_uid, "name", v)
-                )
+                ),
+                required_entry=True
             ),
             form_entry.form_entry(
                 "Address",
                 rx.text_field(
                     value=PlatformOverviewState.platforms[platform_uid]["address"],
                     on_change=lambda v: PlatformOverviewState.update_form_field(platform_uid, "address", v)
-                )
+                ),
+                required_entry=True
             ),
             form_entry.form_entry(
                 "Bus Type",
@@ -38,12 +52,25 @@ def platform_config_form(platform_uid: str) -> rx.Component:
                 rx.text_field(
                     value=PlatformOverviewState.platforms[platform_uid]["ports"],
                     on_change=lambda v: PlatformOverviewState.update_form_field(platform_uid, "ports", v)
-                )
+                ),
+                required_entry=True
             ),
             form_entry.form_entry(
                 "Added Agents",
-                rx.button(
-                    "Add an Agent"
+                rx.select.root(
+                    rx.select.trigger(),
+                    rx.select.content(
+                        rx.select.group(
+                            rx.foreach(
+                                AgentSetupTabState.committed_agent_forms,
+                                lambda x: rx.select.item(
+                                    x[1]["agent_name"], 
+                                    value=x[1]["agent_name"]
+                                )
+                            )
+                        )
+                    ),
+                    name="select_agents"
                 )
             ),
         ),

@@ -1,7 +1,7 @@
 import typing
 import reflex as rx 
 from .state import PlatformOverviewState 
-from ..platform_components.platform_tile import platform_tile
+from ..tiles.platform_tile import platform_tile
 from ...navigation.state import NavigationState
 
 def craft_new_platform_tile(platform_entry: tuple[str, typing.Any]) -> rx.Component:

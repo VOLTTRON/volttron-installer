@@ -17,11 +17,18 @@ def craft_form_from_data(component_id: str) -> rx.Component:
 
 
 def craft_tile_from_data(host: typing.List) -> rx.Component:
+    component_id = host[0]
+
     return form_components.form_selection_button.form_selection_button(
-        text="",
-        selection_id=host[0],
+        # text="",
+        text=rx.cond(
+            state.HostsTabState.committed_host_forms.contains(component_id),
+            state.HostsTabState.committed_host_forms[component_id]["host_id"],
+            ""
+        ),
+        selection_id=component_id,
         selected_item=state.HostsTabState.selected_id,
-        on_click = state.HostsTabState.handle_selected_tile(host[0]),
+        on_click = state.HostsTabState.handle_selected_tile(component_id),
     )
 
 

@@ -14,7 +14,12 @@ def craft_tile_from_data(data: typing.Tuple) -> rx.Component:
     component_id = data[0]
     
     return form_selection_button.form_selection_button(
-        text="",
+        # instead of a blank text, we set up a cond with a chain of gets to see if the host_id is in committed forms
+        text=rx.cond(
+            state.AgentSetupTabState.committed_agent_forms.contains(component_id),
+            state.AgentSetupTabState.committed_agent_forms[component_id]["agent_name"],
+            ""
+        ),
         selection_id=component_id,
         selected_item=state.AgentSetupTabState.selected_id,
         on_click = state.AgentSetupTabState.handle_selected_tile(component_id),
@@ -40,9 +45,9 @@ def agent_setup_tab() -> rx.Component:
                     state.AgentSetupTabState.agent_forms.contains(state.AgentSetupTabState.selected_id),
                     craft_form_from_data(state.AgentSetupTabState.selected_id),
                     # rx.text(HostsTabState.selected_id),
-                    rx.text("Invalid host selected")
+                    rx.text("Invalid agent selected")
                 ),
-                rx.text("Select a host to view or edit")
+                rx.text("Select an agent to view or edit")
             )
         )
     )
