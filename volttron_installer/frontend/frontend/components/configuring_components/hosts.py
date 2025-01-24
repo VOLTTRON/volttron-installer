@@ -6,46 +6,61 @@ from ..tabs import state
 
 def host_form(component_id: str) -> rx.Component:
     
-    return form_view.form_view_wrapper(
-        form_entry.form_entry(
-            "Host Id",
-            rx.text_field(
-                value=state.HostsTabState.host_forms[component_id]["host_id"],
-                on_change=lambda v: state.HostsTabState.update_form_field(component_id, "host_id", v)
-            )
-        ),
-        form_entry.form_entry(
-            "SSH Sudo User", 
-            rx.text_field(
-                value=state.HostsTabState.host_forms[component_id]["ssh_sudo_user"],
-                on_change=lambda v: state.HostsTabState.update_form_field(component_id, "ssh_sudo_user", v)
-            )
-        ),
-        form_entry.form_entry(
-            "Identity File",
-            rx.text_field(
-                value=state.HostsTabState.host_forms[component_id]["identity_file"],
-                on_change=lambda v: state.HostsTabState.update_form_field(component_id, "identity_file", v)
-            )
-        ),
-        form_entry.form_entry(
-            "SSH IP Address",
-            rx.text_field(
-                value=state.HostsTabState.host_forms[component_id]["ssh_ip_address"],
-                on_change=lambda v: state.HostsTabState.update_form_field(component_id, "ssh_ip_address", v)
-            )
-        ),
-        form_entry.form_entry(
-            "SSH Port",
-            rx.text_field(
-                value=state.HostsTabState.host_forms[component_id]["ssh_port"],
-                on_change=lambda v: state.HostsTabState.update_form_field(component_id, "ssh_port", v)
-            )
-        ),
-        rx.hstack(
-            rx.button(
-                "Save"
+    return rx.form(
+        form_view.form_view_wrapper(
+            form_entry.form_entry(
+                "Host Id",
+                rx.input(
+                    value=state.HostsTabState.host_forms[component_id]["host_id"],
+                    on_change=lambda v: state.HostsTabState.update_form_field(component_id, "host_id", v),
+                    required=True,
+                ),
+                required_entry=True
             ),
-            justify="end"
-        )
+            form_entry.form_entry(
+                "SSH Sudo User", 
+                rx.input(
+                    value=state.HostsTabState.host_forms[component_id]["ssh_sudo_user"],
+                    on_change=lambda v: state.HostsTabState.update_form_field(component_id, "ssh_sudo_user", v),
+                    required=True,
+                ),
+                required_entry=True
+            ),
+            form_entry.form_entry(
+                "Identity File",
+                rx.input(
+                    value=state.HostsTabState.host_forms[component_id]["identity_file"],
+                    on_change=lambda v: state.HostsTabState.update_form_field(component_id, "identity_file", v),
+                    required=True,
+                ),
+                required_entry=True
+            ),
+            form_entry.form_entry(
+                "SSH IP Address",
+                rx.input(
+                    value=state.HostsTabState.host_forms[component_id]["ssh_ip_address"],
+                    on_change=lambda v: state.HostsTabState.update_form_field(component_id, "ssh_ip_address", v),
+                    required=True,
+                ),
+                required_entry=True
+            ),
+            form_entry.form_entry(
+                "SSH Port",
+                rx.input(
+                    value=state.HostsTabState.host_forms[component_id]["ssh_port"],
+                    on_change=lambda v: state.HostsTabState.update_form_field(component_id, "ssh_port", v),
+                    required=True,
+                ),
+                required_entry=True
+            ),
+            rx.hstack(
+                rx.button(
+                    "Save",
+                    on_click=lambda: state.HostsTabState.save_form(component_id) 
+                ),
+                justify="end"
+            ),
+        ),
+        on_submit=lambda: state.HostsTabState.save_form(component_id),
+        reset_on_submit=False
     )
