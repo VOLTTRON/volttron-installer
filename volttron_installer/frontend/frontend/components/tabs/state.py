@@ -16,15 +16,7 @@ from .base import BASE_CONFIG_TEMPLATE_DATA, BASE_TYPE_ANNOTATION, BASE_AGENT_DA
 class HostsTabState(rx.State):   
 
     # The plan is with this id, we can create tiles and forms from the id
-    committed_host_forms: dict [str, dict[str, str]] = {
-                    "kingfort": {
-                        "host_id": "king fortnite",
-                        "ssh_sudo_user": "",
-                        "identity_file": "~/.ssh/id_rsa",
-                        "ssh_ip_address": "",
-                        "ssh_port": ""
-                    }
-    }
+    committed_host_forms: dict [str, dict[str, str]] = {}
 
     # dirty, untracked version of committed_host_forms
     host_forms: dict[str, dict[str, str]] = committed_host_forms.copy()
