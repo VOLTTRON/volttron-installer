@@ -8,6 +8,7 @@ root_styles: dict = {
 }
 HOVER_TRANSITION = "color 0.3s ease, background-color 0.3s ease"
 
+CUSTOM_BUTTON_PADDING = ".25rem .75rem"
 
 styles: dict = {
     ":root": {
@@ -29,25 +30,22 @@ styles: dict = {
         "transition" : HOVER_TRANSITION,
     },
     ".upload_button" : {
-        "border-radius" : ".25rem",
-        "color" : "orange",
+        "border-radius" : ".5rem",
+        "color" : "white",
         "font-size" : "12px",
+        "font-weight" : "bold",
         "user-select" : "none",
         "display" : "flex",
         "cursor" : "pointer",
         "flex-direction" : "row",
-        "border" : "2px solid blue",
-        "_hover": {
-            "color": "black",
-            "background_color": "white"
-        }
+        "padding" : CUSTOM_BUTTON_PADDING
     },
 
     ".platform_tile" : {
         "border-radius" : ".5rem",
         "width" : "9rem",
         "height" : "9rem",
-        "padding" : ".25rem .75rem",
+        "padding" : CUSTOM_BUTTON_PADDING,
         "background-color" : "blue",
         "cursor" : "pointer",
         "user-select" : "none"

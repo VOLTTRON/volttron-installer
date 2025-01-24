@@ -183,3 +183,5 @@ node_modules/
 
 .dev.env
 
+package-lock.json
+package.json
