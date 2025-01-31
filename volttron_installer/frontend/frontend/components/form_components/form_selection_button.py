@@ -5,6 +5,7 @@ def form_selection_button(
     selection_id: str = "",
     text: str = "",
     spacing="2",
+    delete_component: bool | rx.Component = False,
     **props
 ) -> rx.Component:
     
@@ -28,11 +29,19 @@ def form_selection_button(
             },
             **props
         ),
-        rx.flex(
-            rx.text("delete"),
-            align="center",
-            justify="center",
-        ),
+        rx.cond(
+            delete_component==False,
+            rx.flex(
+                rx.text("delete"),
+                align="center",
+                justify="center",
+            ),
+            rx.flex(        
+                delete_component,
+                align="center",
+                justify="center"
+            )
+        ),  
         spacing=spacing,
         align="center",
     )

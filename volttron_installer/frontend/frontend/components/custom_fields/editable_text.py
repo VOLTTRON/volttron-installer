@@ -9,7 +9,10 @@ class EditableText(rx.ComponentState):
         self.input = value
 
     @classmethod
-    def get_component(cls, **props):
+    def get_component(cls, initial_value="", **props):
+        # Set initial value
+        cls.input=initial_value
+
         return rc.editable(
             rc.editable_input(),
             placeholder=". . .",

@@ -3,12 +3,15 @@ import reflex as rx
 root_styles: dict = {
     "--btn-primary" : "grey",
     "--btn-active" : "blue",
-    "--hover-primary" : "darkgrey",
+    "--hover-primary" : "#2A2A2C",
     "--hover-active" : "darkblue"
 }
+
 HOVER_TRANSITION = "color 0.3s ease, background-color 0.3s ease"
 
 CUSTOM_BUTTON_PADDING = ".25rem .75rem"
+
+COMMON_BORDER_RADIUS = ".5rem"
 
 styles: dict = {
     ":root": {
@@ -21,7 +24,7 @@ styles: dict = {
         "display" : "flex",
         "min-width" : "7rem",
         "min-height" : "2rem",
-        "border-radius" : ".5rem",
+        "border-radius" : COMMON_BORDER_RADIUS,
         "cursor" : "pointer",
         "padding" : ".25rem",
         "user-select" : "none",
@@ -30,7 +33,7 @@ styles: dict = {
         "transition" : HOVER_TRANSITION,
     },
     ".upload_button" : {
-        "border-radius" : ".5rem",
+        "border-radius" : COMMON_BORDER_RADIUS,
         "color" : "white",
         "font-size" : "12px",
         "font-weight" : "bold",
@@ -42,7 +45,7 @@ styles: dict = {
     },
 
     ".platform_tile" : {
-        "border-radius" : ".5rem",
+        "border-radius" : COMMON_BORDER_RADIUS,
         "width" : "9rem",
         "height" : "9rem",
         "padding" : CUSTOM_BUTTON_PADDING,
@@ -55,7 +58,28 @@ styles: dict = {
         "width" : ".5rem",
         "height" : ".5rem"
     },
+    ".icon_button": {
+        "cursor" : "pointer",
+        "border-radius" : COMMON_BORDER_RADIUS,
+        "padding" : ".25rem",
+        "transition": HOVER_TRANSITION
+    },
+    ".icon_button:hover" : {
+        "background-color" : "#2A2A2C"
+    },
+
+    ".csv_data_cell" : {
+        "cursor" : "pointer",
+        "transition": HOVER_TRANSITION,
+        "user_select": "none",
+    },
+    ".csv_data_cell:hover" : {
+        # "background-color" : "#2A2A2C",
+        "background-color" : root_styles["--hover-primary"]
+    },
+
     rx.button : {
-        "cursor": "pointer"
+        "cursor": "pointer",
+        "transition": HOVER_TRANSITION
     }
 }

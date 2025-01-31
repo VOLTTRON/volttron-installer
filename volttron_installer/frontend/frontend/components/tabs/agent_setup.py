@@ -2,6 +2,7 @@ import reflex as rx
 from . import state
 from ..configuring_components import agent_setup
 from ..buttons.setup_button import setup_button
+from ..buttons.delete_icon_button import delete_icon_button
 from ..form_components import *
 import typing
 
@@ -23,6 +24,7 @@ def craft_tile_from_data(data: typing.Tuple) -> rx.Component:
         selection_id=component_id,
         selected_item=state.AgentSetupTabState.selected_id,
         on_click = state.AgentSetupTabState.handle_selected_tile(component_id),
+        delete_component=delete_icon_button()
     )
 
 

@@ -1,6 +1,7 @@
 import reflex as rx 
 from .. import form_components as fcomps
 from .state import ConfigTemplatesTabState
+from ..buttons.delete_icon_button import delete_icon_button
 from ..buttons.setup_button import setup_button
 from ..configuring_components import config_templates 
 import typing
@@ -22,6 +23,7 @@ def craft_tile_from_data(entry: typing.List) -> rx.Component:
         selection_id=component_id,
         selected_item=ConfigTemplatesTabState.selected_id,
         on_click = ConfigTemplatesTabState.handle_selected_tile(component_id),
+        delete_component=delete_icon_button()
     )
 
 

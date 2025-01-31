@@ -3,7 +3,7 @@
 import reflex as rx
 
 from rxconfig import config
-from ..components.buttons import upload_button
+from ..components.buttons import add_icon_button
 from ..components.form_components import form_tab ,form_tile_column , form_view, form_entry
 from ..components import configuring_components, header
 
@@ -21,14 +21,13 @@ def index() -> rx.Component:
         rx.vstack(
             header.header.header(
                 rx.text("Overview", size="5"),
-                rx.button(
-                    "Add Platform",
-                    variant="soft",
+                add_icon_button.add_icon_button(
+                    tool_tip_content="Create a Platform",
                     on_click=lambda: PlatformOverviewState.generate_new_platform
                 ),
                 justify="between"
             ),
-            rx.tabs.root(
+           rx.tabs.root(
                 rx.tabs.list(
                     rx.tabs.trigger("Hosts", value="tab_1"),
                     rx.tabs.trigger("Agent Setup", value="tab_2"),
