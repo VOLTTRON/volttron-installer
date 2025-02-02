@@ -28,7 +28,6 @@ def config_templates_instance(component_id: str) -> list[rx.Component]:
             rx.cond(
                 ConfigTemplatesTabState.config_template_forms[component_id]["config_type"] == "CSV",
                 csv_field.csv_data_field(),
-                # csv_field.ag_grid_simple(),
                 text_editor.text_editor(    
                     value=ConfigTemplatesTabState.config_template_forms[component_id]["config"],
                     on_change= lambda v: ConfigTemplatesTabState.update_form_field(component_id, "config", v)

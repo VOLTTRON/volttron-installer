@@ -72,6 +72,7 @@ styles: dict = {
         "cursor" : "pointer",
         "transition": HOVER_TRANSITION,
         "user_select": "none",
+        "min-width" : "6rem"
     },
     ".csv_data_cell:hover" : {
         # "background-color" : "#2A2A2C",
