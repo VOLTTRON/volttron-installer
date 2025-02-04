@@ -2,7 +2,7 @@ import reflex as rx
 from ..layouts.app_layout import app_layout
 from ..components.header.header import header
 from ..components.tabs.state import PlatformState
-from ..components.tabs import platform_config 
+from ..components.tabs import platform_config, agent_config
 
 @rx.page(route="/platform/[uid]")
 def platform_page() -> rx.Component:
@@ -24,7 +24,7 @@ def platform_page() -> rx.Component:
                 ),
                 rx.tabs.content(
                     # Access platform data using the UID  
-                    rx.text(PlatformState.current_uid),
+                    agent_config.agent_config_tab(PlatformState.current_uid),
                     value="tab_2"
                 ),
                 default_value="tab_1"

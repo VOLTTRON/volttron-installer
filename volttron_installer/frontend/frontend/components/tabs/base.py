@@ -14,7 +14,7 @@ BASE_HOST_TEMPLATE_DATA: BASE_TYPE_ANNOTATION =  {
 BASE_CONFIG_TEMPLATE_DATA: BASE_TYPE_ANNOTATION = {
     "config_name" : "",
     "config_type" : "JSON",
-    "config" : '{\n"driver_config": {"device_address": "10.0.0.1",\n        "device_id": 500\n    },\n    "driver_type": "bacnet",\n    "registry_config":"config://bacnet.csv",\n    "interval": 10,\n    "timezone": "UTC"\n}'
+    "config" : '{\n"driver_config": {\n        "device_address": "10.0.0.1",\n        "device_id": 500\n    },\n    "driver_type": "bacnet",\n    "registry_config":"config://bacnet.csv",\n    "interval": 10,\n    "timezone": "UTC"\n}'
 }
 
 BASE_AGENT_DATA: BASE_TYPE_ANNOTATION = {
@@ -39,9 +39,9 @@ BASE_PLATFORM_DATA: BASE_TYPE_ANNOTATION = {
     "host" : {
         },
     "agents" : {
-        "agent_name" : {
+        # "agent_name" : {
         
-        }
+        # }
     }
 }
 

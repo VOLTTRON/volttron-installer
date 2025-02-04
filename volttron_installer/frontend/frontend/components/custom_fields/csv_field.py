@@ -5,7 +5,6 @@ from ..form_components import form_entry
 import asyncio
 
 class CSVDataField(rx.ComponentState):
-    data: str = ""
     _selected_variant: str = "Default 1"  # Internal state
     num_rows: int = 10
     _row_iter: list[int] = list(range(num_rows))

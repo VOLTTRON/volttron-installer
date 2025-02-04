@@ -70,9 +70,18 @@ class HostsTabState(rx.State):
 
 class AgentSetupTabState(rx.State):
     committed_agent_forms: dict[str, dict[str, str]] = {}
-    agent_forms: dict[str, dict[str, str]] = committed_agent_forms.copy()
+    agent_forms:           dict[str, dict[str, str]] = committed_agent_forms.copy()
 
     selected_id: str = ""
+
+    @rx.var(cache=True)
+    def committed_agents_list(self) -> list[str]:
+        # accessing the keys of the committed_agent_forms var two layers deep
+        result = []
+        for component_id in list(self.committed_agent_forms.keys()):
+            result.append(self.committed_agent_forms[component_id]["agent_name"])
+        return result
+
 
     @rx.event
     def handle_config_submit(self):
@@ -157,6 +166,8 @@ class ConfigTemplatesTabState(rx.State):
 class PlatformOverviewState(rx.State):
     platforms: dict[str, dict[str, str]] = {}
 
+    selected_id: str = ""
+
     def generate_unique_uid(self, length=7) -> str:
         characters = string.ascii_letters + string.digits
         while True:
@@ -187,6 +198,21 @@ class PlatformOverviewState(rx.State):
             await nav_state.remove_platform_route(uid)
             return rx.redirect("/")
     
+    @rx.event
+    def add_agent_to_platform(self, agent_name: str, uid: str):
+        agent_state: AgentSetupTabState = self.get_state(AgentSetupTabState)
+        
+        # Get the index of our agent_name in the agent_list, 
+        # so we can get the "index" of the dict one above it
+        deep_index = agent_state.committed_agents_list.index(agent_name)
+
+        # Find the component id we are working with in committed forms
+        component_id = list(agent_state.committed_agent_forms.keys())[deep_index]
+
+        # Now we can put it all together
+        self.platforms[uid][f"platform-"]
+
+
     @rx.event
     def update_form_field(self, platform_uid: str, field: str, value: str):
         if platform_uid in self.platforms:
