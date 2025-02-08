@@ -27,7 +27,7 @@ def platform_config_form(platform_uid: str) -> rx.Component:
                 required_entry=True
             ),
             form_entry.form_entry(
-                "Name",
+                "Instance Name",
                 rx.text_field(
                     value=PlatformOverviewState.platforms[platform_uid]["name"],
                     # value=PlatformOverviewState.get_platform_field(platform_uid=platform_uid, field="name"),
@@ -36,7 +36,7 @@ def platform_config_form(platform_uid: str) -> rx.Component:
                 required_entry=True
             ),
             form_entry.form_entry(
-                "Address",
+                "Vip Address",
                 rx.text_field(
                     value=PlatformOverviewState.platforms[platform_uid]["address"],
                     on_change=lambda v: PlatformOverviewState.update_form_field(platform_uid, "address", v)

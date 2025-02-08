@@ -1,5 +1,7 @@
 import reflex as rx
 
+INDEX = "/"
+
 # TODO get some dynamic routing in 
 class NavigationState(rx.State):
     platform_routes: list[str] = []
@@ -18,3 +20,7 @@ class NavigationState(rx.State):
     @rx.event
     def route_to_platform(self, uid: str):
         return rx.redirect(f"/platform/{uid}", is_external=False)
+    
+    @rx.event
+    def route_to_index(self):
+        return rx.redirect(INDEX, is_external=False)

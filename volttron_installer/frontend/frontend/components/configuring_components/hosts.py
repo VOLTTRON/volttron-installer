@@ -56,7 +56,7 @@ def host_form(component_id: str) -> rx.Component:
             rx.hstack(
                 rx.button(
                     "Save",
-                    on_click=lambda: state.HostsTabState.save_form(component_id) 
+                    type="submit"
                 ),
                 justify="end"
             ),
