@@ -1,30 +1,73 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from typing import Optional
+import json
+from pathlib import Path
 
-import volttron_installer.backend.models as m
-from .models import Inventory, CreateInventoryRequest, SuccessResponse, CreatePlatformRequest, PlatformDefinition
+from .models import (
+    Inventory,
+    CreateInventoryRequest,
+    SuccessResponse,
+    CreatePlatformRequest,
+    PlatformDefinition,
+    InventoryItem,
+    ConfigurePlatformRequest
+)
 from .dependencies import read_inventory, write_inventory
+from .services.ansible_service import AnsibleService
 
 platform_router = APIRouter(prefix="/platforms")
 ansible_router = APIRouter(prefix="/ansible")
 task_router = APIRouter(prefix="/task")
 
+# Create service instance at module level
+ansible_service = AnsibleService()
+
 @ansible_router.get("/inventory", response_model=Inventory)
 def get_inventory() -> Inventory:
-    return read_inventory()
+    try:
+        return read_inventory()
+    except Exception as e:
+        # Return empty inventory on any error
+        return Inventory(inventory={})
 
 @ansible_router.post("/inventory")
 def add_to_inventory(inventory_item: CreateInventoryRequest):
-    inventory = read_inventory()
-    inventory.inventory[inventory_item.id] = inventory_item
-    write_inventory(inventory)
-    return SuccessResponse()
+    try:
+        # Create InventoryItem first to validate
+        item = InventoryItem(
+            id=inventory_item.id,
+            ansible_user=inventory_item.ansible_user,
+            ansible_host=inventory_item.ansible_host,
+            ansible_port=inventory_item.ansible_port,
+            http_proxy=inventory_item.http_proxy,
+            https_proxy=inventory_item.https_proxy,
+            volttron_venv=inventory_item.volttron_venv,
+            host_configs_dir=inventory_item.host_configs_dir
+        )
+
+        # Create new inventory with just this item
+        new_inventory = Inventory(inventory={item.id: item})
+        write_inventory(new_inventory, merge=True)  # Explicitly set merge=True
+        return SuccessResponse()
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @ansible_router.delete("/inventory/{id}")
 def remove_from_inventory(id: str):
-    inventory = read_inventory()
-    inventory.inventory.pop(id, None)
-    write_inventory(inventory)
-    return SuccessResponse()
+    try:
+        inventory = read_inventory()
+        if id in inventory.inventory:
+            # Create new inventory without the item to delete
+            new_inventory = Inventory(inventory={
+                k: v for k, v in inventory.inventory.items() if k != id
+            })
+            # Overwrite the entire inventory
+            write_inventory(new_inventory, merge=False)
+        return SuccessResponse()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @platform_router.get("/")
 def get_platforms():
@@ -34,8 +77,8 @@ def get_platforms():
 def add_platform(platform: CreatePlatformRequest):
     return SuccessResponse()
 
-@platform_router.post("/configure", )
-def configure_platform(platform: m.ConfigurePlatformRequest):
+@platform_router.post("/configure")
+def configure_platform(platform: ConfigurePlatformRequest):
     # Get the platform definition
     # Configure the host installing dependent libaries
     # TODO: Implement this
@@ -97,3 +140,51 @@ def get_tasks():
 def task_status(id: str):
     # Get the status of the task
     return {"status": "ok"}
+
+@ansible_router.post("/ansible/deploy_platform")
+async def deploy_platform(platform_config: dict):
+    """Deploy a VOLTTRON platform using Ansible"""
+    try:
+        return_code, stdout, stderr = await ansible_service.run_playbook(
+            "volttron.deployment.configure_platform",
+            extra_vars=platform_config
+        )
+
+        if return_code != 0:
+            raise HTTPException(status_code=500, detail=f"Ansible deployment failed: {stderr}")
+
+        return {"message": "Platform deployed successfully", "output": stdout}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@ansible_router.post("/ansible/start_platform")
+async def start_platform(platform_id: str):
+    """Start a VOLTTRON platform"""
+    try:
+        return_code, stdout, stderr = await ansible_service.run_ad_hoc(
+            "volttron -vv -l volttron.log&"
+        )
+
+        if return_code != 0:
+            raise HTTPException(status_code=500, detail=f"Failed to start platform: {stderr}")
+
+        return {"message": "Platform started successfully"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@ansible_router.post("/ansible/stop_platform")
+async def stop_platform(platform_id: str):
+    """Stop a VOLTTRON platform"""
+    try:
+        return_code, stdout, stderr = await ansible_service.run_ad_hoc(
+            "vctl shutdown --platform"
+        )
+
+        if return_code != 0:
+            raise HTTPException(status_code=500, detail=f"Failed to stop platform: {stderr}")
+
+        return {"message": "Platform stopped successfully"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

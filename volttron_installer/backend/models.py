@@ -1,7 +1,7 @@
 from typing import Literal
 from typing_extensions import Annotated
 
-from pydantic import BaseModel, AfterValidator, ValidationError
+from pydantic import BaseModel, AfterValidator, ValidationError, Field, conint
 
 from .validators import is_valid_field_name_for_config
 
@@ -9,21 +9,28 @@ from .validators import is_valid_field_name_for_config
 class InventoryItem(BaseModel):
     id: str
     ansible_user: str
-    ansible_host: str = "localhost"
-    ansible_port: int = 22
-    ansible_connection: Literal["local", "ssh"] = "local"
-    http_proxy: str | None = None
-    https_proxy: str | None = None
-    volttron_venv: str | None = None
-    host_configs_dir: str | None = None
+    ansible_host: str
+    ansible_port: conint(gt=0, lt=65536)
+    http_proxy: str
+    https_proxy: str
+    volttron_venv: str
+    host_configs_dir: str
 
 
 class Inventory(BaseModel):
     inventory: dict[str, InventoryItem] = {}
 
 
-class CreateInventoryRequest(InventoryItem):
-    pass
+class CreateInventoryRequest(BaseModel):
+    id: str
+    ansible_user: str
+    ansible_host: str
+    ansible_port: conint(gt=0, lt=65536) = 22  # Valid port range
+    http_proxy: str = ""
+    https_proxy: str = ""
+    volttron_venv: str = ""
+    host_configs_dir: str = ""
+
 
 class SuccessResponse(BaseModel):
     success: bool = True
@@ -33,6 +40,7 @@ class ConfigItem(BaseModel):
     key: Annotated[str, AfterValidator(is_valid_field_name_for_config)]
     value: str
 
+
 class ConfigStoreEntry(BaseModel):
     path: str
     name: str = ""
@@ -40,6 +48,7 @@ class ConfigStoreEntry(BaseModel):
     present: bool = True
     data_type: str = ""
     value: str = ""
+
 
 class AgentDefinition(BaseModel):
     identity: str
@@ -62,7 +71,6 @@ class PlatformConfig(BaseModel):
     instance_name: str = "volttron1"
     vip_address: str = "tcp://127.0.0.1:22916"
     message_bus: str = "zmq"
-
 
 
 class PlatformDefinition(BaseModel):
@@ -101,8 +109,10 @@ class PlatformDefinition(BaseModel):
 class CreatePlatformRequest(PlatformDefinition):
     pass
 
+
 class ConfigurePlatformRequest(BaseModel):
     id: str
+
 
 class ConfigureAllPlatformsRequest(BaseModel):
     pass
