@@ -3,13 +3,13 @@ import json
 import os
 import fcntl
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, Optional
 
 import yaml
 
 from ..settings import get_settings
 from .transformers import normalize_file_name
-from .models import Inventory, InventoryItem, PlatformDefinition, ConfigItem
+from .models import Inventory, HostEntry, PlatformDefinition, ConfigItem
 
 @contextmanager
 def file_lock(file_obj, exclusive=False):
@@ -28,61 +28,38 @@ def __get_path__(path: Path | None = None) -> Path:
 
 
 def get_inventory_path() -> Path:
-    return Path(os.getenv("INVENTORY_FILE", "inventory.json"))
+    """Get the path to the inventory file"""
+    inventory_path = os.getenv("INVENTORY_FILE")
+    if inventory_path:
+        return Path(inventory_path)
+    return Path("data/inventory.json")
 
 
 def read_inventory() -> Inventory:
-    path = get_inventory_path()
-    if not path.exists():
-        return Inventory(inventory={})
+    """Read inventory from file"""
+    inventory_path = get_inventory_path()
+    if not inventory_path.exists():
+        return Inventory()
 
     try:
-        with open(path, 'r') as f:
-            with file_lock(f):
-                data = json.load(f)
-                return Inventory.model_validate(data)
-    except json.JSONDecodeError:
-        return Inventory(inventory={})
-    except Exception as e:
-        raise ValueError(f"Error reading inventory: {str(e)}")
+        return Inventory.model_validate_json(inventory_path.read_text())
+    except (ValidationError, json.JSONDecodeError):
+        # Return empty inventory if file is invalid
+        return Inventory()
 
 
-def write_inventory(inventory: Inventory, merge: bool = True) -> None:
-    """Write inventory to file with optional merging
+def write_inventory(inventory: Inventory, merge: bool = False) -> None:
+    """Write inventory to file"""
+    inventory_path = get_inventory_path()
+    inventory_path.parent.mkdir(parents=True, exist_ok=True)
 
-    Args:
-        inventory: The inventory to write
-        merge: If True, merge with existing inventory. If False, overwrite.
-    """
-    path = get_inventory_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    if merge and inventory_path.exists():
+        # Merge with existing inventory
+        existing = read_inventory()
+        existing.inventory.update(inventory.inventory)
+        inventory = existing
 
-    if merge:
-        try:
-            with open(path, 'r+') as f:
-                with file_lock(f, exclusive=True):
-                    try:
-                        current = json.load(f)
-                        current_inventory = Inventory.model_validate(current)
-                        current_inventory.inventory.update(inventory.inventory)
-                        f.seek(0)
-                        f.truncate()
-                        json.dump(current_inventory.model_dump(), f, indent=2)
-                    except json.JSONDecodeError:
-                        # If file is corrupted, just write new inventory
-                        f.seek(0)
-                        f.truncate()
-                        json.dump(inventory.model_dump(), f, indent=2)
-        except FileNotFoundError:
-            # If file doesn't exist, create it
-            with open(path, 'w') as f:
-                with file_lock(f, exclusive=True):
-                    json.dump(inventory.model_dump(), f, indent=2)
-    else:
-        # Direct overwrite without merging
-        with open(path, 'w') as f:
-            with file_lock(f, exclusive=True):
-                json.dump(inventory.model_dump(), f, indent=2)
+    inventory_path.write_text(inventory.model_dump_json(indent=2))
 
 
 def write_platform_file(platform: PlatformDefinition, path: Path | None = None):

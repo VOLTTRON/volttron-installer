@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 import json
 from pathlib import Path
+import os
 
 from .models import (
     Inventory,
@@ -9,8 +10,9 @@ from .models import (
     SuccessResponse,
     CreatePlatformRequest,
     PlatformDefinition,
-    InventoryItem,
-    ConfigurePlatformRequest
+    HostEntry,
+    ConfigurePlatformRequest,
+    PlatformConfig
 )
 from .dependencies import read_inventory, write_inventory
 from .services.ansible_service import AnsibleService
@@ -19,8 +21,14 @@ platform_router = APIRouter(prefix="/platforms")
 ansible_router = APIRouter(prefix="/ansible")
 task_router = APIRouter(prefix="/task")
 
-# Create service instance at module level
-ansible_service = AnsibleService()
+# Make sure we're using a single instance of AnsibleService
+_ansible_service = None
+
+def get_ansible_service():
+    global _ansible_service
+    if _ansible_service is None:
+        _ansible_service = AnsibleService()
+    return _ansible_service
 
 @ansible_router.get("/inventory", response_model=Inventory)
 def get_inventory() -> Inventory:
@@ -33,8 +41,8 @@ def get_inventory() -> Inventory:
 @ansible_router.post("/inventory")
 def add_to_inventory(inventory_item: CreateInventoryRequest):
     try:
-        # Create InventoryItem first to validate
-        item = InventoryItem(
+        # Create HostEntry first to validate
+        item = HostEntry(
             id=inventory_item.id,
             ansible_user=inventory_item.ansible_user,
             ansible_host=inventory_item.ansible_host,
@@ -142,49 +150,62 @@ def task_status(id: str):
     return {"status": "ok"}
 
 @ansible_router.post("/ansible/deploy_platform")
-async def deploy_platform(platform_config: dict):
-    """Deploy a VOLTTRON platform using Ansible"""
+async def deploy_platform(config: PlatformConfig, ansible: AnsibleService = Depends(get_ansible_service)):
     try:
-        return_code, stdout, stderr = await ansible_service.run_playbook(
-            "volttron.deployment.configure_platform",
-            extra_vars=platform_config
+        return_code, stdout, stderr = await ansible.run_playbook(
+            "install-platform",  # Updated playbook name
+            extra_vars=config.model_dump()
         )
 
         if return_code != 0:
-            raise HTTPException(status_code=500, detail=f"Ansible deployment failed: {stderr}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Ansible deployment failed: {stderr or stdout}"
+            )
+        return {"status": "success", "output": stdout}
 
-        return {"message": "Platform deployed successfully", "output": stdout}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 @ansible_router.post("/ansible/start_platform")
-async def start_platform(platform_id: str):
-    """Start a VOLTTRON platform"""
+async def start_platform(platform_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
     try:
-        return_code, stdout, stderr = await ansible_service.run_ad_hoc(
-            "volttron -vv -l volttron.log&"
+        return_code, stdout, stderr = await ansible.run_ad_hoc(
+            f"cd {platform_id} && ./start-volttron"
         )
 
         if return_code != 0:
-            raise HTTPException(status_code=500, detail=f"Failed to start platform: {stderr}")
-
-        return {"message": "Platform started successfully"}
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to start platform: {stderr or stdout}"
+            )
+        return {"status": "success", "output": stdout}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 @ansible_router.post("/ansible/stop_platform")
-async def stop_platform(platform_id: str):
-    """Stop a VOLTTRON platform"""
+async def stop_platform(platform_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
     try:
-        return_code, stdout, stderr = await ansible_service.run_ad_hoc(
-            "vctl shutdown --platform"
+        return_code, stdout, stderr = await ansible.run_ad_hoc(
+            f"cd {platform_id} && ./stop-volttron"
         )
 
         if return_code != 0:
-            raise HTTPException(status_code=500, detail=f"Failed to stop platform: {stderr}")
-
-        return {"message": "Platform stopped successfully"}
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to stop platform: {stderr or stdout}"
+            )
+        return {"status": "success", "output": stdout}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )

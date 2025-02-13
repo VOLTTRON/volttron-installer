@@ -24,7 +24,7 @@ async def test_deploy_platform(client, mocker):
     mock_process.run_playbook = mock_run_playbook
 
     # Fix the mock path to match where ansible_service is instantiated
-    mock_ansible = mocker.patch('volttron_installer.backend.endpoints.AnsibleService')
+    mock_ansible = mocker.patch('volttron_installer.backend.endpoints.get_ansible_service')
     mock_ansible.return_value = mock_process
 
     # Test data
@@ -43,7 +43,7 @@ async def test_deploy_platform(client, mocker):
     # Verify response
     assert response.status_code == 200
     assert response.json() == {
-        "message": "Platform deployed successfully",
+        "status": "success",
         "output": "success"
     }
 
@@ -55,7 +55,7 @@ async def test_start_platform(client, mocker):
         return (0, "started", "")
     mock_process.run_ad_hoc = mock_run_ad_hoc
 
-    mock_ansible = mocker.patch('volttron_installer.backend.endpoints.AnsibleService')
+    mock_ansible = mocker.patch('volttron_installer.backend.endpoints.get_ansible_service')
     mock_ansible.return_value = mock_process
 
     # Make request
@@ -63,7 +63,10 @@ async def test_start_platform(client, mocker):
 
     # Verify response
     assert response.status_code == 200
-    assert response.json() == {"message": "Platform started successfully"}
+    assert response.json() == {
+        "status": "success",
+        "output": "started"
+    }
 
 @pytest.mark.asyncio
 async def test_stop_platform(client, mocker):
@@ -73,7 +76,7 @@ async def test_stop_platform(client, mocker):
         return (0, "stopped", "")
     mock_process.run_ad_hoc = mock_run_ad_hoc
 
-    mock_ansible = mocker.patch('volttron_installer.backend.endpoints.AnsibleService')
+    mock_ansible = mocker.patch('volttron_installer.backend.endpoints.get_ansible_service')
     mock_ansible.return_value = mock_process
 
     # Make request
@@ -81,7 +84,10 @@ async def test_stop_platform(client, mocker):
 
     # Verify response
     assert response.status_code == 200
-    assert response.json() == {"message": "Platform stopped successfully"}
+    assert response.json() == {
+        "status": "success",
+        "output": "stopped"
+    }
 
 @pytest.mark.asyncio
 async def test_deploy_platform_failure(client, mocker):
@@ -91,13 +97,17 @@ async def test_deploy_platform_failure(client, mocker):
         return (1, "", "deployment failed")
     mock_process.run_playbook = mock_run_playbook
 
-    mock_ansible = mocker.patch('volttron_installer.backend.endpoints.AnsibleService')
+    mock_ansible = mocker.patch('volttron_installer.backend.endpoints.get_ansible_service')
     mock_ansible.return_value = mock_process
 
     # Test data
     platform_config = {
         "title": "Test Platform",
-        "address": "127.0.0.1"
+        "address": "127.0.0.1",
+        "bus_type": "zmq",
+        "ports": "22916",
+        "host": {},
+        "agents": {}
     }
 
     # Make request

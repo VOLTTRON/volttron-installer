@@ -1,3 +1,4 @@
+.states
 # Ref;ex gitignore file for Python projects
 *.py[cod]
 .web

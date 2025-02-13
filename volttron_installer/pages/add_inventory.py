@@ -1,7 +1,7 @@
 import reflex as rx
 
-from ..backend.models import CreateInventoryRequest
-from ..backend.endpoints import add_to_inventory
+from ..backend.models import CreateInventoryRequest, Inventory, HostEntry
+from ..backend.endpoints import add_to_inventory, get_inventory
 
 
 class FormState(rx.State):
@@ -31,6 +31,22 @@ class FormState(rx.State):
     def handle_submit(self, form_data: dict):
         request = CreateInventoryRequest(**form_data)
         add_to_inventory(request)
+        yield InventoryState.update_inventory()
+
+class InventoryState(rx.State):
+    inventory: Inventory = Inventory()  # Initialize with empty inventory
+
+    @rx.var
+    def table_data(self) -> list[HostEntry]:
+        """Safe access to hosts data"""
+        try:
+            return list(self.inventory.inventory.values()) if self.inventory else []
+        except:
+            return []
+
+    @rx.event
+    def update_inventory(self):
+        self.inventory = get_inventory()
 
 
 @rx.page(route="/add_inventory")
@@ -48,17 +64,32 @@ def add_inventory() -> rx.Component:
                          name="ansible_host",
                          on_change=FormState.set_entered_host,
                          value=f"{FormState.entered_host}"),
-
-                # rx.hstack(
-                #     rx.checkbox("Checked", name="check"),
-                #     rx.switch("Switched", name="switch"),
-                # ),
                 rx.button("Submit", type="submit"),
             ),
             on_submit=FormState.handle_submit,
             reset_on_submit=True,
         ),
         rx.divider(),
-        rx.heading("Results"),
-        rx.text(str(FormState)),
+        rx.heading("Inventory"),
+        rx.table.root(
+            rx.table.header(
+                rx.table.row(
+                    rx.table.cell("ID"),
+                    rx.table.cell("User"),
+                    rx.table.cell("Host"),
+                )
+            ),
+            rx.table.body(
+                rx.foreach(
+                    InventoryState.table_data,
+                    lambda host: rx.table.row(
+                        rx.table.cell(host.id),
+                        rx.table.cell(host.ansible_user),
+                        rx.table.cell(host.ansible_host),
+                        key=host.id
+                    )
+                )
+            )
+        ),
+        rx.divider()
     )
