@@ -193,6 +193,13 @@ def test_concurrent_inventory_access(client, mock_inventory_path):
     # Verify all hosts were added
     response = client.get("/ansible/inventory")
     final_inventory = response.json()
+
+    # Debug: Print what's actually in the inventory
+    print("\nFinal inventory contents:")
+    for host_id in final_inventory["inventory"].keys():
+        print(f"  {host_id}")
+
+    # Original assertion
     assert all(f"concurrent_host_{i}" in final_inventory["inventory"] for i in range(5))
 
 def test_inventory_file_corruption(client, mock_inventory_path):
