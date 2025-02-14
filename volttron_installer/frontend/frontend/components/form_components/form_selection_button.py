@@ -8,7 +8,13 @@ def form_selection_button(
     delete_component: bool | rx.Component = False,
     **props
 ) -> rx.Component:
-    
+    """
+    Params:
+    selection_item: The component Id of the component you are creating
+    selection_id: The State var that we compare the selection_item to
+    """
+
+
     return rx.hstack(
         rx.flex(
             rx.text(text),

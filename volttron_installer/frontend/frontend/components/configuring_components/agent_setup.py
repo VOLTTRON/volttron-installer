@@ -1,16 +1,37 @@
+import typing
 import reflex as rx
 from ..form_components import *
 from ..tabs.state import AgentSetupTabState, ConfigTemplatesTabState
 from ..buttons.setup_button import setup_button
+from ..buttons.delete_icon_button import delete_icon_button
 
-def agent_config_templates_view(component_id: str) -> list[rx.Component]:
+# TODO
+# - need to complete the agent config store view
+def craft_config_entry_tile(config_entry: typing.Tuple) -> rx.Component:
+    # config_name = config_entry[0]
+    return rx.box()
+    # return form_selection_button.form_selection_button(
+    #     text="config_entry",
+    #     selection_id="config_entry",
+    #     selected_item=AgentSetupTabState.selected_config_store_entry,
+    #     # on_click=AgentSetupTabState.change_selected_config_entry(config_entry),
+    #     delete_component=delete_icon_button()
+    # )
+
+
+def agent_config_templates_view(agent_component_id: str) -> rx.Component:
     return form_tab.form_tab(
         form_tile_column.form_tile_column_wrapper(
-
-        )
+            # rx.foreach(
+            #     AgentSetupTabState.agent_forms[agent_component_id]["agent_config_store"],
+            #     craft_config_entry_tile
+            # )
+            rx.box()
+        ),
+        rx.box()
     )
 
-def agent_setup_form(component_id: str) -> list[rx.Component]:
+def agent_setup_form(component_id: str) -> rx.Component:
     return form_view.form_view_wrapper(
             form_entry.form_entry(
                 "Agent Name",
@@ -108,9 +129,7 @@ def agent_setup_form(component_id: str) -> list[rx.Component]:
                 )
             ),
             # Config Store templates view
-            rx.box(
-
-            ),
+            agent_config_templates_view(component_id),
             rx.hstack(
                 rx.button(
                     "Save",

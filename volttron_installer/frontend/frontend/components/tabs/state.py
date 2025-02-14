@@ -86,6 +86,8 @@ class AgentSetupTabState(rx.State):
     agent_forms:           dict[str, dict[str, str]] = committed_agent_forms.copy()
     selected_id: str = ""
 
+    selected_config_store_entry: str = ""
+
     _committed_agents_list: list[str] = []
 
     @rx.var(cache=True)
@@ -98,12 +100,13 @@ class AgentSetupTabState(rx.State):
 
 
     @rx.event
-    def handle_config_submit(self, data: dict[str, str], component_id: str):
+    async def handle_config_submit(self, data: dict[str, str], component_id: str):
         print("we saved {data}", data)
+        print(f"yeah but do we have our comp id?: {component_id}")
         template = data["template"]
-        template_name = data["config_name"]
+        custom_template_name = data["config_name"]
         if template == "":
-            self.agent_forms[component_id]["config_store_entires"] = BASE_CONFIG_TEMPLATE_DATA.copy()
+            self.agent_forms[component_id]["agent_config_store"][custom_template_name] = BASE_CONFIG_TEMPLATE_DATA.copy()
         else:
             # NOTE:
             # Problem, how are we going to get the config_template_state data through the committed_forms?
@@ -112,8 +115,22 @@ class AgentSetupTabState(rx.State):
             # } structure? Theres no way to access it besides somehow having the component id. either in the select
             # we can somehow pass in the component_id : config_name key value pair, or we have a new system to store data
             # that would look like {"config_name" : "rest"}
-            config_template_state: ConfigTemplatesTabState = self.get_state(ConfigTemplatesTabState)
+            config_template_state: ConfigTemplatesTabState = await self.get_state(ConfigTemplatesTabState)
+            committed_templates_list = config_template_state.committed_templates_list
+            
+            print(template in committed_templates_list)
+            print(template)
+            print(committed_templates_list)
+            
+            if template in committed_templates_list:
+                deep_index = committed_templates_list.index(template)
+                template_comp_id = list(config_template_state.committed_template_forms.keys())[deep_index]
+                self.agent_forms[component_id]["agent_config_store"][custom_template_name] = config_template_state.committed_template_forms[template_comp_id]
+        print(self.agent_forms)
 
+    @rx.event
+    def change_selected_config_entry(self, config_name: str):
+        self.selected_config_store_entry = config_name
 
     @rx.event
     def save_form(self, form_id: str):
@@ -158,6 +175,14 @@ class ConfigTemplatesTabState(rx.State):
     
     selected_id: str = ""
 
+    # Vars
+    @rx.var(cache=True)
+    def committed_templates_list(self) -> list[str]:
+        result = []
+        for component_id in list(self.committed_template_forms.keys()):
+            result.append(self.committed_template_forms[component_id]["config_name"])
+        return result
+
     @rx.event
     def save_form(self, form_id: str):
 
@@ -198,6 +223,8 @@ class PlatformOverviewState(rx.State):
 
     working_platform: str = ""
     render_component: str = ""
+
+    selected_agent_config_template_id: str = ""
 
     # Vars
     @rx.var(cache=True)
@@ -277,7 +304,7 @@ class PlatformOverviewState(rx.State):
         agent = agent_state.committed_agent_forms[component_id]
 
         # Now we can put it all together
-        self.platforms[uid]["agents"][f"platform-{uid}-agent-{random.randint(0, 110)}{agent_name[0]}"][agent]
+        self.platforms[uid]["agents"][f"platform-{uid}-agent-{random.randint(0, 110)}{agent_name[0]}"] = agent
         # This is really big problem, we are becomming too nested:
         # with this method, our structure now looks like, platform: 
         #                                      agents: 
