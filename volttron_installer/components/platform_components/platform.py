@@ -1,9 +1,9 @@
 """
-Using shared instances (Composition) seemed more intuitve because 
-as this project grows, it would be easier to use this central psuedo database rather than 
+Using shared instances (Composition) seemed more intuitve because
+as this project grows, it would be easier to use this central psuedo database rather than
 parent class that would need constant re-initalization. The shared Instance uses 1
 consistent initialized object making state sharing easy. Each object sharing this shared
-instance can read and write to the self.variables, allowing each object to react to the 
+instance can read and write to the self.variables, allowing each object to react to the
 state changes very easily while allowing these disconnected objects to be as modular as
 possible. In heriently, with a shared isntance structure, communictation between different
 modules may be less intuitive than inheritance but i believe that this is solved by the ObjectCommunicator
@@ -16,6 +16,7 @@ from volttron_installer.modules.global_configs import global_hosts, global_agent
 from volttron_installer.components.general_notifier import GeneralNotifier
 from volttron_installer.modules.write_to_json import write_to_file
 import time
+import httpx
 
 
 class ObjectCommunicator:
@@ -99,7 +100,7 @@ class Platform:
 
         self.event_bus: ObjectCommunicator = event_bus  # Initialize the Object communicator for all platform components
         self.event_bus.subscribe("deploy_platform", self.deploy_platform)
-        
+
         self.global_bus: ObjectCommunicator = global_bus # Initialize global event bus that observes the state of the app
         self.global_bus.subscribe("update_global_ui", self.update_global_ui)
 
@@ -116,43 +117,82 @@ class Platform:
     def gather_commits(self):
         self.event_bus.publish("publish_commits")
 
-    def deploy_platform(self, data=None):
+    async def deploy_platform(self, data=None):
+        """Deploy the platform using Ansible"""
         self.gather_commits()
-        self.deployed=True
 
-        # TODO
-        # fix how this is, i dont like how we need to time.sleep to gather our commits; it should just work fluidly
-        time.sleep(2)
-
-        # Debug
-        # pprint(f"\n\nDeploying platform with uid of {self.generated_url}")
-        # pprint(f"Added Host: {self.added_hosts}")
-        # pprint(f"Name: {self.title}")
-        # pprint(f"Address: {self.address}")
-        # pprint(f"Bus Type: {self.bus_type}")
-        # pprint(f"Ports: {self.ports}")
-        # pprint(f"Added Agents: {self.added_agents}")
-        
-        dictionary_appendable = {
-            "title" : self.title,
-            "deployed" : self.deployed,
-            "running" : self.running,
-            "address" : self.address,
-            "bus_type" : self.bus_type,
-            "ports" : self.ports,
-            "host" : self.added_hosts,
-            "agents" : self.added_agents
+        # Prepare platform config
+        platform_config = {
+            "title": self.title,
+            "address": self.address,
+            "bus_type": self.bus_type,
+            "ports": self.ports,
+            "host": self.added_hosts,
+            "agents": self.added_agents
         }
-        platforms[self.generated_url] = dictionary_appendable
-        write_to_file("platforms", platforms)
-        self.snack_bar.display_snack_bar("Deployed!")
-        # print(platforms)
+
+        try:
+            # Call deploy endpoint
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.api_base_url}/ansible/deploy_platform",
+                    json=platform_config
+                )
+                response.raise_for_status()
+
+            self.deployed = True
+            self.snack_bar.display_snack_bar("Deployed successfully!")
+
+            # Update platforms.json
+            platforms[self.generated_url] = {
+                **platform_config,
+                "deployed": self.deployed,
+                "running": self.running
+            }
+            write_to_file("platforms", platforms)
+
+        except Exception as e:
+            self.snack_bar.display_snack_bar(f"Deployment failed: {str(e)}")
+
+    async def start_platform(self):
+        """Start the platform"""
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.api_base_url}/ansible/start_platform",
+                    params={"platform_id": self.generated_url}
+                )
+                response.raise_for_status()
+
+            self.running = True
+            self.activity = "ON"
+            self.snack_bar.display_snack_bar("Platform started successfully!")
+
+        except Exception as e:
+            self.snack_bar.display_snack_bar(f"Failed to start platform: {str(e)}")
+
+    async def stop_platform(self):
+        """Stop the platform"""
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.api_base_url}/ansible/stop_platform",
+                    params={"platform_id": self.generated_url}
+                )
+                response.raise_for_status()
+
+            self.running = False
+            self.activity = "OFF"
+            self.snack_bar.display_snack_bar("Platform stopped successfully!")
+
+        except Exception as e:
+            self.snack_bar.display_snack_bar(f"Failed to stop platform: {str(e)}")
 
     def update_global_ui(self, data):
         # Now we are working downwards and telling every component to update their UI
         self.event_bus.publish("update_global_ui", None)
 
-    # Rudimentary code just to see the UI updates of the platform tile in Overview platforms tab 
+    # Rudimentary code just to see the UI updates of the platform tile in Overview platforms tab
     def flip_activity(self) -> None:
         self.activity = "OFF" if self.activity == "ON" else "ON"
         # print(f"Platform: I turned activity to: {self.activity}") # Debug # print
