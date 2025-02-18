@@ -326,10 +326,11 @@ class PlatformState(rx.State):
     def current_uid(self) -> str:
         return self.router.page.params.get("uid", "")
     
-    @rx.var(cache=True)
-    def platform_data(self) -> dict:
-        uid = self.current_uid
-        return PlatformOverviewState.platforms.get(uid, {})
+    # @rx.var(cache=True)
+    # def platform_data(self) -> dict:
+    #     uid = self.current_uid
+    #     return PlatformOverviewState.platforms.get(uid, {})
+        # return uid
 
 
 # ==================== TRYING A NEW WAY OF DOING THINGS =========================

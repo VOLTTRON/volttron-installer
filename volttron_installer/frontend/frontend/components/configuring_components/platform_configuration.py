@@ -1,6 +1,7 @@
 import reflex as rx
 from ..form_components import *
 from ..tabs.state import PlatformOverviewState, HostsTabState, PlatformState, AgentSetupTabState
+from ..tabs.tab_states import HostTab
 
 def platform_config_form(platform_uid: str) -> rx.Component:
 
@@ -9,22 +10,11 @@ def platform_config_form(platform_uid: str) -> rx.Component:
         form_view.form_view_wrapper(
             form_entry.form_entry(
                 "Hosts",
-                rx.select.root(
-                    rx.select.trigger(),
-                    rx.select.content(
-                        rx.select.group(
-                            rx.foreach(
-                                HostsTabState.committed_host_forms,
-                                lambda x: rx.select.item(
-                                    x[1]["host_id"], 
-                                    value=x[1]["host_id"]
-                                )
-                            )
-                        )
-                    ),
-                    name="select_host"
+                rx.select(
+                    HostTab.committed_hosts,
+                    name="host",
+                    required_entry=True,
                 ),
-                required_entry=True
             ),
             form_entry.form_entry(
                 "Instance Name",

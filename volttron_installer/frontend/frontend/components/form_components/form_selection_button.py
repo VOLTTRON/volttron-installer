@@ -6,6 +6,7 @@ def form_selection_button(
     text: str = "",
     spacing="2",
     delete_component: bool | rx.Component = False,
+    uncaught_prop: bool = False,
     **props
 ) -> rx.Component:
     """
@@ -18,7 +19,7 @@ def form_selection_button(
     return rx.hstack(
         rx.flex(
             rx.text(text),
-            class_name="form_selection_button",
+            class_name=f"form_selection_button {rx.cond(uncaught_prop, 'uncaught', '')}",
             style={
                 "background_color": rx.cond(
                     selected_item == selection_id,

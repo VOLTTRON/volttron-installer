@@ -80,7 +80,8 @@ def agent_config_template_tile(data: tuple[str, str])-> rx.Component:
     component_id = data [0]
     
     return form_selection_button.form_selection_button(
-        text=PlatformState.platform_data[component_id]["config_name"],
+        # text=PlatformState.platform_data[component_id]["config_name"],
+        text="",
         selection_item=PlatformOverviewState.selected_agent_config_template_id,
         selection_id=component_id,
         delete_component=delete_icon_button.delete_icon_button()

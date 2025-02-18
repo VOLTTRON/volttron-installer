@@ -6,8 +6,9 @@ from rxconfig import config
 from ..components.buttons import add_icon_button
 from ..components.form_components import form_tab ,form_tile_column , form_view, form_entry
 from ..components import configuring_components, header
+from ..components.tabs.host_tab import hosts_tab
 
-from ..components.tabs import hosts_tab, config_store_templates, agent_setup, platform_overview
+from ..components.tabs import config_store_templates, agent_setup, platform_overview
 from ..volttron_installer_app import app
 from ..components.tabs.state import PlatformOverviewState
 
