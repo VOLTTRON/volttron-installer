@@ -21,7 +21,8 @@ def craft_tile_from_data(host_tab_content: HostTabContent) -> rx.Component:
     return form_components.form_selection_button.form_selection_button(
         text=rx.cond(
                 host_tab_content.committed,
-                host_tab_content.original_host_entry["host_id"],
+                # host_tab_content.original_host_entry["host_id"],
+                host_tab_content.original_host_entry["id"],
                 ""
             ),
         selection_id=host_tab_content_id,

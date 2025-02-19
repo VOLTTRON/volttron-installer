@@ -17,7 +17,8 @@ def craft_tile_from_data(agent_tab_content: AgentTabContent) -> rx.Component:
         # instead of a blank text, we set up a cond with a chain of gets to see if the host_id is in committed forms
         text=rx.cond(
             agent_tab_content.committed,
-            agent_tab_content.original_agent_entry["agent_name"],
+            agent_tab_content.original_agent_entry["identity"],
+            # agent_tab_content.original_agent_entry["agent_name"],
             ""
         ),
         selection_id=agent_tab_content.tab_content_id,

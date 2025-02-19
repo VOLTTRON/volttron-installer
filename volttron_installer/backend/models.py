@@ -20,6 +20,12 @@ class HostEntry(BaseModel):
     volttron_venv: str | None = None
     host_configs_dir: str | None = None
 
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "host_id": self.id,
+            "ansible_user": self.ansible_user,
+            "ansible_host": self.ansible_host
+        }
 
 class Inventory(BaseModel):
     """Inventory model with a dictionary of host entries"""
@@ -67,6 +73,14 @@ class ConfigStoreEntry(BaseModel):
     data_type: str = ""
     value: str = ""
 
+    def to_dict(self)-> dict[str, str]:
+        return {
+            "name": self.name,
+            "path" : self.path,
+            "data_type": self.data_type,
+            "value": self.value
+        }
+
 
 class AgentDefinition(BaseModel):
     identity: str
@@ -77,6 +91,12 @@ class AgentDefinition(BaseModel):
     pypi_package: str | None = None
     source: str | None = None
     config_store: dict[str, ConfigStoreEntry] = {}
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "identity": self.identity,
+            "config_store" : self.config_store
+        }
 
     def model_post_init(self, __context):
         if self.pypi_package is None and self.source is None:
