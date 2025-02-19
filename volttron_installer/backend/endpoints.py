@@ -38,6 +38,16 @@ def get_inventory() -> Inventory:
         # Return empty inventory on any error
         return Inventory(inventory={})
 
+@ansible_router.get("/inventory/{id}", response_model=HostEntry)
+def get_host_entry_by_id(id: str) -> HostEntry:
+    try:
+        inventory = read_inventory()
+        if id in inventory.host_entries:
+            return inventory.host_entries.get(id)
+    except Exception as e:  
+        # Return empty inventory on any error
+        return Inventory(inventory={})
+
 @ansible_router.post("/inventory")
 def add_to_inventory(inventory_item: CreateInventoryRequest):
     try:
@@ -66,10 +76,10 @@ def add_to_inventory(inventory_item: CreateInventoryRequest):
 def remove_from_inventory(id: str):
     try:
         inventory = read_inventory()
-        if id in inventory.inventory:
+        if id in inventory.host_entries:
             # Create new inventory without the item to delete
             new_inventory = Inventory(inventory={
-                k: v for k, v in inventory.inventory.items() if k != id
+                k: v for k, v in inventory.host_entries.items() if k != id
             })
             # Overwrite the entire inventory
             write_inventory(new_inventory, merge=False)

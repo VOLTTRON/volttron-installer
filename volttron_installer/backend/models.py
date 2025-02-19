@@ -23,7 +23,7 @@ class HostEntry(BaseModel):
 
 class Inventory(BaseModel):
     """Inventory model with a dictionary of host entries"""
-    inventory: dict[str, HostEntry] = {}  # Keep using 'inventory' for backward compatibility
+    host_entries: dict[str, HostEntry] = {}  # Keep using 'inventory' for backward compatibility
 
     @property
     def hosts(self) -> list[dict]:
@@ -34,7 +34,7 @@ class Inventory(BaseModel):
                 "ansible_user": host.ansible_user,
                 "ansible_host": host.ansible_host,
             }
-            for host in self.inventory.values()
+            for host in self.host_entries.values()
         ]
 
 

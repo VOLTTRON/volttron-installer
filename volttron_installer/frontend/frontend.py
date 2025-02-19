@@ -7,6 +7,3 @@ from .pages import index, platform_page
 app = rx.App(
     style=styles.styles
 )
-
-app.add_page(index)
-app.add_page(platform_page.platform_page)

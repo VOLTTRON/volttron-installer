@@ -5,8 +5,6 @@ from ..tab_states import HostTabContent, HostTab
 
 
 def host_form(host_tab_content: HostTabContent) -> rx.Component:
-
-
     return rx.form(
         form_view.form_view_wrapper(
             form_entry.form_entry(

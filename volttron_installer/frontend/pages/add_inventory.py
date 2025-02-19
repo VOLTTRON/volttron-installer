@@ -1,7 +1,7 @@
 import reflex as rx
 
-from ..backend.models import CreateInventoryRequest, Inventory, HostEntry
-from ..backend.endpoints import add_to_inventory, get_inventory
+from ...backend.models import CreateInventoryRequest, Inventory, HostEntry
+from ...backend.endpoints import add_to_inventory, get_inventory
 
 
 class FormState(rx.State):
@@ -40,6 +40,8 @@ class InventoryState(rx.State):
     def table_data(self) -> list[HostEntry]:
         """Safe access to hosts data"""
         try:
+            print(self.inventory.inventory)
+            print(list(self.inventory.inventory.values()))
             return list(self.inventory.inventory.values()) if self.inventory else []
         except:
             return []

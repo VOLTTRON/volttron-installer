@@ -1,9 +1,5 @@
+from .frontend.pages import add_inventory
 from . import state, models
-
-from .pages import (
-    index,
-    add_inventory
-)
 
 __all__ = [
     "state",

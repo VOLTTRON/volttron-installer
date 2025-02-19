@@ -8,14 +8,14 @@ from ..components.form_components import form_tab ,form_tile_column , form_view,
 from ..components import configuring_components, header
 from ..components.tabs.host_tab import hosts_tab
 
-from ..components.tabs import config_store_templates, agent_setup, platform_overview
+from ..components.tabs import config_store_templates, agent_setupa, platform_overview
 from ..volttron_installer_app import app
 from ..components.tabs.state import PlatformOverviewState
 
 class IndexTabState(rx.State):
     ...
 
-
+@rx.page(route="/")
 def index() -> rx.Component:
     # Welcome Page (Index)
     return rx.fragment(
@@ -40,7 +40,7 @@ def index() -> rx.Component:
                     value="tab_1"
                 ),
                 rx.tabs.content(
-                    agent_setup.agent_setup_tab(),
+                    agent_setupa.agent_setup_tab.agent_setup_tab(),
                     value="tab_2"
                 ),
                 rx.tabs.content(
