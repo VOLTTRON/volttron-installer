@@ -9,7 +9,6 @@ from ..components import configuring_components, header
 from ..components.tabs.host_tab import hosts_tab
 
 from ..components.tabs import config_store_templates, agent_setupa, platform_overview
-from ..volttron_installer_app import app
 from ..components.tabs.state import PlatformOverviewState
 
 class IndexTabState(rx.State):

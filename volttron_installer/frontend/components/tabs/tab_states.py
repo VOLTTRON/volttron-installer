@@ -186,9 +186,9 @@ class AgentSetupTab(rx.State):
         new_agent_entry = BaseAgentContent()
         # print(f"ok brooo this is what i got and stuff:\n{new_host_entry.to_dict()}")
         new_tab_content = AgentTabContent(
-            host_entry=new_agent_entry,
             tab_content_id=unique_tab_content_uid,
-            original_host_entry=new_agent_entry.to_dict()
+            agent_entry=new_agent_entry,
+            original_agent_entry=new_agent_entry.to_dict()
             )
 
         self.list_of_agent_tab_content.append(new_tab_content)

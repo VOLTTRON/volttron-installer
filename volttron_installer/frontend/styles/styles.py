@@ -78,6 +78,9 @@ styles: dict = {
         # "background-color" : "#2A2A2C",
         "background-color" : root_styles["--hover-primary"]
     },
+    ".text_editor": {
+        "font-family": "Consolas",
+    },
 
     rx.button : {
         "cursor": "pointer",

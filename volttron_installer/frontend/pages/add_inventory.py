@@ -40,9 +40,9 @@ class InventoryState(rx.State):
     def table_data(self) -> list[HostEntry]:
         """Safe access to hosts data"""
         try:
-            print(self.inventory.inventory)
-            print(list(self.inventory.inventory.values()))
-            return list(self.inventory.inventory.values()) if self.inventory else []
+            print(self.inventory.host_entries)
+            print(list(self.inventory.host_entries.values()))
+            return list(self.inventory.host_entries.values()) if self.inventory else []
         except:
             return []
 

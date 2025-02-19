@@ -1,5 +1,6 @@
 import reflex as rx
 from ...form_components import *
+from ...buttons import setup_button, delete_icon_button, upload_button
 from ...custom_fields import text_editor
 from ..tab_states import AgentTabContent, AgentSetupTab
 
@@ -41,11 +42,13 @@ def agent_setup_form(agent_tab_content: AgentTabContent) -> rx.Component:
             form_entry.form_entry(
                 "Agent Config",
                 text_editor.text_editor(
+                    placeholder="Type out JSON, YAML, or upload a file!",
                     value=agent_tab_content.agent_entry.agent_config,
                     on_change=lambda value: AgentSetupTab.update_agent_detail(agent_tab_content.tab_content_id, "agent_config", value),
                     required=True,
                     name="agent_config"
                 ),
+                upload = upload_button.upload_button(),
                 required_entry=True
             ),
             form_entry.form_entry(
