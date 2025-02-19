@@ -6,7 +6,7 @@ import reflex as rx
 import os
 from rxconfig import config
 from pprint import pprint
-# from .frontend.frontend.styles import styles
+from .frontend.styles import styles
 # from .frontend.frontend.pages import index
 
 @asynccontextmanager
@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
 #app = FastAPI(lifespan=lifespan)
 #backend_app = FastAPI()
 app = rx.App(
-    # style=styles.styles
+    style=styles.styles
     )
 
 # app.add_page(index)

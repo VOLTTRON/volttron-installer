@@ -56,7 +56,7 @@ def write_inventory(inventory: Inventory, merge: bool = False) -> None:
     if merge and inventory_path.exists():
         # Merge with existing inventory
         existing = read_inventory()
-        existing.inventory.update(inventory.inventory)
+        existing.host_entries.update(inventory.host_entries)
         inventory = existing
 
     inventory_path.write_text(inventory.model_dump_json(indent=2))

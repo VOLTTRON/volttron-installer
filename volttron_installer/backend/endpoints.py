@@ -64,7 +64,7 @@ def add_to_inventory(inventory_item: CreateInventoryRequest):
         )
 
         # Create new inventory with just this item
-        new_inventory = Inventory(inventory={item.id: item})
+        new_inventory = Inventory(host_entries={item.id: item})
         write_inventory(new_inventory, merge=True)  # Explicitly set merge=True
         return SuccessResponse()
     except ValueError as e:
