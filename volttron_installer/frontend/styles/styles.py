@@ -13,6 +13,14 @@ CUSTOM_BUTTON_PADDING = ".25rem .75rem"
 
 COMMON_BORDER_RADIUS = ".5rem"
 
+COMMON_BUTTON_STRUCTURE = {
+        "cursor" : "pointer",
+        "border-radius" : COMMON_BORDER_RADIUS,
+        "padding" : CUSTOM_BUTTON_PADDING,
+        "transition": HOVER_TRANSITION,
+        "user-select" : "none",
+}
+
 styles: dict = {
     ":root": {
         "--btn-primary" : "grey",
@@ -81,6 +89,56 @@ styles: dict = {
     ".text_editor": {
         "font-family": "Consolas",
     },
+
+    ".platform_view_button_row" : {
+        "display" : "flex",
+        "flex-direction" : "row",
+        "justify-content" : "center",
+        "column-gap" : "2rem",
+        "padding" : "1rem"
+        # spacing whatever
+    },
+
+    ".platform_view_container": {
+        "padding-left" : "clamp(1rem, 10vw, 10rem)",
+        "padding-right" : "clamp(1rem, 10vw, 10rem)",
+    },
+
+    ".platform_content_container": {
+        "width" : "100%",
+        "display":"flex",
+        "flex-direction" : "column",
+        "min-height": "20rem",
+        # "background-color" : "pink",
+    },
+
+    ".platform_content_view": {
+        "display" : "flex",
+        "flex-direction" : "column",
+        "padding" : "1rem",
+        "row-gap" : "2rem",
+        # "background-color" : "white",
+        "align-items" : "center",
+        "color": "white"
+    },
+
+    ".toggle_advanced_button": {
+        "cursor" : "pointer",
+        "border-radius" : COMMON_BORDER_RADIUS,
+        "padding" : CUSTOM_BUTTON_PADDING,
+        "transition": HOVER_TRANSITION,
+        "user-select" : "none",
+        "background-color" : "#2A2A2C"
+    },
+
+    ".toggle_advanced_button:hover": {
+        "background-color" : "#333335"
+    },
+
+    ".platform_control_buttons": {
+        # *COMMON_BUTTON_STRUCTURE()
+    },
+
 
     rx.button : {
         "cursor": "pointer",
