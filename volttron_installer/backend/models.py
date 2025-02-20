@@ -24,7 +24,10 @@ class HostEntry(BaseModel):
         return {
             "host_id": self.id,
             "ansible_user": self.ansible_user,
-            "ansible_host": self.ansible_host
+            "ansible_host": self.ansible_host,
+            "https_proxy": self.https_proxy,
+            "volttron_venv": self.volttron_venv,
+            "host_configs_dir": self.host_configs_dir
         }
 
 class Inventory(BaseModel):

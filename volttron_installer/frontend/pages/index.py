@@ -11,6 +11,8 @@ from ..components.tabs.host_tab import hosts_tab
 from ..components.tabs import config_store_templates, agent_setupa, platform_overview
 from ..components.tabs.state import PlatformOverviewState
 
+from .platform_page import State as PlatformState 
+
 class IndexTabState(rx.State):
     ...
 
@@ -23,7 +25,7 @@ def index() -> rx.Component:
                 rx.text("Overview", size="5"),
                 add_icon_button.add_icon_button(
                     tool_tip_content="Create a Platform",
-                    on_click=lambda: PlatformOverviewState.generate_new_platform
+                    on_click=lambda: PlatformState.generate_new_platform
                 ),
                 justify="between"
             ),
