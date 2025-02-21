@@ -2,8 +2,6 @@ import reflex as rx
 from ..layouts.app_layout import app_layout
 from ..components.buttons import icon_button_wrapper
 from ..components.header.header import header
-from ..components.tabs.state import PlatformState
-from ..components.tabs import platform_config, agent_config
 from ..navigation.state import NavigationState
 from ..components.form_components import form_entry
 from ...backend.models import HostEntry, PlatformDefinition
@@ -110,7 +108,7 @@ def platform_page() -> rx.Component:
                 icon_key="arrow-left",
                 on_click=lambda: NavigationState.route_to_index()
             ),
-            rx.text(f"Platform: {PlatformState.current_uid}", size="5"),
+            rx.text(f"Platform: {State.current_uid}", size="5"),
         ),
         rx.box(
             rx.accordion.root(
@@ -121,23 +119,29 @@ def platform_page() -> rx.Component:
                             form_entry.form_entry(
                                 "Host",
                                 rx.input(
+                                    value=working_platform.host.id,
+                                    on_change=lambda value: State.update_detail("id", value),  
                                     size="3",
-                                    required=True,
-                                )
+                                ),
+                                required_entry=True,
                             ),
                             form_entry.form_entry(
                                 "Username",
                                 rx.input(
+                                    value=working_platform.host.ansible_user,
+                                    on_change=lambda value: State.update_detail("ansible_user", value),
                                     size="3",
-                                    required=True,
-                                )
+                                ),
+                                required_entry=True,
                             ),
                             form_entry.form_entry(
                                 "Port SSH",
                                 rx.input(
+                                    value=working_platform.host.ansible_port,
+                                    on_change=lambda value: State.update_detail("ansible_port", value),
                                     size="3",
-                                    required=True,
-                                )
+                                ),
+                                required_entry=True,
                             ),
                             rx.box(
                                 rx.hstack(
@@ -223,6 +227,15 @@ def platform_page() -> rx.Component:
                                 class_name="toggle_advanced_button",
                                 on_click=lambda: State.toggle_agent_config_view()
                             ),
+                            rx.box(
+                                rx.hstack(
+                                    rx.vstack(),
+                                    rx.vstack()
+                                )
+                            ),
+                            width="100%",
+                            height="20rem",
+                            border="1px solid white",
                             class_name="platform_content_view"
                         ),
                         class_name="platform_content_container"
