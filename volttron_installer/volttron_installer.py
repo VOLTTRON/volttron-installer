@@ -6,7 +6,7 @@ import reflex as rx
 import os
 from rxconfig import config
 from pprint import pprint
-from .frontend.styles import styles
+from .styles import styles
 # from .frontend.frontend.pages import index
 
 @asynccontextmanager
