@@ -4,7 +4,7 @@ from ..components.buttons import icon_button_wrapper
 from ..components.header.header import header
 from ..navigation.state import NavigationState
 from ..components.form_components import form_entry
-from ...backend.models import HostEntry, PlatformDefinition
+from ..backend.models import HostEntry, PlatformDefinition
 
 # storing stuff here just for now, will move to a better place later
 
