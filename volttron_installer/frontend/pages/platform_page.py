@@ -11,10 +11,37 @@ from ...backend.models import HostEntry, PlatformDefinition
 # storing stuff here just for now, will move to a better place later
 
 import string, random, json
+
 class Instance(rx.Base):
     host: HostEntry
     platform: PlatformDefinition
+    safe_host: dict = {}
+
+    valid: bool = False
+    uncaught: bool = False   
+    # deployed: bool = False
+
     advanced_expanded: bool = False
+    agent_config_expanded: bool = False
+    web_checked: bool = False
+    
+    def is_uncaught(self) -> bool:
+        current_host = self.host.to_dict()
+        return current_host != self.safe_host
+
+    def does_host_have_errors(self) -> bool:
+        host_dict = self.host.to_dict()
+        
+        # Check if any of the required fields are missing or empty
+        has_errors = not all([host_dict.get("id"), host_dict.get("ansible_user"), host_dict.get("ansible_host")])
+        
+        if has_errors:
+            print("Error: Missing host details", host_dict)
+
+        print(f'am i tripping?: {has_errors}')
+
+        # Return the boolean indicating if there are errors
+        return has_errors
 
 
 class State(rx.State):
@@ -27,17 +54,42 @@ class State(rx.State):
     @rx.event
     async def generate_new_platform(self):
         new_uid = self.generate_unique_uid()
-        new_host = HostEntry(id="", ansible_user="", ansible_host="")
+        new_host = HostEntry(
+            id="", 
+            ansible_user="", 
+            ansible_host=""
+            )
         new_platform = PlatformDefinition()
-        self.platforms[new_uid] = Instance(host=new_host, platform=new_platform)
+        self.platforms[new_uid] = Instance(host=new_host, platform=new_platform, safe_host=new_host.to_dict())
 
         nav_state: NavigationState = await self.get_state(NavigationState)
         await nav_state.add_platform_route(new_uid)
+        yield rx.toast.info("New platform created")
+
+    @rx.event
+    def update_detail(self, field: str, value):
+        working_platform: Instance = self.platforms[self.current_uid]
+        setattr(working_platform.host, field, value)
+        self.handle_changes(working_platform)
 
     @rx.event
     def toggle_advanced(self):
         working_platform: Instance = self.platforms[self.current_uid]
         working_platform.advanced_expanded = not working_platform.advanced_expanded
+
+    @rx.event
+    def handle_web_toggle(self):
+        working_platform: Instance = self.platforms[self.current_uid]
+        working_platform.web_checked = not working_platform.web_checked
+
+    @rx.event
+    def toggle_agent_config_view(self):
+        working_platform: Instance = self.platforms[self.current_uid]
+        working_platform.agent_config_expanded = not working_platform.agent_config_expanded
+
+    def handle_changes(self, working_platform: Instance):
+        working_platform.valid = not working_platform.does_host_have_errors()
+        working_platform.uncaught = working_platform.is_uncaught()
 
     def generate_unique_uid(self, length=7) -> str:
         characters = string.ascii_letters + string.digits
@@ -129,9 +181,6 @@ def platform_page() -> rx.Component:
                         ),
                         class_name="platform_content_container"
                     )
-                    # rx.accordion.content(
-                    #     rx.text("This is connection")
-                    # )
                 ),
                 rx.accordion.item(
                     header="Platform Configuration",
@@ -144,58 +193,65 @@ def platform_page() -> rx.Component:
                                     required=True,
                                 )
                             ),
-                            rx.button("Start a Web", variant="surface", size="2"),
-                            rx.button("install x agents", variant="surface", size="2"),
-                            rx.button("configuration of agents", variant="surface", size="2"),
-                            rx.button("config Store editor", variant="surface", size="2"),
-                            # form_entry.form_entry(
-                                
-                            # ),
-                            # form_entry.form_entry(
-                                
-                            # ),
-                            # form_entry.form_entry(
-                                
-                            # ),
-                            
+                            form_entry.form_entry(
+                                "Web",
+                                rx.checkbox(
+                                    checked=working_platform.web_checked,
+                                    on_change=lambda: State.handle_web_toggle(),
+                                    size="3",
+                                )
+                            ),
+                            rx.cond(
+                                working_platform.web_checked,
+                                form_entry.form_entry(
+                                    "Platform Name",
+                                    rx.input(
+                                        size="3",
+                                        required=True,
+                                    )
+                                ),
+                            ),
+                            rx.box(
+                                rx.hstack(
+                                    rx.text("Agent Configuration"),
+                                    rx.cond(
+                                        working_platform.agent_config_expanded,
+                                        rx.icon("chevron-up"),
+                                        rx.icon("chevron-down")
+                                    )
+                                ),
+                                class_name="toggle_advanced_button",
+                                on_click=lambda: State.toggle_agent_config_view()
+                            ),
                             class_name="platform_content_view"
                         ),
                         class_name="platform_content_container"
                     )
-                    # rx.accordion.trigger("Instance Configuration"),
-                    # rx.accordion.content(
-                    #     rx.text("This is Instance Configuration")
-                    #     # agent_config.agent_config_tab(PlatformState.current_uid)
-                    # )
                 ),
                 collapsible=True,
                 variant="outline"
             ),
             rx.box(
-                rx.button("Save", size="4", variant="surface", color_scheme="green"),
-                rx.button("Deploy", size="4", variant="surface", color_scheme="blue"),
-                rx.button("Cancel", size="4", variant="surface", color_scheme="red"),
+                rx.button(
+                    "Save", 
+                    size="4",
+                    variant="surface", 
+                    color_scheme="green"
+                    ),
+                rx.button(
+                    "Deploy", 
+                    size="4", 
+                    variant="surface", 
+                    color_scheme="blue"
+                    ),
+                rx.button(
+                    "Cancel", 
+                    size="4", 
+                    variant="surface", 
+                    color_scheme="red"
+                    ),
                 class_name="platform_view_button_row"
             ),
             class_name="platform_view_container"
         ),
-        # rx.fragment(
-        #     rx.tabs.root(
-        #         rx.tabs.list(
-        #             rx.tabs.trigger("Platform Config", value="tab_1"),
-        #             rx.tabs.trigger("Agent Config", value="tab_2"),
-        #         ),
-        #         rx.tabs.content(
-        #             # Access platform data using the UID
-        #             platform_config.platform_config_tab(PlatformState.current_uid),
-        #             value="tab_1"
-        #         ),
-        #         rx.tabs.content(
-        #             # Access platform data using the UID  
-        #             agent_config.agent_config_tab(PlatformState.current_uid),
-        #             value="tab_2"
-        #         ),
-        #         default_value="tab_1"
-        #     )
-        # )
     )

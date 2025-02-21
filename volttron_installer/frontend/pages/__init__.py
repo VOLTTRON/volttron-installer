@@ -1,7 +1,6 @@
-from . import index, add_inventory, platform_page
+from . import index, platform_page
 
 __all__ = [
     "index",
     "platform_page",
-    "add_inventory"
 ]

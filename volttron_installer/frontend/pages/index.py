@@ -4,13 +4,12 @@ import reflex as rx
 
 from rxconfig import config
 from ..components.buttons import add_icon_button
-from ..components.form_components import form_tab ,form_tile_column , form_view, form_entry
+# from ..components.form_components import form_tab ,form_tile_column , form_view, form_entry
 from ..components import configuring_components, header
-from ..components.tabs.host_tab import hosts_tab
+# from ..components.tabs.host_tab import hosts_tab
 
 from ..components.tabs import config_store_templates, agent_setupa, platform_overview
-from ..components.tabs.state import PlatformOverviewState
-
+# from ..components.tabs.state import PlatformOverviewState
 from .platform_page import State as PlatformState 
 
 class IndexTabState(rx.State):
@@ -29,31 +28,6 @@ def index() -> rx.Component:
                 ),
                 justify="between"
             ),
-           rx.tabs.root(
-                rx.tabs.list(
-                    rx.tabs.trigger("Hosts", value="tab_1"),
-                    rx.tabs.trigger("Agent Setup", value="tab_2"),
-                    rx.tabs.trigger("Platforms", value="tab_3"),
-                    rx.tabs.trigger("Config Store Templates", value="tab_4"),
-                ),
-                rx.tabs.content(
-                    hosts_tab.host_tab(),
-                    value="tab_1"
-                ),
-                rx.tabs.content(
-                    agent_setupa.agent_setup_tab.agent_setup_tab(),
-                    value="tab_2"
-                ),
-                rx.tabs.content(
-                    platform_overview.platform_overview(),
-                    value="tab_3"
-                ),
-
-                rx.tabs.content(
-                    config_store_templates.config_store_templates_tab(),
-                    value="tab_4"
-                ),
-                default_value="tab_1"
-            )
+            platform_overview.platform_overview(),
         )
     )
