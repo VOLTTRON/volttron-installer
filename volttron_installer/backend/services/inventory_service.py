@@ -1,54 +1,73 @@
-import json
+import yaml
 import threading
 from pathlib import Path
 from typing import Dict, Optional
+
+from volttron_installer.settings import get_settings
+from ..models import HostEntry
+
 
 class InventoryService:
     """Service for managing Ansible inventory"""
 
     def __init__(self, inventory_path: Optional[Path] = None):
-        self.inventory_path = inventory_path or Path("data/inventory.json")
+        self._inventory_path = inventory_path or Path(get_settings().data_dir) / "inventory.yml"
+        
         self._lock = threading.Lock()  # Use threading.Lock instead of asyncio.Lock
+            
+        if not self._inventory_path.exists():
+            yaml.dump({'all': {'hosts': {}}}, self._inventory_path.open('w'))
+        
+        self._internal_state = yaml.safe_load(self._inventory_path.open())
 
-    async def load_inventory(self) -> Dict:
-        """Load inventory from file"""
-        with self._lock:  # Use 'with' instead of 'async with'
-            if not self.inventory_path.exists():
-                return {"inventory": {}}
-
-            try:
-                return json.loads(self.inventory_path.read_text())
-            except json.JSONDecodeError:
-                return {"inventory": {}}
-
-    async def save_inventory(self, inventory: Dict) -> None:
-        """Save inventory to file"""
-        with self._lock:  # Use 'with' instead of 'async with'
-            self.inventory_path.parent.mkdir(parents=True, exist_ok=True)
-            self.inventory_path.write_text(json.dumps(inventory, indent=2))
-
-    async def add_host(self, host_id: str, host_vars: Dict) -> None:
+    async def add_host(self, entry: HostEntry):
         """Add a host to the inventory"""
-        with self._lock:  # Use 'with' instead of 'async with'
-            inventory = await self.load_inventory()
-            inventory["inventory"][host_id] = host_vars
-            await self.save_inventory(inventory)
-
-    async def remove_host(self, host_id: str) -> None:
-        """Remove a host from the inventory"""
-        with self._lock:  # Use 'with' instead of 'async with'
-            inventory = await self.load_inventory()
-            if host_id in inventory["inventory"]:
-                del inventory["inventory"][host_id]
-                await self.save_inventory(inventory)
-
-    async def get_host(self, host_id: str) -> Optional[Dict]:
+        with self._lock:
+            self._internal_state['all']['hosts'][entry.id] = entry.model_dump()
+            yaml.dump(self._internal_state, self._inventory_path.open('w'))
+    
+    async def remove_host(self, host_id: str):
+        """Remove a host from the inventory"""      
+        with self._lock:
+            if host_id in self._internal_state['all']['hosts']:
+                del self._internal_state['all']['hosts'][host_id]
+                yaml.dump(self._internal_state, self._inventory_path.open('w'))
+    
+    async def get_host(self, host_id: str) -> Optional[HostEntry]:
         """Get a host from the inventory"""
-        with self._lock:  # Use 'with' instead of 'async with'
-            inventory = await self.load_inventory()
-            return inventory["inventory"].get(host_id)
+        with self._lock:
+            entry = self._internal_state['all']['hosts'].get(host_id)
+            if entry:
+                return HostEntry.model_validate(entry)
+            return None
+        
+    async def get_hosts(self) -> Dict[str, HostEntry]:
+        """Get all hosts from the inventory"""
+        with self._lock:
+            return {id: HostEntry.model_validate(entry) for id, entry in self._internal_state['all']['hosts'].items()}
+        
+    async def clear(self):
+        """Clear the inventory"""
+        with self._lock:
+            self._internal_state['all']['hosts'].clear()
+            yaml.dump(self._internal_state, self._inventory_path.open('w'))
 
-    async def list_hosts(self) -> Dict:
-        """List all hosts in the inventory"""
-        with self._lock:  # Use 'with' instead of 'async with'
-            return await self.load_inventory()
+    async def update_host(self, host_id: str, entry: HostEntry):
+        """Update a host in the inventory"""
+
+        self.remove_host(host_id)
+
+        with self._lock:
+            self._internal_state['all']['hosts'][entry.id] = entry.model_dump()
+            yaml.dump(self._internal_state, self._inventory_path.open('w'))
+
+    async def get_host_ids(self) -> list[str]:
+        """Get all host IDs from the inventory"""
+        with self._lock:
+            return list(self._internal_state['all']['hosts'].keys())
+
+
+__inventory_service__: InventoryService = InventoryService()
+def get_inventory_service() -> InventoryService:
+    return __inventory_service__
+
