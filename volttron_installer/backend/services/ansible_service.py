@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 import subprocess
 from typing import Optional
+from .. models import HostEntry
 import json
 import os
 
@@ -41,16 +42,13 @@ class AnsibleService:
 
         cmd.extend(["-e", json.dumps(default_vars)])
 
-        # Handle both full collection paths and direct file paths
-        if playbook_name.startswith('volttron.deployment.'):
-            # Convert collection path to actual playbook name
-            playbook_file = playbook_name.split('.')[-1].replace('_', '-') + '.yml'
-            cmd.append(str(self.playbook_dir / playbook_file))
-        else:
-            # Ensure .yml extension
-            if not playbook_name.endswith('.yml'):
-                playbook_name += '.yml'
-            cmd.append(str(self.playbook_dir / playbook_name))
+        # Ensure playbooks are run based on volttron.deployment
+        if not playbook_name.startswith('volttron.deployment.'):
+            playbook_name = f'volttron.deployment.{playbook_name}'
+
+        # Convert collection path to actual playbook name
+        playbook_file = playbook_name.split('.')[-1].replace('_', '-') + '.yml'
+        cmd.append(str(self.playbook_dir / playbook_file))
 
         # Set environment variables
         env = os.environ.copy()
@@ -70,8 +68,36 @@ class AnsibleService:
             stdout.decode() if stdout else "",
             stderr.decode() if stderr else ""
         )
+    
+    async def run_module(self, module_name: str, *args) -> tuple[int, str, str]:
+        """Run an Ansible module asynchronously
 
-    async def run_ad_hoc(self, command: str, inventory: str = "localhost,", connection: str = "local") -> tuple[int, str, str]:
+        Args:
+            module_name: Name of the module
+            args: Arguments to pass to the module
+
+        Returns:
+            Tuple of (return_code, stdout, stderr)
+        """
+        cmd = ["ansible", "-i", get_inventory_path().as_posix(), "-m", module_name]
+
+        if args:
+            cmd.extend([" ".join(args)])
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        stdout, stderr = await process.communicate()
+        return (
+            process.returncode,
+            stdout.decode() if stdout else "",
+            stderr.decode() if stderr else ""
+        )
+
+    async def run_volttron_ad_hoc(self, command: str, inventory: str = "localhost,", connection: str = "local") -> tuple[int, str, str]:
         """Run an ad-hoc Ansible command
 
         Args:
@@ -145,3 +171,53 @@ class AnsibleService:
 
         except Exception as e:
             return False, f"Error during host key verification: {str(e)}"
+
+    async def host_config(self, host_entry: HostEntry | str, config_vars: dict = None) -> tuple[int, str, str]:
+        """Configure a host using Ansible
+
+        Args:
+            host_entry: HostEntry object or string representing the ID of an existing host entry
+            config_vars: Optional dict of configuration variables to pass
+
+        Returns:
+            Tuple of (return_code, stdout, stderr)
+        """
+        if isinstance(host_entry, str):
+            host_entry = await self.get_host_entry_by_id(host_entry)
+
+        host_vars = {
+            "ansible_host": host_entry.host,
+            "ansible_user": host_entry.user,
+            "ansible_port": host_entry.port,
+            "ansible_connection": "ssh"
+        }
+
+        if host_entry.password:
+            host_vars["ansible_password"] = host_entry.password
+
+        if config_vars:
+            host_vars.update(config_vars)
+
+        return await self.run_playbook(
+            "configure-host",
+            inventory=f"{host_entry.host},",
+            extra_vars=host_vars
+        )
+
+    async def get_host_entry_by_id(self, host_id: str) -> 'HostEntry':
+        """Retrieve a HostEntry object by its ID
+
+        Args:
+            host_id: ID of the host entry
+
+        Returns:
+            HostEntry object
+        """
+        # Implement the logic to retrieve the HostEntry by its ID
+        # This is a placeholder implementation
+        return HostEntry(host="example.com", user="user", port=22, password="password")
+
+__ansible_service__ = AnsibleService()
+
+def get_ansible_service() -> AnsibleService:
+    return __ansible_service__
