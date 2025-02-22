@@ -2,7 +2,7 @@ import reflex as rx
 # from .....backend.models import CreateInventoryRequest, Inventory, HostEntry, ConfigStoreEntry, AgentDefinition, PlatformDefinition
 from pydantic import BaseModel
 from typing import Literal
-from ....backend.models import HostEntry, PlatformDefinition, ConfigStoreEntry#, AgentDefinition
+from ...backend.models import HostEntry, PlatformDefinition, ConfigStoreEntry#, AgentDefinition
 
 """
 2/18/24

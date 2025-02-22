@@ -7,7 +7,7 @@ import os
 from rxconfig import config
 from pprint import pprint
 from .styles import styles
-# from .frontend.frontend.pages import index
+from .pages.index import index
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,7 +26,7 @@ app = rx.App(
     style=styles.styles
     )
 
-# app.add_page(index)
+app.add_page(index, route="/")
 
 # Register the lifespan task
 app.register_lifespan_task(lifespan)

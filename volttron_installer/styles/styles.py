@@ -139,6 +139,50 @@ styles: dict = {
         # *COMMON_BUTTON_STRUCTURE()
     },
 
+    ".agent_config_views": {
+        "flex": "1",  # Ensure the container takes up equal space
+        "border": "1px solid white",
+        "border-radius": ".5rem",
+        "padding": "1rem",
+        "display": "flex",  # Ensure it works as a flex container
+        # "flex-direction": "column"  # Handle children as columns
+    },
+
+    ".agent_config_view_content": {
+        "display": "flex",
+        "flex-direction": "column",
+        "row-gap": "1rem",
+        "align-items": "center",
+        "flex": "1"  # Take up all the available space within the column
+    },
+
+    ".agent_config_container": {
+        "width": "60rem",
+        "height": "40rem",
+        # "border": "1px solid white",
+        "display" : "flex",
+        "flex-direction" : "row",
+        "column-gap" : "2rem"
+    },
+
+    ".agent_config_tile" : {
+        "display" : "flex",
+        "min-width" : "7rem",
+        "min-height" : "2rem",
+        "border-radius" : COMMON_BORDER_RADIUS,
+        "cursor" : "pointer",
+        "padding" : ".25rem",
+        "user-select" : "none",
+        "justify-content" : "start",
+        "align-items" : "start",
+        "transition" : HOVER_TRANSITION,
+        "background-color": "#2A2A2C"
+    },
+
+    ".agent_config_tile:hover" : {
+        "background-color" : "#333335"
+    },
+
 
     rx.button : {
         "cursor": "pointer",
