@@ -167,7 +167,7 @@ def platform_page() -> rx.Component:
     print(f"Uncaught: {working_platform.uncaught}")
     print(f"Valid: {working_platform.valid}")
 
-    return app_layout(
+    return rx.cond(State.is_hydrated, rx.fragment(app_layout(
         header(
             icon_button_wrapper.icon_button_wrapper(
                 tool_tip_content="Go back to overview",
@@ -351,38 +351,46 @@ def platform_page() -> rx.Component:
                 collapsible=True,
                 variant="outline"
             ),
-            rx.box(
-                rx.button(
-                    "Save", 
-                    size="4", 
-                    variant="surface",
-                    color_scheme="green",
-                    on_click=lambda: State.handle_save(),
-                    # disabled=rx.cond(
-                    #         working_platform.uncaught,
-                    #         False,
-                    #         True
-                    #     )
+                rx.box(
+                    rx.button(
+                        "Save", 
+                        size="4", 
+                        variant="surface",
+                        color_scheme="green",
+                        on_click=lambda: State.handle_save(),
+                        disabled=rx.cond(
+                                working_platform.uncaught,
+                                False,
+                                True
+                            )
+                        ),
+                    rx.button(
+                        "Deploy", 
+                        size="4", 
+                        variant="surface", 
+                        color_scheme="blue",
+                        on_click=lambda: State.handle_deploy(),
+                        disabled=rx.cond(
+                                (working_platform.uncaught == False)
+                                & (working_platform.valid==True),
+                                False,
+                                True
+                            )
+                        ),
+                    rx.button(
+                        "Cancel", 
+                        size="4", 
+                        variant="surface", 
+                        color_scheme="red",
+                        on_click=lambda: State.handle_cancel()
+                        ),
+                    class_name="platform_view_button_row"
                     ),
-                rx.button(
-                    "Deploy", 
-                    size="4", 
-                    variant="surface", 
-                    color_scheme="blue",
-                    on_click=lambda: State.handle_deploy()
-                    ),
-                rx.button(
-                    "Cancel", 
-                    size="4", 
-                    variant="surface", 
-                    color_scheme="red",
-                    on_click=lambda: State.handle_cancel()
-                    ),
-                class_name="platform_view_button_row"
-            ),
             class_name="platform_view_container"
         ),
-    )
+    )))
+
+
 
 
 def agent_config_tile(text, left_component: rx.Component = False, right_component: rx.Component = False)->rx.Component:
