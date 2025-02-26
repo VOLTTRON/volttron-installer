@@ -95,15 +95,10 @@ async def create_platform(platform: CreatePlatformRequest):
         platform_service = await get_platform_service()
         platform_definition = PlatformDefinition(config=platform.config,
                                                  agents=platform.agents)
-        await platform_service.add_platform(platform_definition)
+        await platform_service.create_platform(platform_definition)
         return SuccessResponse()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-@platform_router.post("/")
-async def add_platform(platform: CreatePlatformRequest):
-    """Adds a new platform"""
-    return SuccessResponse()
 
 @platform_router.post("/configure")
 async def configure_platform(platform: ConfigurePlatformRequest):

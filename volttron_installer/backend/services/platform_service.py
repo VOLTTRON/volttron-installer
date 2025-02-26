@@ -17,7 +17,7 @@ class PlatformService:
         self.platform_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()  # Use threading.Lock instead of asyncio.Lock
 
-    def add_platform(self, definition: PlatformDefinition):
+    def create_platform(self, definition: PlatformDefinition):
         with self._lock:
             normalized_name = normalize_name_for_file(definition.config.instance_name)
             definition_path = self.platform_dir / normalized_name

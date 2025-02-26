@@ -14,7 +14,7 @@ from ..components.custom_fields.text_editor import text_editor
 import typing
 import string, random, json
 from pydantic import BaseModel
-from ..backend.endpoints import get_platforms, add_platform, CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host
+from ..backend.endpoints import get_platforms, create_platform, CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host
 import asyncio
 
 parts = typing.Literal["connection", "instance_configuration"]
@@ -120,7 +120,7 @@ class State(rx.State):
             )
 
         nav_state: NavigationState = await self.get_state(NavigationState)
-        await nav_state.add_platform_route(new_uid)
+        await nav_state.create_platform_route(new_uid)
 
     @rx.event
     def toggle_advanced(self):
@@ -180,7 +180,7 @@ class State(rx.State):
 
         request = CreateOrUpdateHostEntryRequest(**working_platform.host.to_dict())
         add_host(request)
-        # await add_platform(
+        # await create_platform(
         #     CreatePlatformRequest(
         #         # working_platform.platform
         #         )
