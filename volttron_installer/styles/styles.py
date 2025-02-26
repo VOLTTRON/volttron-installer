@@ -198,7 +198,11 @@ styles: dict = {
     },
 
     ".agent_config_entry_section": {
-        
+        "display": "flex",
+        "flex-direction": "column",
+        "row-gap": "1rem",
+        "align-items": "center",
+        "flex": "1"  # Take up all the available space within the column
     },
 
     rx.button : {

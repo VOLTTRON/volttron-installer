@@ -4,6 +4,7 @@ from ..components.buttons import icon_button_wrapper, upload_button
 from ..components.header.header import header
 from ..components.tabs.state import PlatformState
 from ..components.buttons.tile_icon import tile_icon
+from ..components.buttons.icon_upload import icon_upload
 from ..navigation.state import NavigationState
 from ..components.form_components import form_entry
 from ..backend.models import HostEntry, PlatformDefinition, ConfigStoreEntry
@@ -197,7 +198,7 @@ def platform_page() -> rx.Component:
                 icon_key="arrow-left",
                 on_click=lambda: NavigationState.route_to_index()
             ),
-            rx.text(f"Platform: {PlatformState.current_uid}", size="5"),
+            rx.text(f"Platform: {PlatformState.current_uid}", size="6"),
         ),
         rx.box(
             rx.accordion.root(
@@ -445,7 +446,7 @@ def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
                         text_editor(
                             placeholder="Type out JSON, YAML, or upload a file!"
                         ),
-                        upload=upload_button.upload_button()
+                        upload=icon_upload()
                     ),
                     padding_top="1rem",
                     direction="column",
@@ -457,15 +458,42 @@ def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
             rx.tabs.content(
                 # This will look like the 
                 rx.flex(
-                    rx.box(
-                        class_name="agent_config_entry_section"
+                    rx.flex(
+                        rx.flex(
+                            icon_upload(),
+                            rx.text("broz"),
+                            rx.text("broz"),
+                            rx.text("broz"),
+                            direction="column",
+                            flex="1",
+                            align="center",
+                            spacing="4"
+                        ),
+                        border="1px solid white",
+                        border_radius=".5rem",
+                        padding="1rem",
+                        flex="1"
                     ),
-                    rx.box(
-                        class_name="agent_config_entry_section"
+                    rx.flex(
+                        rx.flex(
+                            # rx.cond(
+                            #     True,
+                                rx.box(),
+                            # )
+                            direction="column",
+                            flex="1",
+                            align="center"
+                        ),
+                        # border="1px solid white",
+                        border_radius=".5rem",
+                        padding="1rem",
+                        flex="1"
                     ),
+                    align="center",
                     spacing="4",
                     direction="row",
-                    padding_top="1rem"
+                    padding_top="1rem",
+                    width="100%"
                 ),
                 value="2"
             ),
@@ -478,7 +506,8 @@ def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
                 color_scheme="green",
                 #on_click
             ), 
-            align_items="end"
+            align_items="end",
+            justify="end"
         ),
         min_height="80vh",
         direction="column",

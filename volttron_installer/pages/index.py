@@ -21,7 +21,7 @@ def index() -> rx.Component:
     return rx.fragment(
         rx.vstack(
             header.header.header(
-                rx.text("Overview", size="5"),
+                rx.text("Overview", size="7"),
                 add_icon_button.add_icon_button(
                     tool_tip_content="Create a Platform",
                     on_click=lambda: PlatformState.generate_new_platform
