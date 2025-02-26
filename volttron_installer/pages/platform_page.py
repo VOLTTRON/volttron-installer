@@ -1,29 +1,40 @@
 import reflex as rx
 from ..layouts.app_layout import app_layout
-from ..components.buttons import icon_button_wrapper
+from ..components.buttons import icon_button_wrapper, upload_button
 from ..components.header.header import header
 from ..components.tabs.state import PlatformState
 from ..components.buttons.tile_icon import tile_icon
 from ..navigation.state import NavigationState
 from ..components.form_components import form_entry
-from ..backend.models import HostEntry, PlatformDefinition
+from ..backend.models import HostEntry, PlatformDefinition, ConfigStoreEntry
+from ..components.custom_fields.text_editor import text_editor
 
 # storing stuff here just for now, will move to a better place later
 import typing
 import string, random, json
+from pydantic import BaseModel
 
 parts = typing.Literal["connection", "instance_configuration"]
+
+class AgentDefinition(BaseModel):
+    identity: str
+    agent_source: str
+    agent_running: bool = True
+    has_config_store: bool = False
+    agent_config: dict[str, str] = {}
+    agent_config_store: list[ConfigStoreEntry] = []
+
 
 class Instance(rx.Base):
     host: HostEntry
     platform: PlatformDefinition
-    advanced_expanded: bool = False
 
     safe_host_entry: dict = {}
     uncaught: bool = False
     valid: bool = False    
 
     web_checked: bool = False
+    advanced_expanded: bool = False
     agent_configuration_expanded: bool = False
 
     def has_uncaught_changes(self) -> bool:
@@ -33,7 +44,11 @@ class Instance(rx.Base):
         host_dict = self.host.to_dict()
         if not all([host_dict.get("id"), host_dict.get("ansible_user"), host_dict.get("ansible_host")]):
             print("Error: Missing host details", host_dict)
-
+        print("\n\nTHIS SI ME HRADCORE CHECKING IF ITS VALID OR NOT")
+        print("id", host_dict["id"]=="")
+        print("user", host_dict["ansible_user"]=="")
+        print("host", host_dict["ansible_host"]=="")
+        print("\n")
         # If all fields are filled out, return false because no errors
         return (
             host_dict["id"] and \
@@ -46,28 +61,36 @@ class State(rx.State):
     platforms: dict[str, Instance] = {}
 
 # =========== Putting this here for now, ideally will be inside Instance class ==============
-    list_of_agents: list[str] = [
-        "Agent 1",
-        "Agent 2",
-        "Agent 3"
+    list_of_agents: list[AgentDefinition] = [
+        AgentDefinition(identity="Agent 1", agent_source=""),
+        AgentDefinition(identity="Agent 2", agent_source=""),
+        AgentDefinition(identity="Agent 3", agent_source="")
     ]
 
-    added_agents: list[str] =[]
+    added_agents: list[AgentDefinition] = []
+
+    # list_of_agents: list[str] = [
+    #     "Agent 1",
+    #     "Agent 2",
+    #     "Agent 3",
+    # ]
+
+    # added_agents: list[str] =[]
 # ==================================================================================================
     @rx.var(cache=True)
     def current_uid(self) -> str:
         return self.router.page.params.get("uid", "")
 
     @rx.event
-    def handle_adding_agent(self, agent_name: str):
-        if agent_name in self.list_of_agents:
-            self.added_agents.append(agent_name)
-            pass
+    def handle_adding_agent(self, agent: AgentDefinition):
+        # if agent_name in self.list_of_agents:
+        #     self.added_agents.append(agent_name)
+        new_agent = agent.model_copy()
+        self.added_agents.append(new_agent)
         
     @rx.event
-    def handle_removing_agent(self, agent_name: str, index: int):
+    def handle_removing_agent(self, index: int):
         self.added_agents.pop(index)
-
 
     @rx.event
     def cancel_changes(self):
@@ -76,7 +99,7 @@ class State(rx.State):
         # Revert back to our previous host entry
         working_platform.host = HostEntry(**working_platform.safe_host_entry)
         working_platform.uncaught = False
-        working_platform.valid = not working_platform.does_host_have_errors()
+        working_platform.valid = working_platform.does_host_have_errors()
 
     @rx.event
     async def generate_new_platform(self):
@@ -111,7 +134,7 @@ class State(rx.State):
     def update_detail(self, field: str, value):
         working_platform_instance = self.platforms[self.current_uid]
         working_platform_instance.uncaught = working_platform_instance.has_uncaught_changes()
-        working_platform_instance.valid = not working_platform_instance.does_host_have_errors()
+        working_platform_instance.valid = working_platform_instance.does_host_have_errors()
         print(f"this is the uncaught: {working_platform_instance.uncaught}")
         print(f"this is the valid: {working_platform_instance.valid}")
         setattr(working_platform_instance.host, field, value)
@@ -119,7 +142,7 @@ class State(rx.State):
     @rx.event
     def handle_deploy(self):
         working_platform: Instance = self.platforms[self.current_uid]
-        print(f"bruhhhs: {working_platform.uncaught} , {working_platform.valid}")
+        print(f"bruhhhs: uncaught:{working_platform.uncaught} , valid{working_platform.valid}")
 
         if working_platform.uncaught != False and working_platform.valid:
             working_platform.safe_host_entry = working_platform.host.to_dict()
@@ -132,11 +155,12 @@ class State(rx.State):
         working_platform: Instance = self.platforms[self.current_uid]
         print(f"bruhhhs: {working_platform.uncaught} , {working_platform.valid}")
 
-        if working_platform.uncaught and working_platform.valid:
-            working_platform.safe_host_entry = working_platform.host.to_dict()
-            working_platform.uncaught = False
-
-            yield rx.toast.success("Changes saved successfully")
+        # if working_platform.uncaught and working_platform.valid:
+        # Should just save anyway, we wont be able to deploy as long as its
+        # not valid
+        working_platform.safe_host_entry = working_platform.host.to_dict()
+        working_platform.uncaught = False
+        yield rx.toast.success("Changes saved successfully")
 
     @rx.event
     def handle_cancel(self):
@@ -148,7 +172,6 @@ class State(rx.State):
 
     def handle_validity(self, working_platform: Instance):
         working_platform.valid = not working_platform.does_host_have_errors()
-
 
     def generate_unique_uid(self, length=7) -> str:
         characters = string.ascii_letters + string.digits
@@ -235,19 +258,26 @@ def platform_page() -> rx.Component:
                                         )
                                     ),
                                     form_entry.form_entry(
-                                        "VOLTTRON Home",
+                                        "HTTP Proxy",
                                         rx.input(
                                             size="3",
                                             required=True,
                                         )
                                     ),
                                     form_entry.form_entry(
-                                        "SSH config stuff",
+                                        "VOLTTRON Home",
                                         rx.input(
                                             size="3",
                                             required=True,
                                         )
                                     ),
+                                    # form_entry.form_entry(
+                                    #     "SSH config stuff",
+                                    #     rx.input(
+                                    #         size="3",
+                                    #         required=True,
+                                    #     )
+                                    # ),
                                 )
                             ),
                             class_name="platform_content_view"
@@ -307,11 +337,11 @@ def platform_page() -> rx.Component:
                                                 rx.heading("Listed Agents", as_="h3"),
                                                 rx.foreach(
                                                     State.list_of_agents,
-                                                    lambda agent_name: agent_config_tile(
-                                                        agent_name, 
+                                                    lambda agent: agent_config_tile(
+                                                        agent.identity, 
                                                         right_component=tile_icon(
                                                             "plus",
-                                                            on_click=lambda: State.handle_adding_agent(agent_name)
+                                                            on_click=lambda: State.handle_adding_agent(agent)
                                                             ),
                                                         ),
                                                 ),
@@ -324,14 +354,21 @@ def platform_page() -> rx.Component:
                                                 rx.heading("Added Agents", as_="h3"),
                                                 rx.foreach(
                                                     State.added_agents,
-                                                    lambda agent_name, index: agent_config_tile(
-                                                        agent_name, 
+                                                    lambda agent, index: agent_config_tile(
+                                                        agent.identity, 
                                                         left_component=tile_icon(
                                                             "trash-2",
-                                                            on_click= lambda: State.handle_removing_agent(agent_name, index)
+                                                            on_click= lambda: State.handle_removing_agent(index)
                                                             ),
-                                                        right_component=tile_icon(
-                                                            "settings"
+                                                        right_component=rx.dialog.root(
+                                                                rx.dialog.trigger(
+                                                                    tile_icon(
+                                                                        "settings"
+                                                                    )
+                                                                ),
+                                                                rx.dialog.content(
+                                                                    agent_config_modal(agent, index)
+                                                                )
                                                             ),
                                                         )
                                                 ),
@@ -351,47 +388,102 @@ def platform_page() -> rx.Component:
                 collapsible=True,
                 variant="outline"
             ),
-                rx.box(
-                    rx.button(
-                        "Save", 
-                        size="4", 
-                        variant="surface",
-                        color_scheme="green",
-                        on_click=lambda: State.handle_save(),
-                        disabled=rx.cond(
-                                working_platform.uncaught,
-                                False,
-                                True
-                            )
-                        ),
-                    rx.button(
-                        "Deploy", 
-                        size="4", 
-                        variant="surface", 
-                        color_scheme="blue",
-                        on_click=lambda: State.handle_deploy(),
-                        disabled=rx.cond(
-                                (working_platform.uncaught == False)
-                                & (working_platform.valid==True),
-                                False,
-                                True
-                            )
-                        ),
-                    rx.button(
-                        "Cancel", 
-                        size="4", 
-                        variant="surface", 
-                        color_scheme="red",
-                        on_click=lambda: State.handle_cancel()
-                        ),
-                    class_name="platform_view_button_row"
+            rx.box(
+                rx.button(
+                    "Save", 
+                    size="4", 
+                    variant="surface",
+                    color_scheme="green",
+                    on_click=lambda: State.handle_save(),
+                    disabled=rx.cond(
+                            working_platform.uncaught,
+                            False,
+                            True
+                        )
                     ),
-            class_name="platform_view_container"
+                rx.button(
+                    "Deploy", 
+                    size="4", 
+                    variant="surface", 
+                    color_scheme="blue",
+                    on_click=lambda: State.handle_deploy(),
+                    disabled=rx.cond(
+                            (working_platform.uncaught == False)
+                            & (working_platform.valid==True),
+                            False,
+                            True
+                        )
+                    ),
+                rx.button(
+                    "Cancel", 
+                    size="4", 
+                    variant="surface", 
+                    color_scheme="red",
+                    on_click=lambda: State.handle_cancel()
+                    ),
+                class_name="platform_view_button_row"
+                ),
+        class_name="platform_view_container"
         ),
     )))
 
-
-
+def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
+    return rx.flex(
+        rx.tabs.root(
+            rx.tabs.list(
+                rx.tabs.trigger("Agent Config", value="1"),
+                rx.tabs.trigger("Config Store Entries", value="2")
+            ),
+            rx.tabs.content(
+                rx.flex(
+                    form_entry.form_entry(
+                        "Identity",
+                        rx.input()
+                    ),
+                    form_entry.form_entry(
+                        "Agent Config",
+                        text_editor(
+                            placeholder="Type out JSON, YAML, or upload a file!"
+                        ),
+                        upload=upload_button.upload_button()
+                    ),
+                    padding_top="1rem",
+                    direction="column",
+                    class_name="agent_config_modal",
+                    spacing="3",
+                ),
+                value="1"
+            ),
+            rx.tabs.content(
+                # This will look like the 
+                rx.flex(
+                    rx.box(
+                        class_name="agent_config_entry_section"
+                    ),
+                    rx.box(
+                        class_name="agent_config_entry_section"
+                    ),
+                    spacing="4",
+                    direction="row",
+                    padding_top="1rem"
+                ),
+                value="2"
+            ),
+            default_value="1"
+        ),
+        rx.hstack(
+            rx.button(
+                "Save",
+                variant="surface",
+                color_scheme="green",
+                #on_click
+            ), 
+            align_items="end"
+        ),
+        min_height="80vh",
+        direction="column",
+        spacing="3",
+    )
 
 def agent_config_tile(text, left_component: rx.Component = False, right_component: rx.Component = False)->rx.Component:
     return rx.hstack(

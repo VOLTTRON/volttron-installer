@@ -183,6 +183,23 @@ styles: dict = {
         "background-color" : "#333335"
     },
 
+    ".agent_config_modal_container": {
+        "padding-left" : "3rem",
+        "padding-right" : "3rem",
+    },
+
+    ".agent_config_modal" :{
+        "display": "flex",
+        "flex-direction": "column",
+        "align-items": "center",
+        "row-gap": "5rem",
+        "row" : "3rem",
+        "flex": "1"
+    },
+
+    ".agent_config_entry_section": {
+        
+    },
 
     rx.button : {
         "cursor": "pointer",
