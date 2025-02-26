@@ -30,11 +30,15 @@ class HostEntry(BaseModel):
             "id": self.id,
             "ansible_user": self.ansible_user,
             "ansible_host": self.ansible_host,
-            "https_proxy": self.https_proxy,
-            "volttron_venv": self.volttron_venv,
-            "host_configs_dir": self.host_configs_dir
+            "ansible_port": self.ansible_port,
+            "ansible_connection": self.ansible_connection,
+            "http_proxy": "" if self.http_proxy is None else self.http_proxy,
+            "https_proxy": "" if self.https_proxy is None else self.https_proxy,
+            "volttron_venv": "" if self.volttron_venv is None else self.volttron_venv,
+            "volttron_home": self.volttron_home,
+            "host_configs_dir": "" if self.host_configs_dir is None else self.host_configs_dir
         }
-
+    
 class Inventory(BaseModel):
     """Inventory model with a dictionary of host entries"""
     host_entries: dict[str, HostEntry] = {}  # Keep using 'inventory' for backward compatibility

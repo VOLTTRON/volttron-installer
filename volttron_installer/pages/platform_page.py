@@ -14,6 +14,8 @@ from ..components.custom_fields.text_editor import text_editor
 import typing
 import string, random, json
 from pydantic import BaseModel
+from ..backend.endpoints import get_platforms, add_platform, CreatePlatformRequest, CreateOrUpdateHostEntry, add_host
+import asyncio
 
 parts = typing.Literal["connection", "instance_configuration"]
 
@@ -27,8 +29,12 @@ class AgentDefinition(BaseModel):
 
 
 class Instance(rx.Base):
+    # TODO: Implement a system to check the platform,
+    # config's uncaught changes as well
     host: HostEntry
     platform: PlatformDefinition
+
+    web_bind_address: str = ""
 
     safe_host_entry: dict = {}
     uncaught: bool = False
@@ -134,11 +140,18 @@ class State(rx.State):
     @rx.event
     def update_detail(self, field: str, value):
         working_platform_instance = self.platforms[self.current_uid]
+        setattr(working_platform_instance.host, field, value)
         working_platform_instance.uncaught = working_platform_instance.has_uncaught_changes()
-        working_platform_instance.valid = working_platform_instance.does_host_have_errors()
         print(f"this is the uncaught: {working_platform_instance.uncaught}")
         print(f"this is the valid: {working_platform_instance.valid}")
-        setattr(working_platform_instance.host, field, value)
+
+    @rx.event
+    def update_platform_config_detail(self, field: str, value: str):
+        working_platform = self.platforms[self.current_uid]
+        if field == "web_bind_address":
+            setattr(working_platform, field, value)
+        else:
+            setattr(working_platform.platform.config, field, value)
 
     @rx.event
     def handle_deploy(self):
@@ -161,6 +174,17 @@ class State(rx.State):
         # not valid
         working_platform.safe_host_entry = working_platform.host.to_dict()
         working_platform.uncaught = False
+
+        # NOTE, theres a problem here
+        # this thing worked ONE time and hasn't worked since,
+
+        request = CreateOrUpdateHostEntry(**working_platform.host.to_dict())
+        add_host(request)
+        # await add_platform(
+        #     CreatePlatformRequest(
+        #         # working_platform.platform
+        #         )
+        #     )
         yield rx.toast.success("Changes saved successfully")
 
     @rx.event
@@ -186,10 +210,6 @@ class State(rx.State):
 def platform_page() -> rx.Component:
 
     working_platform: Instance = State.platforms[State.current_uid]
-
-    print(f"Web checked: {working_platform.web_checked}")
-    print(f"Uncaught: {working_platform.uncaught}")
-    print(f"Valid: {working_platform.valid}")
 
     return rx.cond(State.is_hydrated, rx.fragment(app_layout(
         header(
@@ -229,8 +249,8 @@ def platform_page() -> rx.Component:
                             form_entry.form_entry(
                                 "Port SSH",
                                 rx.input(
-                                    value= working_platform.host.ansible_host,
-                                    on_change=lambda v: State.update_detail("ansible_host", v),
+                                    value= working_platform.host.ansible_port,
+                                    on_change=lambda v: State.update_detail("ansible_port", v),
                                     size="3",
                                     required=True,
                                 ),
@@ -252,15 +272,19 @@ def platform_page() -> rx.Component:
                                 working_platform.advanced_expanded,
                                 rx.fragment(
                                     form_entry.form_entry(
-                                        "HTTPS Proxy",
+                                        "HTTP Proxy",
                                         rx.input(
+                                            value= working_platform.host.http_proxy,
+                                            on_change=lambda v: State.update_detail("http_proxy", v),
                                             size="3",
                                             required=True,
                                         )
                                     ),
                                     form_entry.form_entry(
-                                        "HTTP Proxy",
+                                        "HTTPS Proxy",
                                         rx.input(
+                                            value= working_platform.host.https_proxy,
+                                            on_change=lambda v: State.update_detail("https_proxy", v),
                                             size="3",
                                             required=True,
                                         )
@@ -268,6 +292,8 @@ def platform_page() -> rx.Component:
                                     form_entry.form_entry(
                                         "VOLTTRON Home",
                                         rx.input(
+                                            value= working_platform.host.volttron_home,
+                                            on_change=lambda v: State.update_detail("volttron_home", v),
                                             size="3",
                                             required=True,
                                         )
@@ -294,6 +320,8 @@ def platform_page() -> rx.Component:
                                 "Vip Address",
                                 rx.input(
                                     size="3",
+                                    value=working_platform.platform.config.vip_address,
+                                    on_change=lambda v: State.update_platform_config_detail("vip_address", v),
                                     required=True,
                                 )
                             ),
@@ -312,6 +340,8 @@ def platform_page() -> rx.Component:
                                         "Web Bind Address",
                                         rx.input(
                                             size="3",
+                                            value=working_platform.web_bind_address,
+                                            on_change=lambda v: State.update_platform_config_detail("web_bind_address", v),
                                             required=True,
                                         )
                                     )
@@ -439,7 +469,9 @@ def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
                 rx.flex(
                     form_entry.form_entry(
                         "Identity",
-                        rx.input()
+                        rx.input(
+                            size="3"
+                        )
                     ),
                     form_entry.form_entry(
                         "Agent Config",
