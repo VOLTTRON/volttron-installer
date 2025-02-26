@@ -6,9 +6,10 @@ import os
 
 from volttron_installer.backend.services.ansible_service import AnsibleService, get_ansible_service
 from volttron_installer.backend.services.inventory_service import get_inventory_service
+from volttron_installer.backend.services.platform_service import get_platform_service
 
 from .models import (
-    CreateOrUpdateHostEntry,
+    CreateOrUpdateHostEntryRequest,
     SuccessResponse,
     CreatePlatformRequest,
     PlatformDefinition,
@@ -24,28 +25,31 @@ task_router = APIRouter(prefix="/task", tags=["tasks"])
 
 
 @ansible_router.get("/hosts", response_model=list[HostEntry])
-def get_hosts() -> list[HostEntry]:
+async def get_hosts() -> list[HostEntry]:
     """Retrieves the inventory"""
     try:
-        inventory_service = get_inventory_service()
-        hosts = inventory_service.get_hosts()
+        inventory_service = await get_inventory_service()
+        hosts = await inventory_service.get_hosts()
         return list(hosts.values())
     except Exception as e:
         # Return empty inventory on any error
         return []
 
 @ansible_router.get("/hosts/{id}", response_model=HostEntry)
-def get_host_id(id: str) -> HostEntry | None:
+async def get_host_id(id: str) -> HostEntry | None:
     """Retrieves a host entry by its ID"""
     try:
-        inventory_service = get_inventory_service()
-        return inventory_service.get_host(id)
+        inventory_service = await get_inventory_service()
+        host_entry = await inventory_service.get_host(id)
+        if host_entry is None:
+            raise HTTPException(status_code=404, detail="Host entry not found")
+        return host_entry
     except Exception as e:  
         # Return empty inventory on any error
         return None
 
 @ansible_router.post("/hosts")
-def add_host(host_entry: CreateOrUpdateHostEntry):
+async def add_host(host_entry: CreateOrUpdateHostEntryRequest):
     """Adds a new host entry to the inventory"""
     try:
         # Create HostEntry first to validate
@@ -60,7 +64,8 @@ def add_host(host_entry: CreateOrUpdateHostEntry):
             host_configs_dir=host_entry.host_configs_dir
         )
 
-        get_inventory_service().add_host(item)
+        inventory_service = await get_inventory_service()
+        await inventory_service.add_host(item)
         return SuccessResponse()
 
     except ValueError as e:
@@ -69,26 +74,39 @@ def add_host(host_entry: CreateOrUpdateHostEntry):
         raise HTTPException(status_code=500, detail=str(e))
 
 @ansible_router.delete("/hosts/{id}")
-def remove_from_inventory(id: str):
+async def remove_from_inventory(id: str):
     """Removes a host entry from the inventory"""
     try:
-        get_inventory_service().remove_host(id)
+        inventory_service = await get_inventory_service()
+        await inventory_service.remove_host(id)
         return SuccessResponse()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @platform_router.get("/")
-def get_platforms():
+async def get_platforms():
     """Retrieves all platforms"""
     return {"platforms": []}
 
 @platform_router.post("/")
-def add_platform(platform: CreatePlatformRequest):
+async def create_platform(platform: CreatePlatformRequest):
+    """Creates a new platform"""
+    try:
+        platform_service = await get_platform_service()
+        platform_definition = PlatformDefinition(config=platform.config,
+                                                 agents=platform.agents)
+        await platform_service.add_platform(platform_definition)
+        return SuccessResponse()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@platform_router.post("/")
+async def add_platform(platform: CreatePlatformRequest):
     """Adds a new platform"""
     return SuccessResponse()
 
 @platform_router.post("/configure")
-def configure_platform(platform: ConfigurePlatformRequest):
+async def configure_platform(platform: ConfigurePlatformRequest):
     """Configures a platform"""
     # Get the platform definition
     # Configure the host installing dependent libraries
@@ -99,18 +117,18 @@ def configure_platform(platform: ConfigurePlatformRequest):
     return SuccessResponse()
 
 @platform_router.post("/deploy")
-def deploy_platform(deploy):
+async def deploy_platform(deploy):
     """Deploys a platform"""
     # Get the platform definition
     # Deploy the platform
     return SuccessResponse()
 
-def deploy_platforms():
+async def deploy_platforms():
     """Deploy all the platforms"""
     return SuccessResponse()
 
 @platform_router.post("/{id}/run")
-def run_platform(id: str):
+async def run_platform(id: str):
     """Runs a specific platform"""
     # TODO: Implement this
     # ansible-playbook -i <path/to/your/inventory>.yml \
@@ -118,42 +136,42 @@ def run_platform(id: str):
     return SuccessResponse()
 
 @platform_router.post("/run")
-def run_platforms():
+async def run_platforms():
     """Runs all platforms"""
     return SuccessResponse()
 
 @platform_router.post("/{id}/configure_agents")
-def configure_agents(id: str):
+async def configure_agents(id: str):
     """Configures agents for a platform"""
     # Get the platform definition
     # Configure the agents
     return SuccessResponse()
 
 @platform_router.get("/status")
-def get_platforms_status():
+async def get_platforms_status():
     """Retrieves the status of all platforms"""
     return {"status": "ok"}
 
 @platform_router.get("/{id}/status")
-def get_platform_status(id: str):
+async def get_platform_status(id: str):
     """Retrieves the status of a specific platform"""
     return {"status": "ok"}
 
 @platform_router.get("/{id}/agents")
-def get_agents_running_state(id: str):
+async def get_agents_running_state(id: str):
     """Retrieves the running state of agents for a platform"""
     # ansible-playbook -i <path/to/your/inventory>.yml \
     #             volttron.deployment.ad_hoc -e "command='vctl status'"
     return {"agents": []}
 
 @task_router.get("/")
-def get_tasks():
+async def get_tasks():
     """Retrieves the list of tasks"""
     # Get the list of tasks
     return {"tasks": []}
 
 @task_router.get("/{id}")
-def task_status(id: str):
+async def task_status(id: str):
     """Retrieves the status of a specific task"""
     # Get the status of the task
     return {"status": "ok"}
@@ -226,8 +244,8 @@ async def stop_platform(platform_id: str, ansible: AnsibleService = Depends(get_
 async def ping_host(id: str, ansible: AnsibleService = Depends(get_ansible_service)):
     """Pings a specific host using Ansible"""
     try:
-        
-        entry = get_inventory_service().get_host(id)
+        inventory_service = await get_inventory_service()
+        entry = await inventory_service.get_host(id)
         if not entry:
             raise HTTPException(status_code=404, detail="Host entry not found")
         

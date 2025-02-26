@@ -38,42 +38,29 @@ class HostEntry(BaseModel):
             "volttron_home": self.volttron_home,
             "host_configs_dir": "" if self.host_configs_dir is None else self.host_configs_dir
         }
-    
-class Inventory(BaseModel):
-    """Inventory model with a dictionary of host entries"""
-    host_entries: dict[str, HostEntry] = {}  # Keep using 'inventory' for backward compatibility
 
-    @property
-    def hosts(self) -> list[dict]:
-        """Get inventory as a list of dicts for UI display"""
-        return [
-            {
-                "id": host.id,
-                "ansible_user": host.ansible_user,
-                "ansible_host": host.ansible_host,
-            }
-            for host in self.host_entries.values()
-        ]
 
-class CreateOrUpdateHostEntry(BaseModel):
+class CreateOrUpdateHostEntryRequest(HostEntry):
     """Request model for creating or updating a host entry"""
-    id: str
-    ansible_user: str
-    ansible_host: str
-    ansible_port: int = Field(default=22)
-    http_proxy: str = ""
-    https_proxy: str = ""
-    volttron_venv: str = ""
-    host_configs_dir: str = ""
+    pass
 
-class RemoveHostEntry(BaseModel):
+class RemoveHostEntryRequest(BaseModel):
     """Request model for removing a host entry"""
     id: str
     
 class ConfigStoreEntry(BaseModel):
     """Represents an entry in the configuration store"""
-    name: str
-    content: str
+    path: Annotated[str, AfterValidator(is_valid_field_name_for_config)]
+    data_type: Literal["CSV", "JSON"] = "JSON"
+    value: str = ""
+
+    def to_dict(self)-> dict[str, str]:
+        return {
+            "path" : self.path,
+            "data_type": self.data_type,
+            "value": self.value
+        }
+
 
 class AgentDefinition(BaseModel):
     identity: str
@@ -83,39 +70,9 @@ class AgentDefinition(BaseModel):
     agent_config: dict[str, str] = {}
     agent_config_store: list[ConfigStoreEntry] = []
 
-class PlatformConfiguration(BaseModel):
-    """Request model for configuring a platform"""
-    instance_name: str
-    vip_address: str
-    message_bus: Literal["zmq"] = "zmq"
-    agents: list[AgentDefinition]
-
 class SuccessResponse(BaseModel):
     """Simple success response model"""
     success: bool = True
-
-class ConfigItem(BaseModel):
-    """Represents a configuration item with a key and value"""
-    key: Annotated[str, AfterValidator(is_valid_field_name_for_config)]
-    value: str
-
-class ConfigStoreEntry(BaseModel):
-    """Represents an entry in the configuration store"""
-    path: str
-    name: str = ""
-    absolute_path: bool = False
-    present: bool = True
-    data_type: str = ""
-    value: str = ""
-
-    def to_dict(self)-> dict[str, str]:
-        return {
-            "name": self.name,
-            "path" : self.path,
-            "data_type": self.data_type,
-            "value": self.value
-        }
-
 
 class AgentDefinition(BaseModel):
     """Represents an agent definition with validation in model_post_init"""
@@ -143,11 +100,17 @@ class AgentDefinition(BaseModel):
             raise ValidationError("Only one of pypi_package or source can be set.")
         logger.debug(f"Initialized agent definition for {self.identity}")
 
+class KeyValuePair(BaseModel):
+    key: str
+    value: float | int | str
+
+
 class PlatformConfig(BaseModel):
     """Represents the platform configuration"""
     instance_name: str = "volttron1"
     vip_address: str = "tcp://127.0.0.1:22916"
     message_bus: Literal["zmq"] = "zmq"
+    options: list[KeyValuePair] = []
 
     @field_validator('vip_address')
     def validate_vip_address(cls, v):
@@ -169,22 +132,21 @@ class PlatformDefinition(BaseModel):
     def __getitem__(self, item):
         return self.config[item]
 
-    def add_item(self, item: ConfigItem):
-        logger.debug(f"Adding config item: {item.key}={item.value}")
-        self.config[item.key] = item
-
-    def add(self, key: str, value: str):
-        logger.debug(f"Adding config key-value: {key}={value}")
-        self.config[key] = ConfigItem(key=key, value=value)
-
 class CreatePlatformRequest(PlatformDefinition):
     """Request model for creating a platform"""
     pass
 
 class ConfigurePlatformRequest(BaseModel):
     """Request model for configuring a platform"""
-    id: str
+    instance_name: str
+    vip_address: str
+    message_bus: Literal["zmq"] = "zmq"
+    agents: dict[str, AgentDefinition] = {}
 
-class ConfigureAllPlatformsRequest(BaseModel):
-    """Request model for configuring all platforms"""
-    pass
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "instance_name": self.instance_name,
+            "vip_address": self.vip_address,
+            "message_bus": self.message_bus,
+            "agents": {k: v.to_dict() for k, v in self.agents.items()}
+        }

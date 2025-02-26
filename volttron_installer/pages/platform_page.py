@@ -14,7 +14,7 @@ from ..components.custom_fields.text_editor import text_editor
 import typing
 import string, random, json
 from pydantic import BaseModel
-from ..backend.endpoints import get_platforms, add_platform, CreatePlatformRequest, CreateOrUpdateHostEntry, add_host
+from ..backend.endpoints import get_platforms, add_platform, CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host
 import asyncio
 
 parts = typing.Literal["connection", "instance_configuration"]
@@ -178,7 +178,7 @@ class State(rx.State):
         # NOTE, theres a problem here
         # this thing worked ONE time and hasn't worked since,
 
-        request = CreateOrUpdateHostEntry(**working_platform.host.to_dict())
+        request = CreateOrUpdateHostEntryRequest(**working_platform.host.to_dict())
         add_host(request)
         # await add_platform(
         #     CreatePlatformRequest(
