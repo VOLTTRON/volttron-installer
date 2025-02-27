@@ -605,9 +605,9 @@ def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
                                     "text/json" : [".json"]
                                 }
                             ),
-                            rx.text("broz"),
-                            rx.text("broz"),
-                            rx.text("broz"),
+                            # rx.text("broz"),
+                            # rx.text("broz"),
+                            # rx.text("broz"),
                             direction="column",
                             flex="1",
                             align="center",
@@ -653,7 +653,7 @@ def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
             align_items="end",
             justify="end"
         ),
-        min_height="30rem",
+        min_height="clamp(90vh, 30rem)",
         direction="column",
         spacing="3",
     )
