@@ -68,6 +68,6 @@ class InventoryService:
 
 
 __inventory_service__: InventoryService = InventoryService()
-def get_inventory_service() -> InventoryService:
+async def get_inventory_service() -> InventoryService:
     return __inventory_service__
 

@@ -1,6 +1,7 @@
 import typing
 import reflex as rx 
 from .state import PlatformOverviewState 
+from ...pages.platform_page import State as PlatformState
 from ..tiles.platform_tile import platform_tile
 from ...navigation.state import NavigationState
 
@@ -14,7 +15,7 @@ def platform_overview() -> rx.Component:
 
     return rx.flex(
         rx.foreach(
-            PlatformOverviewState.platforms,
+            PlatformState.platforms,
             craft_new_platform_tile
         ),
         wrap="wrap",
