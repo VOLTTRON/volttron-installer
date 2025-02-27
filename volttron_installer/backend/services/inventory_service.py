@@ -14,24 +14,28 @@ class InventoryService:
         self._inventory_path = inventory_path or Path(get_settings().data_dir) / "inventory.yml"
         
         self._lock = threading.Lock()  # Use threading.Lock instead of asyncio.Lock
-            
-        if not self._inventory_path.exists():
-            yaml.dump({'all': {'hosts': {}}}, self._inventory_path.open('w'))
-        
+                 
         self._internal_state = yaml.safe_load(self._inventory_path.open())
 
+    @property
+    def inventory_path(self) -> Path:
+        self._inventory_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._inventory_path.exists():
+            yaml.dump({'all': {'hosts': {}}}, self._inventory_path.open('w'))
+        return self._inventory_path
+    
     async def add_host(self, entry: HostEntry):
         """Add a host to the inventory"""
         with self._lock:
             self._internal_state['all']['hosts'][entry.id] = entry.model_dump()
-            yaml.dump(self._internal_state, self._inventory_path.open('w'))
+            yaml.dump(self._internal_state, self.inventory_path.open('w'))
     
     async def remove_host(self, host_id: str):
         """Remove a host from the inventory"""      
         with self._lock:
             if host_id in self._internal_state['all']['hosts']:
                 del self._internal_state['all']['hosts'][host_id]
-                yaml.dump(self._internal_state, self._inventory_path.open('w'))
+                yaml.dump(self._internal_state, self.inventory_path.open('w'))
     
     async def get_host(self, host_id: str) -> Optional[HostEntry]:
         """Get a host from the inventory"""
@@ -50,7 +54,7 @@ class InventoryService:
         """Clear the inventory"""
         with self._lock:
             self._internal_state['all']['hosts'].clear()
-            yaml.dump(self._internal_state, self._inventory_path.open('w'))
+            yaml.dump(self._internal_state, self.inventory_path.open('w'))
 
     async def update_host(self, host_id: str, entry: HostEntry):
         """Update a host in the inventory"""
@@ -59,7 +63,7 @@ class InventoryService:
 
         with self._lock:
             self._internal_state['all']['hosts'][entry.id] = entry.model_dump()
-            yaml.dump(self._internal_state, self._inventory_path.open('w'))
+            yaml.dump(self._internal_state, self.inventory_path.open('w'))
 
     async def get_host_ids(self) -> list[str]:
         """Get all host IDs from the inventory"""

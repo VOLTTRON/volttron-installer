@@ -3,8 +3,10 @@ from pathlib import Path
 import subprocess
 from typing import Optional
 from .. models import HostEntry
+from .. services.inventory_service import get_inventory_service, InventoryService
 import json
 import os
+from loguru import logger
 
 class AnsibleService:
     """Service for executing Ansible playbooks and commands"""
@@ -79,7 +81,12 @@ class AnsibleService:
         Returns:
             Tuple of (return_code, stdout, stderr)
         """
-        cmd = ["ansible", "-i", get_inventory_path().as_posix(), "-m", module_name]
+        service: InventoryService = await get_inventory_service()
+
+        logger.debug(f"Running module {module_name} with args {args}")
+        logger.debug(f"Inventory path: {service.inventory_path}")
+        
+        cmd = ["ansible", "-i", service.inventory_path.as_posix(), "-m", module_name]
 
         if args:
             cmd.extend([" ".join(args)])
