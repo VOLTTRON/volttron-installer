@@ -30,7 +30,7 @@ class HostEntry(BaseModel):
             "id": self.id,
             "ansible_user": self.ansible_user,
             "ansible_host": self.ansible_host,
-            "ansible_port": self.ansible_port,
+            "ansible_port": int(self.ansible_port),
             "ansible_connection": self.ansible_connection,
             "http_proxy": "" if self.http_proxy is None else self.http_proxy,
             "https_proxy": "" if self.https_proxy is None else self.https_proxy,

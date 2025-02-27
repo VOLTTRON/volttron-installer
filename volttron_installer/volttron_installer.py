@@ -8,6 +8,7 @@ from rxconfig import config
 from pprint import pprint
 from .styles import styles
 from .pages.index import index
+from .pages.platform_page import State as PlatformState
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -23,10 +24,14 @@ async def lifespan(app: FastAPI):
 #app = FastAPI(lifespan=lifespan)
 #backend_app = FastAPI()
 app = rx.App(
-    style=styles.styles
+        style=styles.styles
     )
 
-app.add_page(index, route="/")
+app.add_page(
+    index, 
+    route="/",
+    on_load=PlatformState.hydrate_state
+)
 
 # Register the lifespan task
 app.register_lifespan_task(lifespan)

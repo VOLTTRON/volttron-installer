@@ -57,7 +57,7 @@ styles: dict = {
         "width" : "9rem",
         "height" : "9rem",
         "padding" : CUSTOM_BUTTON_PADDING,
-        "background-color" : "blue",
+        "background-color" : "rgba(145, 145, 145, 0.29)",
         "cursor" : "pointer",
         "user-select" : "none"
     },

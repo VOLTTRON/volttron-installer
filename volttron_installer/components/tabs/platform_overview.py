@@ -7,7 +7,10 @@ from ...navigation.state import NavigationState
 
 def craft_new_platform_tile(platform_entry: tuple[str, typing.Any]) -> rx.Component:
     platform_uid = platform_entry[0]
+    platform_item = platform_entry[1]
     return platform_tile(
+        platform_uid,
+        platform_item,
         on_click=NavigationState.route_to_platform(platform_uid)
     )
 

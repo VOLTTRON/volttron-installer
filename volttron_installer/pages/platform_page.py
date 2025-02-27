@@ -7,21 +7,23 @@ from ..components.buttons.tile_icon import tile_icon
 from ..components.buttons.icon_upload import icon_upload
 from ..navigation.state import NavigationState
 from ..components.form_components import form_entry
-from ..backend.models import HostEntry, PlatformDefinition, ConfigStoreEntry
+from ..backend.models import AgentType, HostEntry, PlatformDefinition, ConfigStoreEntry
 from ..components.custom_fields.text_editor import text_editor
 
 # storing stuff here just for now, will move to a better place later
-import typing
+from typing import List, Dict, Literal
 import string, random, json, csv, yaml
-from pydantic import BaseModel
-from ..backend.endpoints import get_all_platforms, create_platform, CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host
-import asyncio
+from pydantic import BaseModel, root_validator, model_validator
+from ..backend.endpoints import get_all_platforms, create_platform, \
+    CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host, \
+    get_agent_catalog
 
-parts = typing.Literal["connection", "instance_configuration"]
+
+parts = Literal["connection", "instance_configuration"]
 
 class AgentDefinition(BaseModel):
     identity: str
-    agent_source: str
+    agent_source: str = ""
     agent_running: bool = True
     has_config_store: bool = False
     agent_config: dict[str, str] = {}
@@ -31,6 +33,13 @@ class AgentDefinition(BaseModel):
     # need it to be a string. This is expected to be a JSON
     # serealizable string
     config: str = ""
+
+    # @model_validator()
+    # def allow_empty_agent_source(cls, values):
+    #     if 'agent_source' not in values or values['agent_source'] is None:
+    #         values['agent_source'] = ''
+    #     return values
+
 
 
 class Instance(rx.Base):
@@ -68,15 +77,41 @@ class Instance(rx.Base):
             host_dict["ansible_host"] != ""
         )
 
+async def agents_off_catalog() -> List[AgentDefinition]:
+    catalog: Dict[str, AgentType] = await get_agent_catalog()
+    agent_list: List[AgentDefinition] = []
+    for identity, agent in catalog.items():
+        agent_list.append(
+            AgentDefinition(
+                identity=str(identity),
+                agent_source='',
+                # agent_source=str(agent.source),
+                # agent_config={k: str(v) for k, v in agent.default_config.items()},
+                # agent_config_store=[
+                #     ConfigStoreEntry(
+                #         path="abc",
+                #         # path=path,
+                #         # data_type=entry.data_type,
+                #         # value=str(entry.value)
+                #     ) for path, entry in agent.default_config_store.items()
+                # ],
+                config=str(agent.default_config)
+            )
+        )
+    return agent_list
+
+
 class State(rx.State):
     platforms: dict[str, Instance] = {}
 
 # =========== Putting this here for now, ideally will be inside Instance class ==============
-    list_of_agents: list[AgentDefinition] = [
-        AgentDefinition(identity="Agent 1", agent_source=""),
-        AgentDefinition(identity="Agent 2", agent_source=""),
-        AgentDefinition(identity="Agent 3", agent_source="")
-    ]
+    list_of_agents: list[AgentDefinition] = []
+        # initialize with agent_catalogue
+        
+        # AgentDefinition(identity="Agent 1", agent_source=""),
+        # AgentDefinition(identity="Agent 2", agent_source=""),
+        # AgentDefinition(identity="Agent 3", agent_source="")
+    
 
     added_agents: list[AgentDefinition] = []
 
@@ -97,7 +132,12 @@ class State(rx.State):
 
     # Events
     @rx.event
+    async def hydrate_state(self):
+        self.list_of_agents = await agents_off_catalog()
+
+    @rx.event
     def set_working_agent(self, agent: AgentDefinition):
+        print(f"selected {agent.identity}")
         self.working_agent = agent
         print(f"working with {self.working_agent.identity}")
 
@@ -108,14 +148,19 @@ class State(rx.State):
 
     @rx.event
     def handle_adding_agent(self, agent: AgentDefinition):
+        working_platform = self.platforms[self.current_uid]
         # if agent_name in self.list_of_agents:
         #     self.added_agents.append(agent_name)
         new_agent = agent.model_copy()
-        self.added_agents.append(new_agent)
+        if new_agent.identity in working_platform.platform.agents:
+            new_agent.identity = f"{new_agent.identity}_{len(list(working_platform.platform.agents.values()))}"
+        working_platform.platform.agents[new_agent.identity] = new_agent
+        # self.added_agents.append(new_agent)
         
     @rx.event
-    def handle_removing_agent(self, index: int):
-        self.added_agents.pop(index)
+    def handle_removing_agent(self, identity: str):
+        working_platform = self.platforms[self.current_uid]
+        del(working_platform.platform.agents[identity])
 
     @rx.event
     def update_agent_detail(self, agent: AgentDefinition, field: str, value: str, id: str):
@@ -216,10 +261,61 @@ class State(rx.State):
         ...
 
     @rx.event
-    def handle_upload(self, agent: AgentDefinition, files: list[rx.UploadFile], destination: str):
-        for file in files:
-            upload_data = file.read()
-        pass
+    async def handle_config_store_entry_upload(self, files: list[rx.UploadFile]):
+        print(f"Starting config store entry upload process for: {self.working_agent.identity}...")
+        
+        # Saving the actual file
+        file = files[0]
+        print(f"Received file: {file.filename}")
+        
+        upload_data = await file.read()
+        print("File data read successfully.")
+        
+        outfile= (
+            rx.get_upload_dir() / file.filename
+        )
+        print(f"Saving file to: {outfile}")
+        
+        with outfile.open("wb") as file_object:
+            file_object.write(upload_data)
+        print("File saved successfully.")
+
+        result: str =""
+        file_type: str = ""
+
+        # Open and print the contents of the file to the console
+        if file.filename.endswith('.json'):
+            print("Detected JSON file format.")
+            with open(outfile, 'r') as file_object:
+                data = json.load(file_object)
+                print("JSON content read successfully.")
+                print("Printing JSON content:")
+                print(json.dumps(data, indent=4))
+                file_type="JSON"
+                result = json.dumps(data, indent=4)
+
+        elif file.filename.endswith('.csv'):
+            print("Detected CSV file format.")
+            with open(outfile, 'r') as file_object:
+                reader = csv.reader(file_object)
+                print("CSV content read successfully.")
+                print("Printing CSV content row by row:")
+                for row in reader:
+                    print(row)
+                file_type="CSV"
+        else:
+            print("Unsupported file format")
+            yield rx.toast.error("Unsupported file format")
+            return
+        
+        # Adding config store entry
+        self.working_agent.agent_config_store.append(
+            ConfigStoreEntry(
+                path="",
+                data_type=file_type,
+                value=result
+            )
+        )
     
     @rx.event
     async def handle_agent_config_upload(self, files: list[rx.UploadFile]):
@@ -267,8 +363,9 @@ class State(rx.State):
         # self.working_agent.config = result
         # print(self.working_agent.config)
         print("File processing completed.")
-        yield self.update_agent_detail(self.working_agent, "config", result, "agent_config_field")
-
+        # yield self.update_agent_detail(self.working_agent, "config", result, "agent_config_field")
+        setattr(self.working_agent, "config", result)
+        yield rx.set_value(id, result)
 
     def handle_uncaught(self, working_platform: Instance):
         working_platform.uncaught = working_platform.has_uncaught_changes()
@@ -282,6 +379,9 @@ class State(rx.State):
             new_uid = ''.join(random.choice(characters) for _ in range(length))
             if new_uid not in self.platforms:
                 return new_uid
+
+
+
 
 
 @rx.page(route="/platform/[uid]")
@@ -465,22 +565,22 @@ def platform_page() -> rx.Component:
                                             rx.box(
                                                 rx.heading("Added Agents", as_="h3"),
                                                 rx.foreach(
-                                                    State.added_agents,
-                                                    lambda agent, index: agent_config_tile(
-                                                        agent.identity, 
+                                                    working_platform.platform.agents,
+                                                    lambda identity_agent_pair: agent_config_tile(
+                                                        identity_agent_pair[0],
                                                         left_component=tile_icon(
                                                             "trash-2",
-                                                            on_click= lambda: State.handle_removing_agent(index)
+                                                            on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
                                                             ),
                                                         right_component=rx.dialog.root(
                                                                 rx.dialog.trigger(
                                                                     tile_icon(
                                                                         "settings",
-                                                                        on_click=State.set_working_agent(agent)
+                                                                        on_click=State.set_working_agent(identity_agent_pair[1])
                                                                     )
                                                                 ),
                                                                 rx.dialog.content(
-                                                                    agent_config_modal(agent, index),
+                                                                    agent_config_modal(identity_agent_pair[1]),
                                                                     on_close_auto_focus=State.clear_working_agent	
                                                                 ),
                                                             ),
@@ -542,8 +642,8 @@ def platform_page() -> rx.Component:
         ),
     )))
 
-def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
-    return rx.flex(
+def agent_config_modal(agent: AgentDefinition) -> rx.Component:
+    return rx.cond(State.is_hydrated, rx.fragment(rx.flex(
         rx.heading(agent.identity, as_="h3"),
         rx.tabs.root(
             rx.tabs.list(
@@ -570,7 +670,7 @@ def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
                         "Agent Config",
                         text_editor(
                             placeholder="Type out JSON, YAML, or upload a file!",
-                            value=agent.config,
+                            # value=agent.config,
                             on_change=lambda v: State.update_agent_detail(agent, "config", v, "agent_config_field"),
                             id="agent_config_field"
                         ),
@@ -606,11 +706,15 @@ def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
                                 accept={
                                     "text/csv" : [".csv"],
                                     "text/json" : [".json"]
-                                }
+                                },
+                                on_drop=State.handle_config_store_entry_upload(
+                                    rx.upload_files(upload_id="config_store_entry_upload")
+                                )
                             ),
-                            # rx.text("broz"),
-                            # rx.text("broz"),
-                            # rx.text("broz"),
+                            # rx.foreach(
+                            #     agent.agent_config_store,
+                            #     lambda config_store_entry: agent_config_tile("boiler plate")
+                            # ),
                             direction="column",
                             flex="1",
                             align="center",
@@ -660,7 +764,7 @@ def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
         direction="column",
         spacing="3",
     )
-
+))
 def agent_config_tile(text, left_component: rx.Component = False, right_component: rx.Component = False)->rx.Component:
     return rx.hstack(
         rx.cond(
@@ -686,3 +790,4 @@ def agent_config_tile(text, left_component: rx.Component = False, right_componen
         spacing="2",
         align="center",
     )
+
