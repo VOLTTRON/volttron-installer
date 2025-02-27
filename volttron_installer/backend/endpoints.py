@@ -17,7 +17,9 @@ from .models import (
     HostEntry,
     PlatformConfig,
     AgentType,
-    AgentCatalog
+    AgentCatalog,
+    CreateAgentRequest,
+    AgentDefinition
 )
 
 
@@ -196,21 +198,26 @@ async def get_agents_running_state(id: str):
     return {"agents": []}
 
 @platform_router.post("/{platform_id}/agents")
-async def create_agent(platform_id: str, agent: dict):
+async def create_agent(platform_id: str, agent: CreateAgentRequest):
     """Creates a new agent for a platform"""
     try:
         platform_service = await get_platform_service()
-        await platform_service.create_agent(platform_id, agent)
+        agent_definition = AgentDefinition(identity=agent.identity,
+                                           source=agent.source,
+                                           pypi_package=agent.pypi_package,
+                                           config_store=agent.config_store)
+        await platform_service.create_agent(platform_id, agent_definition)
         return SuccessResponse()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @platform_router.put("/{platform_id}/agents/{agent_id}")
-async def update_agent(platform_id: str, agent_id: str, agent: dict):
+async def update_agent(platform_id: str, agent_id: str, agent: CreateAgentRequest):
     """Updates an existing agent for a platform"""
     try:
         platform_service = await get_platform_service()
-        await platform_service.update_agent(platform_id, agent_id, agent)
+        agent_definition = AgentDefinition(**agent.dict())
+        await platform_service.update_agent(platform_id, agent_id, agent_definition)
         return SuccessResponse()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

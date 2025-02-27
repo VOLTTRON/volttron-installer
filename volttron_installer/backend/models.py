@@ -92,6 +92,22 @@ class AgentDefinition(BaseModel):
             raise ValidationError("Only one of pypi_package or source can be set.")
         logger.debug(f"Initialized agent definition for {self.identity}")
 
+class CreateAgentRequest(BaseModel):
+    """Request model for creating an agent"""
+    identity: str
+    source: str | None = None
+    pypi_package: str | None = None
+    config_store: dict[str, ConfigStoreEntry] = {}
+
+    def model_post_init(self, __context):
+        if self.pypi_package is None and self.source is None:
+            logger.error(f"Agent {self.identity}: Neither pypi_package nor source is set")
+            raise ValidationError("Either pypi_package or source must be set.")
+        elif self.pypi_package is not None and self.source is not None:
+            logger.error(f"Agent {self.identity}: Both pypi_package and source are set")
+            raise ValidationError("Only one of pypi_package or source can be set.")
+        logger.debug(f"Initialized agent creation request for {self.identity}")
+
 class AgentType(BaseModel):
     """Represents a type of agent with default configurations"""
     identity: str
