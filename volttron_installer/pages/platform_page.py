@@ -302,6 +302,7 @@ def platform_page() -> rx.Component:
             rx.accordion.root(
                 rx.accordion.item(
                     header="Connection",
+                    value="connection",
                     content=rx.box(
                         rx.box(
                             form_entry.form_entry(
@@ -393,6 +394,7 @@ def platform_page() -> rx.Component:
                 ),
                 rx.accordion.item(
                     header="Instance Configuration",
+                    value="instance_configuration",
                     content=rx.box(
                         rx.box(
                             form_entry.form_entry( # validate
@@ -498,6 +500,7 @@ def platform_page() -> rx.Component:
                     )
                 ),
                 collapsible=True,
+                default_value="connection",
                 variant="outline"
             ),
             rx.box(
