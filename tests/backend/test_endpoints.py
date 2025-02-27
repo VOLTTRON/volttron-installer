@@ -316,3 +316,24 @@ def test_get_nonexistent_agent_from_catalog():
     response = client.get(f"{CATALOG_PREFIX}/agents/nonexistent")
     assert response.status_code == 404
     assert response.json()["detail"] == "Agent not found in catalog"
+
+def test_create_agent_from_catalog():
+    client.post(f"{PLATFORMS_PREFIX}/", json={
+        "config": {
+            "instance_name": "test_instance",
+            "vip_address": "tcp://127.0.0.1:22916",
+            "message_bus": "zmq"
+        },
+        "agents": {}
+    })
+    response = client.post(f"{PLATFORMS_PREFIX}/test_instance/agents", json={
+        "identity": "listener",
+        "source": "examples/ListenerAgent"
+    })
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+    response = client.get(f"{PLATFORMS_PREFIX}/test_instance")
+    assert response.status_code == 200
+    platform = response.json()
+    assert "listener" in platform["agents"]
