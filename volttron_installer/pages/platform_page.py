@@ -6,12 +6,13 @@ from ..components.buttons.tile_icon import tile_icon
 from ..components.buttons.icon_upload import icon_upload
 from ..navigation.state import NavigationState
 from ..components.form_components import form_entry
-from ..backend.models import AgentType, ConfigStoreEntry, PlatformConfig, PlatformDefinition, AgentDefinition
+from ..backend.models import AgentType, HostEntry, PlatformDefinition, ConfigStoreEntry
 from ..components.custom_fields.text_editor import text_editor
 # storing stuff here just for now, will move to a better place later
 from typing import List, Dict, Literal
 from typing import List, Dict, Literal
 import string, random, json, csv, yaml
+from pydantic import BaseModel, root_validator, model_validator
 from ..backend.endpoints import get_all_platforms, create_platform, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host, \
     get_agent_catalog
@@ -20,7 +21,29 @@ from loguru import logger
 from copy import deepcopy
 from ..model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView
 
+
 parts = Literal["connection", "instance_configuration"]
+
+class AgentDefinition(BaseModel):
+    identity: str
+    agent_source: str = ""
+    agent_running: bool = True
+    has_config_store: bool = False
+    agent_config: dict[str, str] = {}
+    agent_config_store: list[ConfigStoreEntry] = []
+
+    # instead of agent_config, we work with config because we
+    # need it to be a string. This is expected to be a JSON
+    # serealizable string
+    config: str = ""
+
+    # @model_validator()
+    # def allow_empty_agent_source(cls, values):
+    #     if 'agent_source' not in values or values['agent_source'] is None:
+    #         values['agent_source'] = ''
+    #     return values
+
+
 
  
 class Instance(rx.Base):
@@ -58,13 +81,13 @@ class Instance(rx.Base):
             host_dict["ansible_host"] != ""
         )
 
-async def agents_off_catalog() -> List[AgentModelView]:
+async def agents_off_catalog() -> List[AgentDefinition]:
     catalog: Dict[str, AgentType] = await get_agent_catalog()
     agent_list: List[AgentModelView] = []
 
     for identity, agent in catalog.items():
         agent_list.append(
-            AgentModelView(
+            AgentDefinition(
                 identity=str(identity),
                 source=agent.source,
                 config_store=[
@@ -85,10 +108,12 @@ class State(rx.State):
     list_of_agents: list[AgentModelView] = []
 
 # =========== Putting this here for now, ideally will be inside Instance class ==============
+        # initialize with agent_catalogue
+        
+        # AgentDefinition(identity="Agent 1", agent_source=""),
+        # AgentDefinition(identity="Agent 2", agent_source=""),
+        # AgentDefinition(identity="Agent 3", agent_source="")
     
-    working_agent: AgentModelView = ""
-    working_agent_identity: str = ""
-    working_agent_config_store: list[ConfigStoreEntryModelView] = []
 
     thingy: list[str] = ["bro", "no", "sense"]
 # ==================================================================================================
@@ -125,9 +150,11 @@ class State(rx.State):
         self.working_agent_config_store = []
 
     @rx.event
-    def handle_adding_agent(self, agent: AgentModelView):
+    def handle_adding_agent(self, agent: AgentDefinition):
         working_platform = self.platforms[self.current_uid]
-        new_agent = deepcopy(agent)
+        # if agent_name in self.list_of_agents:
+        #     self.added_agents.append(agent_name)
+        new_agent = agent.model_copy()
         if new_agent.identity in working_platform.platform.agents:
             new_agent.identity = f"{new_agent.identity}_{len(list(working_platform.platform.agents.values()))}"
         new_agent.routing_id = self.generate_unique_uid()
@@ -145,6 +172,7 @@ class State(rx.State):
                     "config": new_agent.config
                 }
         working_platform.platform.agents[new_agent.identity] = new_agent
+        # self.added_agents.append(new_agent)
         
     @rx.event
     def handle_removing_agent(self, identity: str):
@@ -283,7 +311,65 @@ class State(rx.State):
 
     @rx.event
     async def handle_config_store_entry_upload(self, files: list[rx.UploadFile]):
-        logger.debug(f"Starting config store entry upload process for: {self.working_agent.identity}...")
+        print(f"Starting config store entry upload process for: {self.working_agent.identity}...")
+        
+        # Saving the actual file
+        file = files[0]
+        print(f"Received file: {file.filename}")
+        
+        upload_data = await file.read()
+        print("File data read successfully.")
+        
+        outfile= (
+            rx.get_upload_dir() / file.filename
+        )
+        print(f"Saving file to: {outfile}")
+        
+        with outfile.open("wb") as file_object:
+            file_object.write(upload_data)
+        print("File saved successfully.")
+
+        result: str =""
+        file_type: str = ""
+
+        # Open and print the contents of the file to the console
+        if file.filename.endswith('.json'):
+            print("Detected JSON file format.")
+            with open(outfile, 'r') as file_object:
+                data = json.load(file_object)
+                print("JSON content read successfully.")
+                print("Printing JSON content:")
+                print(json.dumps(data, indent=4))
+                file_type="JSON"
+                result = json.dumps(data, indent=4)
+
+        elif file.filename.endswith('.csv'):
+            print("Detected CSV file format.")
+            with open(outfile, 'r') as file_object:
+                reader = csv.reader(file_object)
+                print("CSV content read successfully.")
+                print("Printing CSV content row by row:")
+                for row in reader:
+                    print(row)
+                file_type="CSV"
+        else:
+            print("Unsupported file format")
+            yield rx.toast.error("Unsupported file format")
+            return
+        
+        # Adding config store entry
+        self.working_agent.agent_config_store.append(
+            ConfigStoreEntry(
+                path="",
+                data_type=file_type,
+                value=result
+            )
+        )
+    
+    @rx.event
+    async def handle_agent_config_upload(self, files: list[rx.UploadFile]):
+
+        print(f"Starting file upload process for: {self.working_agent.identity}...")
         
         # Saving the actual file
         file = files[0]
@@ -383,12 +469,11 @@ class State(rx.State):
             logger.debug("Unsupported file format")
 
         # self.working_agent.config = result
-        # logger.debug(self.working_agent.config)
-        logger.debug("File processing completed.")
+        # print(self.working_agent.config)
+        print("File processing completed.")
         # yield self.update_agent_detail(self.working_agent, "config", result, "agent_config_field")
         setattr(self.working_agent, "config", result)
-        logger.debug(f"this is my agent: {json.dumps(self.working_agent.dict(), indent=4)}")
-        yield rx.set_value("agent_config_field", result)
+        yield rx.set_value(id, result)
 
     def handle_uncaught(self, working_platform: Instance):
         working_platform.uncaught = working_platform.has_uncaught_changes()
