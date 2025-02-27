@@ -56,6 +56,19 @@ class PlatformService:
             else:
                 raise FileNotFoundError(f"Platform definition for {instance_name} not found.")
 
+    async def get_all_platforms(self) -> list[PlatformDefinition]:
+        async with self._lock:
+            platforms = []
+            for platform_dir in self.platform_dir.iterdir():
+                if platform_dir.is_dir():
+                    definition_path = platform_dir / f"{platform_dir.name}.yml"
+                    if definition_path.exists():
+                        async with aiofiles.open(definition_path, 'r') as file:
+                            data = yaml.safe_load(await file.read())
+                            platforms.append(PlatformDefinition(**data))
+
+            return platforms
+
     async def get_platform_instance_names(self) -> list[str]:
         async with self._lock:
             return [platform_dir.name for platform_dir in self.platform_dir.iterdir() if platform_dir.is_dir()]

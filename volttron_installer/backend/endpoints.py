@@ -84,9 +84,27 @@ async def remove_from_inventory(id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @platform_router.get("/")
-async def get_platforms():
+async def get_all_platforms() -> list[PlatformDefinition]:
     """Retrieves all platforms"""
+    try:
+        platform_service = await get_platform_service()
+        platforms = await platform_service.get_all_platforms()
+        return platforms
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     return {"platforms": []}
+
+@platform_router.get("/{id}")
+async def get_platform_by_id(id: str) -> Optional[PlatformDefinition]:
+    """Retrieves a specific platform by its ID"""
+    try:
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(id)
+        if platform is None:
+            raise HTTPException(status_code=404, detail="Platform not found")
+        return platform
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @platform_router.post("/")
 async def create_platform(platform: CreatePlatformRequest):

@@ -15,36 +15,46 @@ HOSTS_PREFIX = f"{ANSIBLE_PREFIX}/hosts"
 
 def test_create_platform_endpoint():
     response = client.post(f"{PLATFORMS_PREFIX}/", json={
-        "instance_name": "test_instance",
-        "vip_address": "tcp://127.0.0.1:22916",
-        "message_bus": "zmq",
+        "config": {
+            "instance_name": "test_instance",
+            "vip_address": "tcp://127.0.0.1:22916",
+            "message_bus": "zmq"
+        },
         "agents": {}
     })
     assert response.status_code == 200
     assert response.json()["success"] is True
 
 def test_get_platform_endpoint():
-    client.post(f"{PLATFORMS_PREFIX}/", json={
-        "instance_name": "test_instance",
-        "vip_address": "tcp://127.0.0.1:22916",
-        "message_bus": "zmq",
+    response = client.post(f"{PLATFORMS_PREFIX}/", json={
+        "config": {
+            "instance_name": "test_instance",
+            "vip_address": "tcp://127.0.0.1:22916",
+            "message_bus": "zmq"
+        },
         "agents": {}
     })
+    assert response.status_code == 200
+    assert response.json()["success"] is True
     response = client.get(f"{PLATFORMS_PREFIX}/test_instance")
     assert response.status_code == 200
-    assert response.json()["instance_name"] == "test_instance"
+    assert response.json()["config"]["instance_name"] == "test_instance"
 
 def test_update_platform_endpoint():
     client.post(f"{PLATFORMS_PREFIX}/", json={
-        "instance_name": "test_instance",
-        "vip_address": "tcp://127.0.0.1:22916",
-        "message_bus": "zmq",
+        "config": {
+            "instance_name": "test_instance",
+            "vip_address": "tcp://127.0.0.1:22916",
+            "message_bus": "zmq"
+        },
         "agents": {}
     })
     response = client.put(f"{PLATFORMS_PREFIX}/test_instance", json={
-        "instance_name": "test_instance",
-        "vip_address": "tcp://127.0.0.1:22917",
-        "message_bus": "zmq",
+        "config": {
+            "instance_name": "test_instance",
+            "vip_address": "tcp://127.0.0.1:22917",
+            "message_bus": "zmq"
+        },
         "agents": {}
     })
     assert response.status_code == 200
@@ -52,9 +62,11 @@ def test_update_platform_endpoint():
 
 def test_delete_platform_endpoint():
     client.post(f"{PLATFORMS_PREFIX}/", json={
-        "instance_name": "test_instance",
-        "vip_address": "tcp://127.0.0.1:22916",
-        "message_bus": "zmq",
+        "config": {
+            "instance_name": "test_instance",
+            "vip_address": "tcp://127.0.0.1:22916",
+            "message_bus": "zmq"
+        },
         "agents": {}
     })
     response = client.delete(f"{PLATFORMS_PREFIX}/test_instance")
@@ -63,28 +75,34 @@ def test_delete_platform_endpoint():
 
 def test_list_platforms_endpoint():
     client.post(f"{PLATFORMS_PREFIX}/", json={
-        "instance_name": "instance1",
-        "vip_address": "tcp://127.0.0.1:22916",
-        "message_bus": "zmq",
+        "config": {
+            "instance_name": "instance1",
+            "vip_address": "tcp://127.0.0.1:22916",
+            "message_bus": "zmq"
+        },
         "agents": {}
     })
     client.post(f"{PLATFORMS_PREFIX}/", json={
-        "instance_name": "instance2",
-        "vip_address": "tcp://127.0.0.1:22917",
-        "message_bus": "zmq",
+        "config": {
+            "instance_name": "instance2",
+            "vip_address": "tcp://127.0.0.1:22917",
+            "message_bus": "zmq"
+        },
         "agents": {}
     })
     response = client.get(f"{PLATFORMS_PREFIX}/")
     assert response.status_code == 200
-    instance_names = [platform["instance_name"] for platform in response.json()]
+    instance_names = [platform["config"]["instance_name"] for platform in response.json()]
     assert "instance1" in instance_names
     assert "instance2" in instance_names
 
 def test_create_agent_in_platform_endpoint():
     client.post(f"{PLATFORMS_PREFIX}/", json={
-        "instance_name": "test_instance",
-        "vip_address": "tcp://127.0.0.1:22916",
-        "message_bus": "zmq",
+        "config": {
+            "instance_name": "test_instance",
+            "vip_address": "tcp://127.0.0.1:22916",
+            "message_bus": "zmq"
+        },
         "agents": {}
     })
     response = client.post(f"{PLATFORMS_PREFIX}/test_instance/agents/", json={
@@ -96,9 +114,11 @@ def test_create_agent_in_platform_endpoint():
 
 def test_remove_agent_from_platform_endpoint():
     client.post(f"{PLATFORMS_PREFIX}/", json={
-        "instance_name": "test_instance",
-        "vip_address": "tcp://127.0.0.1:22916",
-        "message_bus": "zmq",
+        "config": {
+            "instance_name": "test_instance",
+            "vip_address": "tcp://127.0.0.1:22916",
+            "message_bus": "zmq"
+        },
         "agents": {}
     })
     client.post(f"{PLATFORMS_PREFIX}/test_instance/agents/", json={
@@ -111,9 +131,11 @@ def test_remove_agent_from_platform_endpoint():
 
 def test_update_agent_in_platform_endpoint():
     client.post(f"{PLATFORMS_PREFIX}/", json={
-        "instance_name": "test_instance",
-        "vip_address": "tcp://127.0.0.1:22916",
-        "message_bus": "zmq",
+        "config": {
+            "instance_name": "test_instance",
+            "vip_address": "tcp://127.0.0.1:22916",
+            "message_bus": "zmq"
+        },
         "agents": {}
     })
     client.post(f"{PLATFORMS_PREFIX}/test_instance/agents/", json={
@@ -207,3 +229,28 @@ def test_list_host_entries():
     host_ids = [host["id"] for host in response.json()]
     assert "test_host1" in host_ids
     assert "test_host2" in host_ids
+
+def test_get_platforms():
+    client.post(f"{PLATFORMS_PREFIX}/", json={
+        "config": {
+            "instance_name": "instance1",
+            "vip_address": "tcp://127.0.0.1:22916",
+            "message_bus": "zmq"
+        },
+        "agents": {}
+    })
+    client.post(f"{PLATFORMS_PREFIX}/", json={
+        "config": {
+            "instance_name": "instance2",
+            "vip_address": "tcp://127.0.0.1:22917",
+            "message_bus": "zmq"
+        },
+        "agents": {}
+    })
+    response = client.get(f"{PLATFORMS_PREFIX}/")
+    assert response.status_code == 200
+    platforms = response.json()["platforms"]
+    assert len(platforms) >= 2
+    instance_names = [platform["config"]["instance_name"] for platform in platforms]
+    assert "instance1" in instance_names
+    assert "instance2" in instance_names

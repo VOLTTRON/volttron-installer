@@ -14,7 +14,7 @@ from ..components.custom_fields.text_editor import text_editor
 import typing
 import string, random, json
 from pydantic import BaseModel
-from ..backend.endpoints import get_platforms, create_platform, CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host
+from ..backend.endpoints import get_all_platforms, create_platform, CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host
 import asyncio
 
 parts = typing.Literal["connection", "instance_configuration"]
