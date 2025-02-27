@@ -1,4 +1,4 @@
-from typing import Literal, List
+from typing import Literal, List, Optional
 from typing_extensions import Annotated
 import logging
 
@@ -61,18 +61,10 @@ class ConfigStoreEntry(BaseModel):
             "value": self.value
         }
 
-
-class AgentDefinition(BaseModel):
-    identity: str
-    agent_source: str
-    agent_running: bool = True
-    has_config_store: bool = False
-    agent_config: dict[str, str] = {}
-    agent_config_store: list[ConfigStoreEntry] = []
-
 class SuccessResponse(BaseModel):
     """Simple success response model"""
     success: bool = True
+    object: dict = {}
 
 class AgentDefinition(BaseModel):
     """Represents an agent definition with validation in model_post_init"""
@@ -99,6 +91,89 @@ class AgentDefinition(BaseModel):
             logger.error(f"Agent {self.identity}: Both pypi_package and source are set")
             raise ValidationError("Only one of pypi_package or source can be set.")
         logger.debug(f"Initialized agent definition for {self.identity}")
+
+class AgentType(BaseModel):
+    """Represents a type of agent with default configurations"""
+    identity: str
+    default_config: dict
+    default_config_store: dict[str, ConfigStoreEntry]
+    source: str | None = None
+    pypi_package: str | None = None
+
+class AgentCatalog(BaseModel):
+    """Catalog of default agents available with default configurations"""
+    agents: dict[str, AgentType] = {
+        "listener": AgentType(
+            identity="listener",
+            default_config={
+                "agentid": "listener",
+                "message": "Hello, World!",
+                "log-level": "INFO"
+            },
+            default_config_store={},
+            source="examples/ListenerAgent"
+        ),
+        "platform.driver": AgentType(
+            identity="platform.driver",
+            default_config={
+                "driver_scrape_interval": 0.05,
+                "publish_breadth_first_all": False,
+                "publish_depth_first": False,
+                "publish_breadth_first": False
+            },
+            default_config_store={
+                "fake.csv": ConfigStoreEntry(
+                    path="fake.csv",
+                    data_type="CSV",
+                    value="""Point Name,Volttron Point Name,Units,Units Details,Writable,Starting Value,Type,Notes
+Heartbeat,Heartbeat,On/Off,On/Off,TRUE,0,boolean,Point for heartbeat toggle
+EKG,EKG,waveform,waveform,TRUE,1,float,Sine wave for baseline output
+OutsideAirTemperature1,OutsideAirTemperature1,F,-100 to 300,FALSE,50,float,CO2 Reading 0.00-2000.0 ppm
+SampleWritableFloat1,SampleWritableFloat1,PPM,1000.00 (default),TRUE,10,float,Setpoint to enable demand control ventilation
+SampleLong1,SampleLong1,Enumeration,1 through 13,FALSE,50,int,Status indicator of service switch
+SampleWritableShort1,SampleWritableShort1,%,0.00 to 100.00 (20 default),TRUE,20,int,Minimum damper position during the standard mode
+SampleBool1,SampleBool1,On / Off,on/off,FALSE,TRUE,boolean,Status indidcator of cooling stage 1
+SampleWritableBool1,SampleWritableBool1,On / Off,on/off,TRUE,TRUE,boolean,Status indicator
+OutsideAirTemperature2,OutsideAirTemperature2,F,-100 to 300,FALSE,50,float,CO2 Reading 0.00-2000.0 ppm
+SampleWritableFloat2,SampleWritableFloat2,PPM,1000.00 (default),TRUE,10,float,Setpoint to enable demand control ventilation
+SampleLong2,SampleLong2,Enumeration,1 through 13,FALSE,50,int,Status indicator of service switch
+SampleWritableShort2,SampleWritableShort2,%,0.00 to 100.00 (20 default),TRUE,20,int,Minimum damper position during the standard mode
+SampleBool2,SampleBool2,On / Off,on/off,FALSE,TRUE,boolean,Status indidcator of cooling stage 1
+SampleWritableBool2,SampleWritableBool2,On / Off,on/off,TRUE,TRUE,boolean,Status indicator
+OutsideAirTemperature3,OutsideAirTemperature3,F,-100 to 300,FALSE,50,float,CO2 Reading 0.00-2000.0 ppm
+SampleWritableFloat3,SampleWritableFloat3,PPM,1000.00 (default),TRUE,10,float,Setpoint to enable demand control ventilation
+SampleLong3,SampleLong3,Enumeration,1 through 13,FALSE,50,int,Status indicator of service switch
+SampleWritableShort3,SampleWritableShort3,%,0.00 to 100.00 (20 default),TRUE,20,int,Minimum damper position during the standard mode
+SampleBool3,SampleBool3,On / Off,on/off,FALSE,TRUE,boolean,Status indidcator of cooling stage 1
+SampleWritableBool3,SampleWritableBool3,On / Off,on/off,TRUE,TRUE,boolean,Status indicator
+HPWH_Phy0_PowerState,PowerState,1/0,1/0,TRUE,0,int,Power on off status
+ERWH_Phy0_ValveState,ValveState,1/0,1/0,TRUE,0,int,power on off status
+EKG_Sin,EKG_Sin,1-0,SIN Wave,TRUE,0,float,SIN wave
+EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
+                "devices/fake/driver": ConfigStoreEntry(
+                    path="fake.json",
+                    data_type="JSON",
+                    value="""{
+                        "driver_config": {},
+                        "registry_config":"config://fake.csv",
+                        "interval": 5,
+                        "timezone": "US/Pacific",
+                        "heart_beat_point": "Heartbeat",
+                        "driver_type": "fakedriver",
+                        "publish_breadth_first_all": false,
+                        "publish_depth_first": false,
+                        "publish_breadth_first": false,
+                        "campus": "campus",
+                        "building": "building",
+                        "unit": "fake_device"
+                    }""")
+            },
+            source="services/core/PlatformDriverAgent"
+        )
+    }
+
+    def get_agent(self, identity: str) -> Optional[AgentType]:
+        return self.agents.get(identity)
 
 class KeyValuePair(BaseModel):
     key: str
@@ -136,17 +211,3 @@ class CreatePlatformRequest(PlatformDefinition):
     """Request model for creating a platform"""
     pass
 
-class ConfigurePlatformRequest(BaseModel):
-    """Request model for configuring a platform"""
-    instance_name: str
-    vip_address: str
-    message_bus: Literal["zmq"] = "zmq"
-    agents: dict[str, AgentDefinition] = {}
-
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "instance_name": self.instance_name,
-            "vip_address": self.vip_address,
-            "message_bus": self.message_bus,
-            "agents": {k: v.to_dict() for k, v in self.agents.items()}
-        }

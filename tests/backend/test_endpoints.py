@@ -11,6 +11,7 @@ API_PREFIX = "/api"
 ANSIBLE_PREFIX = f"{API_PREFIX}/ansible"
 PLATFORMS_PREFIX = f"{API_PREFIX}/platforms"
 HOSTS_PREFIX = f"{ANSIBLE_PREFIX}/hosts"
+CATALOG_PREFIX = f"{API_PREFIX}/catalog"
 
 
 def test_create_platform_endpoint():
@@ -105,7 +106,7 @@ def test_create_agent_in_platform_endpoint():
         },
         "agents": {}
     })
-    response = client.post(f"{PLATFORMS_PREFIX}/test_instance/agents/", json={
+    response = client.post(f"{PLATFORMS_PREFIX}/test_instance/agents", json={
         "identity": "test_agent",
         "source": "some_source"
     })
@@ -138,7 +139,7 @@ def test_update_agent_in_platform_endpoint():
         },
         "agents": {}
     })
-    client.post(f"{PLATFORMS_PREFIX}/test_instance/agents/", json={
+    client.post(f"{PLATFORMS_PREFIX}/test_instance/agents", json={
         "identity": "test_agent",
         "source": "some_source"
     })
@@ -146,6 +147,23 @@ def test_update_agent_in_platform_endpoint():
         "identity": "test_agent",
         "source": "updated_source"
     })
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+def test_delete_agent_from_platform_endpoint():
+    client.post(f"{PLATFORMS_PREFIX}/", json={
+        "config": {
+            "instance_name": "test_instance",
+            "vip_address": "tcp://127.0.0.1:22916",
+            "message_bus": "zmq"
+        },
+        "agents": {}
+    })
+    client.post(f"{PLATFORMS_PREFIX}/test_instance/agents", json={
+        "identity": "test_agent",
+        "source": "some_source"
+    })
+    response = client.delete(f"{PLATFORMS_PREFIX}/test_instance/agents/test_agent")
     assert response.status_code == 200
     assert response.json()["success"] is True
 
@@ -249,8 +267,52 @@ def test_get_platforms():
     })
     response = client.get(f"{PLATFORMS_PREFIX}/")
     assert response.status_code == 200
-    platforms = response.json()["platforms"]
+    platforms = response.json()
     assert len(platforms) >= 2
     instance_names = [platform["config"]["instance_name"] for platform in platforms]
     assert "instance1" in instance_names
     assert "instance2" in instance_names
+
+def test_get_agent_catalog():
+    response = client.get(f"{CATALOG_PREFIX}/agents")
+    assert response.status_code == 200
+    agents = response.json()
+    assert "listener" in agents
+    assert "platform.driver" in agents
+
+def test_get_agent_from_catalog():
+    response = client.get(f"{CATALOG_PREFIX}/agents/listener")
+    assert response.status_code == 200
+    agent = response.json()
+    assert agent["identity"] == "listener"
+    assert agent["source"] == "examples/ListenerAgent"
+
+    response = client.get(f"{CATALOG_PREFIX}/agents/platform.driver")
+    assert response.status_code == 200
+    agent = response.json()
+    assert agent["identity"] == "platform.driver"
+    assert agent["source"] == "services/core/PlatformDriverAgent"
+
+    response = client.get(f"{CATALOG_PREFIX}/agents/nonexistent")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Agent not found in catalog"
+
+def test_get_nonexistent_platform():
+    response = client.get(f"{PLATFORMS_PREFIX}/nonexistent")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Platform not found"
+
+def test_get_nonexistent_host():
+    response = client.get(f"{HOSTS_PREFIX}/nonexistent")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Host entry not found"
+
+def test_ping_nonexistent_host():
+    response = client.get(f"{ANSIBLE_PREFIX}/ping/nonexistent")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Host entry not found"
+
+def test_get_nonexistent_agent_from_catalog():
+    response = client.get(f"{CATALOG_PREFIX}/agents/nonexistent")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Agent not found in catalog"

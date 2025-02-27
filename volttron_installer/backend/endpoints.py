@@ -7,6 +7,7 @@ import os
 from volttron_installer.backend.services.ansible_service import AnsibleService, get_ansible_service
 from volttron_installer.backend.services.inventory_service import get_inventory_service
 from volttron_installer.backend.services.platform_service import get_platform_service
+from volttron_installer.backend.models import AgentCatalog
 
 from .models import (
     CreateOrUpdateHostEntryRequest,
@@ -14,14 +15,16 @@ from .models import (
     CreatePlatformRequest,
     PlatformDefinition,
     HostEntry,
-    ConfigurePlatformRequest,
-    PlatformConfig
+    PlatformConfig,
+    AgentType,
+    AgentCatalog
 )
 
 
 platform_router = APIRouter(prefix="/platforms", tags=["platforms"])
 ansible_router = APIRouter(prefix="/ansible", tags=["ansible"])
 task_router = APIRouter(prefix="/task", tags=["tasks"])
+catalog_router = APIRouter(prefix="/catalog", tags=["catalog"])
 
 
 @ansible_router.get("/hosts", response_model=list[HostEntry])
@@ -44,6 +47,8 @@ async def get_host_id(id: str) -> HostEntry | None:
         if host_entry is None:
             raise HTTPException(status_code=404, detail="Host entry not found")
         return host_entry
+    except HTTPException as e:
+        raise e
     except Exception as e:  
         # Return empty inventory on any error
         return None
@@ -103,6 +108,8 @@ async def get_platform_by_id(id: str) -> Optional[PlatformDefinition]:
         if platform is None:
             raise HTTPException(status_code=404, detail="Platform not found")
         return platform
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -118,16 +125,27 @@ async def create_platform(platform: CreatePlatformRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@platform_router.post("/configure")
-async def configure_platform(platform: ConfigurePlatformRequest):
-    """Configures a platform"""
-    # Get the platform definition
-    # Configure the host installing dependent libraries
-    # TODO: Implement this
-    # ansible-playbook -K \
-    #                  -i <path/to/your/inventory>.yml \
-    #                  volttron.deployment.host_config
-    return SuccessResponse()
+@platform_router.put("/{id}")
+async def update_platform(id: str, platform: CreatePlatformRequest):
+    """Updates an existing platform"""
+    try:
+        platform_service = await get_platform_service()
+        platform_definition = PlatformDefinition(config=platform.config,
+                                                 agents=platform.agents)
+        await platform_service.update_platform(id, platform_definition)
+        return SuccessResponse()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@platform_router.delete("/{id}")
+async def delete_platform(id: str):
+    """Deletes a platform"""
+    try:
+        platform_service = await get_platform_service()
+        await platform_service.delete_platform(id)
+        return SuccessResponse()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @platform_router.post("/deploy")
 async def deploy_platform(deploy):
@@ -176,6 +194,36 @@ async def get_agents_running_state(id: str):
     # ansible-playbook -i <path/to/your/inventory>.yml \
     #             volttron.deployment.ad_hoc -e "command='vctl status'"
     return {"agents": []}
+
+@platform_router.post("/{platform_id}/agents")
+async def create_agent(platform_id: str, agent: dict):
+    """Creates a new agent for a platform"""
+    try:
+        platform_service = await get_platform_service()
+        await platform_service.create_agent(platform_id, agent)
+        return SuccessResponse()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@platform_router.put("/{platform_id}/agents/{agent_id}")
+async def update_agent(platform_id: str, agent_id: str, agent: dict):
+    """Updates an existing agent for a platform"""
+    try:
+        platform_service = await get_platform_service()
+        await platform_service.update_agent(platform_id, agent_id, agent)
+        return SuccessResponse()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@platform_router.delete("/{platform_id}/agents/{agent_id}")
+async def delete_agent(platform_id: str, agent_id: str):
+    """Deletes an agent from a platform"""
+    try:
+        platform_service = await get_platform_service()
+        await platform_service.delete_agent(platform_id, agent_id)
+        return SuccessResponse()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @task_router.get("/")
 async def get_tasks():
@@ -272,8 +320,33 @@ async def ping_host(id: str, ansible: AnsibleService = Depends(get_ansible_servi
 
         return {"status": "success", "output": stdout}
 
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=str(e)
         )
+
+@catalog_router.get("/agents", response_model=dict[str, AgentType])
+async def get_agent_catalog() -> dict[str, AgentType]:
+    """Retrieves the agent catalog"""
+    try:
+        catalog = AgentCatalog()
+        return catalog.agents
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@catalog_router.get("/agents/{identity}", response_model=AgentType)
+async def get_agent_from_catalog(identity: str) -> AgentType:
+    """Retrieves a specific agent from the catalog by its identity"""
+    try:
+        catalog = AgentCatalog()
+        agent = catalog.get_agent(identity)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="Agent not found in catalog")
+        return agent
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
