@@ -16,6 +16,9 @@ class InventoryService:
         self._lock = threading.Lock()  # Use threading.Lock instead of asyncio.Lock
                  
         self._internal_state = yaml.safe_load(self._inventory_path.open())
+        if not self._internal_state:
+            self._internal_state = {'all': {'hosts': {}}}
+            yaml.dump(self._internal_state, self._inventory_path.open('w'))
 
     @property
     def inventory_path(self) -> Path:
@@ -24,7 +27,7 @@ class InventoryService:
             yaml.dump({'all': {'hosts': {}}}, self._inventory_path.open('w'))
         return self._inventory_path
     
-    async def add_host(self, entry: HostEntry):
+    async def create_host(self, entry: HostEntry):
         """Add a host to the inventory"""
         with self._lock:
             self._internal_state['all']['hosts'][entry.id] = entry.model_dump()
