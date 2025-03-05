@@ -11,6 +11,7 @@ from ..backend.models import AgentType, ConfigStoreEntry, PlatformConfig, Platfo
 from ..components.custom_fields.text_editor import text_editor
 # storing stuff here just for now, will move to a better place later
 from typing import List, Dict, Literal
+from typing import List, Dict, Literal
 import string, random, json, csv, yaml
 from ..backend.endpoints import get_all_platforms, create_platform, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host, \
@@ -114,6 +115,10 @@ class State(rx.State):
         self.list_of_agents = await agents_off_catalog()
 
     @rx.event
+    async def hydrate_state(self):
+        self.list_of_agents = await agents_off_catalog()
+
+    @rx.event
     def set_working_agent(self, agent: AgentModelView, identity: str = ""):
         self.working_agent = agent
         self.working_agent_identity = identity
@@ -134,6 +139,9 @@ class State(rx.State):
         working_platform.platform.agents[new_agent.identity] = new_agent
         
     @rx.event
+    def handle_removing_agent(self, identity: str):
+        working_platform = self.platforms[self.current_uid]
+        del(working_platform.platform.agents[identity])
     def handle_removing_agent(self, identity: str):
         working_platform = self.platforms[self.current_uid]
         del(working_platform.platform.agents[identity])
@@ -391,6 +399,9 @@ class State(rx.State):
 
 
 
+
+
+
 @rx.page(route="/platform/[uid]")
 def platform_page() -> rx.Component:
 
@@ -574,8 +585,12 @@ def platform_page() -> rx.Component:
                                                     working_platform.platform.agents,
                                                     lambda identity_agent_pair: agent_config_tile(
                                                         identity_agent_pair[0],
+                                                    working_platform.platform.agents,
+                                                    lambda identity_agent_pair: agent_config_tile(
+                                                        identity_agent_pair[0],
                                                         left_component=tile_icon(
                                                             "trash-2",
+                                                            on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
                                                             on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
                                                             ),
                                                         right_component=rx.dialog.root(
@@ -1042,4 +1057,6 @@ def agent_config_tile(text, left_component: rx.Component = False, right_componen
         spacing="2",
         align="center",
     )
+
+
 
