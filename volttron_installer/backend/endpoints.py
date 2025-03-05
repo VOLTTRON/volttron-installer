@@ -5,8 +5,8 @@ from pathlib import Path
 import os
 
 from volttron_installer.backend.services.ansible_service import AnsibleService, get_ansible_service
-from volttron_installer.backend.services.inventory_service import get_inventory_service
-from volttron_installer.backend.services.platform_service import get_platform_service
+from volttron_installer.backend.services.inventory_service import InventoryService, get_inventory_service
+from volttron_installer.backend.services.platform_service import PlatformService, get_platform_service
 from volttron_installer.backend.models import AgentCatalog
 
 from .models import (
@@ -19,7 +19,9 @@ from .models import (
     AgentType,
     AgentCatalog,
     CreateAgentRequest,
-    AgentDefinition
+    AgentDefinition,
+    DeployPlatformRequest,
+    PlatformDeplymentStatusRequest
 )
 
 
@@ -31,7 +33,7 @@ catalog_router = APIRouter(prefix="/catalog", tags=["catalog"])
 
 @ansible_router.get("/hosts", response_model=list[HostEntry])
 async def get_hosts() -> list[HostEntry]:
-    """Retrieves the inventory"""
+    """Retrieves a list of `HostEntry` items"""
     try:
         inventory_service = await get_inventory_service()
         hosts = await inventory_service.get_hosts()
@@ -72,7 +74,7 @@ async def add_host(host_entry: CreateOrUpdateHostEntryRequest):
         )
 
         inventory_service = await get_inventory_service()
-        await inventory_service.add_host(item)
+        await inventory_service.create_host(item)
         return SuccessResponse()
 
     except ValueError as e:
@@ -116,14 +118,20 @@ async def get_platform_by_id(id: str) -> Optional[PlatformDefinition]:
         raise HTTPException(status_code=500, detail=str(e))
 
 @platform_router.post("/")
-async def create_platform(platform: CreatePlatformRequest):
+async def create_platform(platform: CreatePlatformRequest,
+                          inventory_service: InventoryService = Depends(get_inventory_service),
+                          platform_service: PlatformService = Depends(get_platform_service)) -> SuccessResponse:
     """Creates a new platform"""
     try:
-        platform_service = await get_platform_service()
-        platform_definition = PlatformDefinition(config=platform.config,
+        host = await inventory_service.get_host(platform.host_id)
+        if host is None:
+            raise HTTPException(status_code=404, detail="Host not found")
+        
+        platform_definition = PlatformDefinition(host_id=platform.host_id,
+                                                 config=platform.config,
                                                  agents=platform.agents)
         await platform_service.create_platform(platform_definition)
-        return SuccessResponse()
+        return SuccessResponse(object=platform_definition)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -132,7 +140,8 @@ async def update_platform(id: str, platform: CreatePlatformRequest):
     """Updates an existing platform"""
     try:
         platform_service = await get_platform_service()
-        platform_definition = PlatformDefinition(config=platform.config,
+        platform_definition = PlatformDefinition(host_id=platform.host_id,
+                                                 config=platform.config,
                                                  agents=platform.agents)
         await platform_service.update_platform(id, platform_definition)
         return SuccessResponse()
@@ -149,53 +158,72 @@ async def delete_platform(id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@platform_router.post("/deploy")
-async def deploy_platform(deploy):
-    """Deploys a platform"""
-    # Get the platform definition
-    # Deploy the platform
-    return SuccessResponse()
-
-async def deploy_platforms():
-    """Deploy all the platforms"""
-    return SuccessResponse()
-
-@platform_router.post("/{id}/run")
-async def run_platform(id: str):
-    """Runs a specific platform"""
-    # TODO: Implement this
-    # ansible-playbook -i <path/to/your/inventory>.yml \
-    #              volttron.deployment.run_platforms
-    return SuccessResponse()
-
-@platform_router.post("/run")
-async def run_platforms():
-    """Runs all platforms"""
-    return SuccessResponse()
-
-@platform_router.post("/{id}/configure_agents")
-async def configure_agents(id: str):
-    """Configures agents for a platform"""
-    # Get the platform definition
-    # Configure the agents
-    return SuccessResponse()
-
-@platform_router.get("/status")
-async def get_platforms_status():
-    """Retrieves the status of all platforms"""
-    return {"status": "ok"}
-
-@platform_router.get("/{id}/status")
-async def get_platform_status(id: str):
+@platform_router.get("/status/{platform_id}")
+async def get_platform_status(
+        platform_id: str,
+        ansible_service: AnsibleService = Depends(get_ansible_service),
+        platform_service: PlatformService = Depends(get_platform_service)):
     """Retrieves the status of a specific platform"""
-    return {"status": "ok"}
+    status = await ansible_service.get_platform_status(platform_id)
 
-@platform_router.get("/{id}/agents")
-async def get_agents_running_state(id: str):
-    """Retrieves the running state of agents for a platform"""
-    # ansible-playbook -i <path/to/your/inventory>.yml \
-    #             volttron.deployment.ad_hoc -e "command='vctl status'"
-    return {"agents": []}
+    if status is None:
+        raise HTTPException(status_code=404, detail="Platform not found")
+    return status
+
+# @ansible_router.get("/update-all-status")
+# async def update_all_status():
+#     """Updates the status of all platforms"""
+#     try:
+#         ansible_service = await get_ansible_service()
+
+
+# @platform_router.post("/deploy")
+# async def deploy_platform(deploy):
+#     """Deploys a platform"""
+#     # Get the platform definition
+#     # Deploy the platform
+#     return SuccessResponse()
+
+# async def deploy_platforms():
+#     """Deploy all the platforms"""
+#     return SuccessResponse()
+
+# @platform_router.post("/{id}/run")
+# async def run_platform(id: str):
+#     """Runs a specific platform"""
+#     # TODO: Implement this
+#     # ansible-playbook -i <path/to/your/inventory>.yml \
+#     #              volttron.deployment.run_platforms
+#     return SuccessResponse()
+
+# @platform_router.post("/run")
+# async def run_platforms():
+#     """Runs all platforms"""
+#     return SuccessResponse()
+
+# @platform_router.post("/{id}/configure_agents")
+# async def configure_agents(id: str):
+#     """Configures agents for a platform"""
+#     # Get the platform definition
+#     # Configure the agents
+#     return SuccessResponse()
+
+# @platform_router.get("/status")
+# async def get_platforms_status():
+#     """Retrieves the status of all platforms"""
+#     return {"status": "ok"}
+
+# @platform_router.get("/{id}/status")
+# async def get_platform_status(id: str):
+#     """Retrieves the status of a specific platform"""
+#     return {"status": "ok"}
+
+# @platform_router.get("/{id}/agents")
+# async def get_agents_running_state(id: str):
+#     """Retrieves the running state of agents for a platform"""
+#     # ansible-playbook -i <path/to/your/inventory>.yml \
+#     #             volttron.deployment.ad_hoc -e "command='vctl status'"
+#     return {"agents": []}
 
 @platform_router.post("/{platform_id}/agents")
 async def create_agent(platform_id: str, agent: CreateAgentRequest):
@@ -244,7 +272,34 @@ async def task_status(id: str):
     # Get the status of the task
     return {"status": "ok"}
 
-@ansible_router.post("/ansible/deploy_platform")
+@platform_router.post("/deploy")
+async def deploy_platform(spec: DeployPlatformRequest, 
+                          ansible: AnsibleService = Depends(get_ansible_service),
+                          platform_service: PlatformService = Depends(get_platform_service)):
+    """Deploys a platform using Ansible"""
+    try:
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(spec.platform_id)
+        if platform is None:
+            raise HTTPException(status_code=404, detail="Platform not found")
+
+        return_code, stdout, stderr = await ansible.run_playbook(
+            "install-platform",
+            extra_vars=platform.config.model_dump()
+        )
+
+        if return_code != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Ansible deployment failed: {stderr or stdout}"
+            )
+        return {"status": "success", "output": stdout}
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 async def deploy_platform(config: PlatformConfig, ansible: AnsibleService = Depends(get_ansible_service)):
     """Deploys a platform using Ansible"""
     try:

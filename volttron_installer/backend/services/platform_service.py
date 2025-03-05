@@ -8,6 +8,7 @@ import yaml
 from volttron_installer.backend.models import PlatformDefinition, AgentDefinition
 from volttron_installer.settings import get_settings
 from volttron_installer.backend.utils import normalize_name_for_file
+from volttron_installer.backend.services.inventory_service import get_inventory_service
 
 
 class PlatformService:
@@ -20,6 +21,7 @@ class PlatformService:
 
     async def create_platform(self, definition: PlatformDefinition):
         async with self._lock:
+            await self._validate_host_id(definition.host_id)
             await self._create_platform(definition)
 
     async def _create_platform(self, definition: PlatformDefinition):
@@ -44,6 +46,7 @@ class PlatformService:
 
     async def update_platform(self, instance_name: str, updated_definition: PlatformDefinition):
         async with self._lock:
+            await self._validate_host_id(updated_definition.host_id)
             await self._update_platform(instance_name, updated_definition)
 
     async def _update_platform(self, instance_name: str, updated_definition: PlatformDefinition):
@@ -126,6 +129,12 @@ class PlatformService:
             raise FileNotFoundError(f"Agent {agent_id} not found in platform {platform_id}.")
         del platform.agents[agent_id]
         await self._update_platform(platform_id, platform)
+
+    async def _validate_host_id(self, host_id: str):
+        inventory_service = await get_inventory_service()
+        host = await inventory_service.get_host(host_id)
+        if host is None:
+            raise ValueError(f"Host with id {host_id} does not exist.")
 
 __platform_service__ = PlatformService()
 

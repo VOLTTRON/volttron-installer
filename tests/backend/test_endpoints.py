@@ -13,9 +13,24 @@ PLATFORMS_PREFIX = f"{API_PREFIX}/platforms"
 HOSTS_PREFIX = f"{ANSIBLE_PREFIX}/hosts"
 CATALOG_PREFIX = f"{API_PREFIX}/catalog"
 
+@pytest.fixture
+def create_host_entry():
+    client.post(f"{HOSTS_PREFIX}", json={
+        "id": "test_host",
+        "ansible_user": "user",
+        "ansible_host": "127.0.0.1",
+        "ansible_port": 22,
+        "ansible_connection": "ssh",
+        "http_proxy": None,
+        "https_proxy": None,
+        "volttron_venv": None,
+        "volttron_home": "~/.volttron",
+        "host_configs_dir": None
+    })
 
-def test_create_platform_endpoint():
+def test_create_platform_endpoint(create_host_entry):
     response = client.post(f"{PLATFORMS_PREFIX}/", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "test_instance",
             "vip_address": "tcp://127.0.0.1:22916",
@@ -26,8 +41,9 @@ def test_create_platform_endpoint():
     assert response.status_code == 200
     assert response.json()["success"] is True
 
-def test_get_platform_endpoint():
+def test_get_platform_endpoint(create_host_entry):
     response = client.post(f"{PLATFORMS_PREFIX}/", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "test_instance",
             "vip_address": "tcp://127.0.0.1:22916",
@@ -41,8 +57,9 @@ def test_get_platform_endpoint():
     assert response.status_code == 200
     assert response.json()["config"]["instance_name"] == "test_instance"
 
-def test_update_platform_endpoint():
+def test_update_platform_endpoint(create_host_entry):
     client.post(f"{PLATFORMS_PREFIX}/", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "test_instance",
             "vip_address": "tcp://127.0.0.1:22916",
@@ -51,6 +68,7 @@ def test_update_platform_endpoint():
         "agents": {}
     })
     response = client.put(f"{PLATFORMS_PREFIX}/test_instance", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "test_instance",
             "vip_address": "tcp://127.0.0.1:22917",
@@ -61,8 +79,9 @@ def test_update_platform_endpoint():
     assert response.status_code == 200
     assert response.json()["success"] is True
 
-def test_delete_platform_endpoint():
+def test_delete_platform_endpoint(create_host_entry):
     client.post(f"{PLATFORMS_PREFIX}/", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "test_instance",
             "vip_address": "tcp://127.0.0.1:22916",
@@ -74,8 +93,9 @@ def test_delete_platform_endpoint():
     assert response.status_code == 200
     assert response.json()["success"] is True
 
-def test_list_platforms_endpoint():
+def test_list_platforms_endpoint(create_host_entry):
     client.post(f"{PLATFORMS_PREFIX}/", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "instance1",
             "vip_address": "tcp://127.0.0.1:22916",
@@ -84,6 +104,7 @@ def test_list_platforms_endpoint():
         "agents": {}
     })
     client.post(f"{PLATFORMS_PREFIX}/", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "instance2",
             "vip_address": "tcp://127.0.0.1:22917",
@@ -97,8 +118,9 @@ def test_list_platforms_endpoint():
     assert "instance1" in instance_names
     assert "instance2" in instance_names
 
-def test_create_agent_in_platform_endpoint():
+def test_create_agent_in_platform_endpoint(create_host_entry):
     client.post(f"{PLATFORMS_PREFIX}/", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "test_instance",
             "vip_address": "tcp://127.0.0.1:22916",
@@ -113,8 +135,9 @@ def test_create_agent_in_platform_endpoint():
     assert response.status_code == 200
     assert response.json()["success"] is True
 
-def test_remove_agent_from_platform_endpoint():
+def test_remove_agent_from_platform_endpoint(create_host_entry):
     client.post(f"{PLATFORMS_PREFIX}/", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "test_instance",
             "vip_address": "tcp://127.0.0.1:22916",
@@ -130,8 +153,9 @@ def test_remove_agent_from_platform_endpoint():
     assert response.status_code == 200
     assert response.json()["success"] is True
 
-def test_update_agent_in_platform_endpoint():
+def test_update_agent_in_platform_endpoint(create_host_entry):
     client.post(f"{PLATFORMS_PREFIX}/", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "test_instance",
             "vip_address": "tcp://127.0.0.1:22916",
@@ -150,8 +174,9 @@ def test_update_agent_in_platform_endpoint():
     assert response.status_code == 200
     assert response.json()["success"] is True
 
-def test_delete_agent_from_platform_endpoint():
+def test_delete_agent_from_platform_endpoint(create_host_entry):
     client.post(f"{PLATFORMS_PREFIX}/", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "test_instance",
             "vip_address": "tcp://127.0.0.1:22916",
@@ -248,8 +273,9 @@ def test_list_host_entries():
     assert "test_host1" in host_ids
     assert "test_host2" in host_ids
 
-def test_get_platforms():
+def test_get_platforms(create_host_entry):
     client.post(f"{PLATFORMS_PREFIX}/", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "instance1",
             "vip_address": "tcp://127.0.0.1:22916",
@@ -258,6 +284,7 @@ def test_get_platforms():
         "agents": {}
     })
     client.post(f"{PLATFORMS_PREFIX}/", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "instance2",
             "vip_address": "tcp://127.0.0.1:22917",
@@ -317,8 +344,9 @@ def test_get_nonexistent_agent_from_catalog():
     assert response.status_code == 404
     assert response.json()["detail"] == "Agent not found in catalog"
 
-def test_create_agent_from_catalog():
+def test_create_agent_from_catalog(create_host_entry):
     client.post(f"{PLATFORMS_PREFIX}/", json={
+        "host_id": "test_host",
         "config": {
             "instance_name": "test_instance",
             "vip_address": "tcp://127.0.0.1:22916",
