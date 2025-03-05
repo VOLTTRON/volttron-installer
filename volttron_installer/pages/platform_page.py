@@ -92,10 +92,18 @@ class State(rx.State):
 # =========== Putting this here for now, ideally will be inside Instance class ==============
     
     working_agent: AgentModelView = ""
+    working_agent_identity: str = ""
     working_agent_config_store: list[ConfigStoreEntryModelView] = []
 
+    thingy: list[str] = ["bro", "no", "sense"]
 # ==================================================================================================
     # Vars
+    # @rx.var(cache=True)
+    # def current_agent(self) -> AgentModelView:
+    #     current_platform = self.platforms[self.current_uid]
+
+    #     return current_platform.platform.agents[self.working_agent_identity] if self.working_agent_identity in current_platform.platform.agents else AgentModelView()
+
     @rx.var(cache=True)
     def current_uid(self) -> str:
         return self.router.page.params.get("uid", "")
@@ -106,8 +114,9 @@ class State(rx.State):
         self.list_of_agents = await agents_off_catalog()
 
     @rx.event
-    def set_working_agent(self, agent: AgentModelView):
+    def set_working_agent(self, agent: AgentModelView, identity: str = ""):
         self.working_agent = agent
+        self.working_agent_identity = identity
         self.working_agent_config_store = agent.config_store
         logger.debug(f"working with {self.working_agent.identity}")
 
@@ -235,6 +244,26 @@ class State(rx.State):
                 )
             )
         yield rx.toast.success("Changes saved successfully")
+
+    @rx.event
+    def save_agent_config(self, identity_agent_pair: tuple[str, AgentModelView]):
+        stable_identity: str = identity_agent_pair[0]
+        agent: AgentModelView = identity_agent_pair[1]
+        working_platform = self.platforms[self.current_uid]
+        if stable_identity != agent.identity:
+            if stable_identity not in working_platform.platform.agents:
+                new_agents_dict: dict[str, AgentModelView] = {}
+                for key, value in working_platform.platform.agents.items():
+                    if key == stable_identity:
+                        key = agent.identity
+                    new_agents_dict[key] = value
+                working_platform.platform.agents=new_agents_dict
+            else:
+                #TODO
+                # Through an error
+                pass
+        # working_platform.platform.agents[identity_agent_pair[0]]
+        ...
 
     @rx.event
     async def handle_config_store_entry_upload(self, files: list[rx.UploadFile]):
@@ -456,12 +485,11 @@ def platform_page() -> rx.Component:
                                             required=True,
                                         )
                                     ),
-                                    # form_entry.form_entry(
-                                    #     "SSH config stuff",
-                                    #     rx.input(
-                                    #         size="3",
-                                    #         required=True,
-                                    #     )
+                                    # ok wow so things can render just fine here but when we put it in the modal everything breaks...
+                                    # got it...
+                                    # rx.foreach(
+                                    #     State.thingy,
+                                    #     lambda item: agent_config_tile(text="am i real")
                                     # ),
                                 )
                             ),
@@ -554,10 +582,31 @@ def platform_page() -> rx.Component:
                                                                 rx.dialog.trigger(
                                                                     tile_icon(
                                                                         "settings",
-                                                                        on_click=State.set_working_agent(identity_agent_pair[1])
+                                                                        on_click=State.set_working_agent(identity_agent_pair[1], identity_agent_pair[0])
                                                                     )
                                                                 ),
                                                                 rx.dialog.content(
+                                                                    # rx.table.root(
+                                                                    #     rx.table.header(
+                                                                    #         rx.foreach(
+                                                                    #             State.thingy,
+                                                                    #             lambda item: rx.table.column_header_cell(item)
+                                                                    #         )
+                                                                    #     ),
+                                                                    #     rx.table.body(
+                                                                    #         rx.table.row(
+                                                                    #             rx.table.cell("a"),
+                                                                    #             rx.table.cell("a"),
+                                                                    #             rx.table.cell("a"),
+                                                                    #         )
+                                                                    #     )
+                                                                    # ),
+                                                                    # rx.flex(
+                                                                    #     rx.foreach(
+                                                                    #         State.thingy,
+                                                                    #         lambda item: rx.text(item)
+                                                                    #     )
+                                                                    # ),
                                                                     agent_config_modal(identity_agent_pair),
                                                                     on_close_auto_focus=State.clear_working_agent	
                                                                 ),
@@ -625,153 +674,348 @@ def platform_page() -> rx.Component:
         ),
     )))
 
-def agent_config_modal(identity_agent_pair: tuple[str, AgentModelView]) -> rx.Component:
+def agent_identity_section(stable_identity: str, agent: AgentModelView) -> rx.Component:
     working_platform: Instance = State.platforms[State.current_uid]
+    return rx.flex(
+        form_entry.form_entry(
+            "Identity",
+            rx.input(
+                value=State.working_agent.identity,
+                # value=working_platform.platform.agents[State.working_agent_identity].identity,
+                on_change=lambda v: State.update_agent_detail(
+                    State.working_agent,
+                    # working_platform.platform.agents[State.working_agent_identity], 
+                    "identity", 
+                    v, 
+                    "agent_identity_field"
+                ),
+                size="3",
+                id="agent_identity_field"
+            )
+        ),
+        form_entry.form_entry(
+            "Source",
+            rx.input(
+                size="3",
+                value=State.working_agent.source,
+                # value=working_platform.platform.agents[State.working_agent_identity].source,
+                on_change=lambda v: State.update_agent_detail(
+                    # State.current_agent,
+                    State.working_agent,
+                    # working_platform.platform.agents[State.working_agent_identity], 
+                    "source", 
+                    v, 
+                    "agent_source_field"
+                ),
+                id="agent_source_field"
+            )
+        ),
+        form_entry.form_entry(
+            "Agent Config",
+            text_editor(
+                placeholder="Type out JSON, YAML, or upload a file!",
+                value=State.working_agent.config,
+                # value=working_platform.platform.agents[State.working_agent_identity].config,
+                on_change=lambda v: State.update_agent_detail(
+                    State.working_agent,
+                    # working_platform.platform.agents[State.working_agent_identity], 
+                    "config", 
+                    v, 
+                    "agent_config_field"
+                ),
+                id="agent_config_field"
+            ),
+            upload=rx.upload.root(
+                icon_upload(),
+                id="agent_config_upload",
+                max_files=1,
+                accept={
+                    "text/yaml" : [".yml", ".yaml"],
+                    "text/json" : [".json"]
+                },
+                on_drop=State.handle_agent_config_upload(
+                    rx.upload_files(upload_id="agent_config_upload")
+                )
+            )
+        ),
+        direction="column",
+        spacing="3"
+    )
+
+def agent_config_section() -> rx.Component:
+    return form_entry.form_entry(
+        "Agent Config",
+        text_editor(
+            placeholder="Type out JSON, YAML, or upload a file!",
+            # value=State.working_agent.config,
+            value=State.working_agent.config,
+            on_change=lambda v: State.update_agent_detail(
+                State.working_agent, 
+                "config", 
+                v, 
+                "agent_config_field"
+            ),
+            id="agent_config_field"
+        ),
+        upload=rx.upload.root(
+            icon_upload(),
+            id="agent_config_upload",
+            max_files=1,
+            accept={
+                "text/yaml" : [".yml", ".yaml"],
+                "text/json" : [".json"]
+            },
+            on_drop=State.handle_agent_config_upload(
+                rx.upload_files(upload_id="agent_config_upload")
+            )
+        )
+    )
+
+def config_store_section() -> rx.Component:
+    return rx.flex(
+        rx.flex(
+            rx.upload.root(
+                icon_upload(),
+                id="config_store_entry_upload", 
+                accept={
+                    "text/csv" : [".csv"],
+                    "text/json" : [".json"]
+                },
+                on_drop=State.handle_config_store_entry_upload(
+                    rx.upload_files(upload_id="config_store_entry_upload")
+                )
+            ),
+            # config_store_list(),
+            direction="column",
+            flex="1",
+            align="center",
+            spacing="4"
+        ),
+        rx.flex(
+            rx.box(),
+            border_radius=".5rem",
+            padding="1rem",
+            flex="1"
+        ),
+        align="center",
+        spacing="4", 
+        direction="row",
+        padding_top="1rem",
+        width="100%"
+    )
+
+def config_store_list() -> rx.Component:
+    return rx.flex(
+        rx.foreach(
+            State.working_agent_config_store,
+            lambda item: rx.text("text")
+        ),
+        direction="column",
+        spacing="4"
+    )
+
+def agent_config_modal(identity_agent_pair: tuple[str, AgentModelView]) -> rx.Component:
     stable_identity = identity_agent_pair[0]
     agent: AgentModelView = identity_agent_pair[1]
-    return rx.cond(State.working_agent !="", rx.cond(State.is_hydrated, rx.fragment(rx.flex(
-        rx.heading(stable_identity, as_="h3"),
-        rx.tabs.root(
-            rx.tabs.list(
-                rx.tabs.trigger("Agent Config", value="1"),
-                rx.tabs.trigger("Config Store Entries", value="2")
-            ),
-            rx.tabs.content(
+    # logger.debug(State.working_agent_config_store)
+    return rx.cond(State.is_hydrated, rx.cond(
+        State.working_agent != "",
+        rx.cond(
+            State.is_hydrated,
+            rx.fragment(
                 rx.flex(
-                    form_entry.form_entry(
-                        "Identity",
-                        rx.input(
-                            value=working_platform.platform.agents[stable_identity].identity,
-                            on_change=lambda v: State.update_agent_detail(
-                                working_platform.platform.agents[stable_identity], 
-                                "identity", 
-                                v, 
-                                "agent_identity_field"
-                            ),
-                            size="3",
-                            id="agent_identity_field"
-                        )
-                    ),
-                    form_entry.form_entry(
-                        "Source",
-                        rx.input(
-                            size="3",
-                            # testing
-                            value=agent.source,
-                            on_change=lambda v: State.update_agent_detail(agent, "source", v, "agent_source_field"),
-                            id="agent_source_field"
-                        )
-                    ),                    
-                    form_entry.form_entry(
-                        "Agent Config",
-                        text_editor(
-                            placeholder="Type out JSON, YAML, or upload a file!",
-                            value=agent.config,
-                            on_change=lambda v: State.update_agent_detail(agent, "config", v, "agent_config_field"),
-                            id="agent_config_field"
+                    rx.heading(stable_identity, as_="h3"),
+                    rx.tabs.root(
+                        rx.tabs.list(
+                            rx.tabs.trigger("Agent Config", value="1"),
+                            rx.tabs.trigger("Config Store Entries", value="2")
                         ),
-                        upload=rx.upload.root(
-                            icon_upload(),
-                            id="agent_config_upload",
-                            max_files=1,
-                            accept={
-                                "text/yaml" : [".yml", ".yaml"],
-                                "text/json" : [".json"]
-                            },
-                            on_drop=State.handle_agent_config_upload(
-                                # agent, 
-                                rx.upload_files(upload_id="agent_config_upload")
-                            )
-                        )
+                        rx.tabs.content(
+                            rx.flex(
+                                agent_identity_section(stable_identity, agent),
+                                agent_config_section(),
+                                padding_top="1rem",
+                                direction="column", 
+                                class_name="agent_config_modal",
+                                spacing="3",
+                            ),
+                            value="1"
+                        ),
+                        rx.tabs.content(
+                            config_store_section(),
+                            value="2"
+                        ),
+                        default_value="1"
                     ),
-                    padding_top="1rem",
+                    rx.hstack(
+                        rx.button(
+                            "Save",
+                            variant="surface",
+                            color_scheme="green",
+                            on_click=lambda: State.save_agent_config(identity_agent_pair)
+                        ),
+                        align_items="end",
+                        justify="end"
+                    ),
+                    min_height="clamp(90vh, 30rem)",
                     direction="column",
-                    class_name="agent_config_modal",
                     spacing="3",
-                ),
-                value="1"
-            ),
-            rx.tabs.content(
-                # This will look like the 
-                rx.flex(
-                    rx.flex(
-                        rx.flex(
-                            rx.upload.root(
-                                icon_upload(),
-                                id="config_store_entry_upload",
-                                accept={
-                                    "text/csv" : [".csv"],
-                                    "text/json" : [".json"]
-                                },
-                                on_drop=State.handle_config_store_entry_upload(
-                                    rx.upload_files(upload_id="config_store_entry_upload")
-                                )
-                            ),
-                            # rx.box(
-                            #     [agent_config_tile("boiler plate") for i in agent.config_store]
-                            # ),
-                            # rx.cond(
-                            #     State.working_agent != "",
-                            #     rx.cond(
-                            #         State.working_agent.config_store.length() > 0,
-                            #         rx.foreach(
-                            #             State.working_agent.config_store,
-                            #             lambda item: agent_config_tile(f"heyy")  # Add item parameter
-                            #         ),
-                            #         rx.text("No items")  # Add else case
-                            #     ),
-                            #     rx.text("No agent selected")  # Add else case
-                            # ),
-                            direction="column",
-                            flex="1",
-                            align="center",
-                            spacing="4"
-                        ),
-                        border="1px solid white",
-                        border_radius=".5rem",
-                        padding="1rem",
-                        flex="1"
-                    ),
-                    rx.flex(
-                        rx.flex(
-                            # rx.cond(
-                            #     True,
-                                rx.box(),
-                            # )
-                            direction="column",
-                            flex="1",
-                            align="center"
-                        ),
-                        # border="1px solid white",
-                        border_radius=".5rem",
-                        padding="1rem",
-                        flex="1"
-                    ),
-                    align="center",
-                    spacing="4",
-                    direction="row",
-                    padding_top="1rem",
-                    width="100%"
-                ),
-                value="2"
-            ),
-            default_value="1"
-        ),
-        rx.hstack(
-            rx.button(
-                "Save",
-                variant="surface",
-                color_scheme="green",
-                #on_click
-            ), 
-            align_items="end",
-            justify="end"
-        ),
-        min_height="clamp(90vh, 30rem)",
-        direction="column",
-        spacing="3",
+                )
+            )
+        )
     )
-)))
+)
+# def agent_config_modal(identity_agent_pair: tuple[str, AgentModelView]) -> rx.Component:
+#     working_platform: Instance = State.platforms[State.current_uid]
+#     stable_identity = identity_agent_pair[0]
+#     agent: AgentModelView = identity_agent_pair[1]
+#     return rx.cond(State.working_agent !="", rx.cond(State.is_hydrated, rx.fragment(rx.flex(
+#         rx.heading(stable_identity, as_="h3"),
+#         rx.tabs.root(
+#             rx.tabs.list(
+#                 rx.tabs.trigger("Agent Config", value="1"),
+#                 rx.tabs.trigger("Config Store Entries", value="2")
+#             ),
+#             rx.tabs.content(
+#                 rx.flex(
+#                     form_entry.form_entry(
+#                         "Identity",
+#                         rx.input(
+#                             value=working_platform.platform.agents[stable_identity].identity,
+#                             on_change=lambda v: State.update_agent_detail(
+#                                 working_platform.platform.agents[stable_identity], 
+#                                 "identity", 
+#                                 v, 
+#                                 "agent_identity_field"
+#                             ),
+#                             size="3",
+#                             id="agent_identity_field"
+#                         )
+#                     ),
+#                     form_entry.form_entry(
+#                         "Source",
+#                         rx.input(
+#                             size="3",
+#                             # testing
+#                             value=agent.source,
+#                             on_change=lambda v: State.update_agent_detail(agent, "source", v, "agent_source_field"),
+#                             id="agent_source_field"
+#                         )
+#                     ),                    
+#                     form_entry.form_entry(
+#                         "Agent Config",
+#                         text_editor(
+#                             placeholder="Type out JSON, YAML, or upload a file!",
+#                             # value=working_platform.platform.agents[stable_identity].config,
+#                             value=State.working_agent.config,
+#                             on_change=lambda v: State.update_agent_detail(
+#                                 State.working_agent, 
+#                                 "config", 
+#                                 v, 
+#                                 "agent_config_field"
+#                                 ),
+#                             id="agent_config_field"
+#                         ),
+#                         upload=rx.upload.root(
+#                             icon_upload(),
+#                             id="agent_config_upload",
+#                             max_files=1,
+#                             accept={
+#                                 "text/yaml" : [".yml", ".yaml"],
+#                                 "text/json" : [".json"]
+#                             },
+#                             on_drop=State.handle_agent_config_upload(
+#                                 # agent, 
+#                                 rx.upload_files(upload_id="agent_config_upload")
+#                             )
+#                         )
+#                     ),
+#                     padding_top="1rem",
+#                     direction="column",
+#                     class_name="agent_config_modal",
+#                     spacing="3",
+#                 ),
+#                 value="1"
+#             ),
+#             rx.tabs.content(
+#                 # This will look like the 
+#                 rx.flex(
+#                     rx.flex(
+#                         rx.flex(
+#                             rx.upload.root(
+#                                 icon_upload(),
+#                                 id="config_store_entry_upload",
+#                                 accept={
+#                                     "text/csv" : [".csv"],
+#                                     "text/json" : [".json"]
+#                                 },
+#                                 on_drop=State.handle_config_store_entry_upload(
+#                                     rx.upload_files(upload_id="config_store_entry_upload")
+#                                 )
+#                             ),
+
+#                             # rx.cond(
+#                             #     State.working_agent != "",
+#                             #     rx.cond(
+#                             #         State.working_agent.config_store.length() > 0,
+#                             #         rx.foreach(
+#                             #             State.working_agent.config_store,
+#                             #             lambda item: agent_config_tile(f"heyy")  # Add item parameter
+#                             #         ),
+#                             #         rx.text("No items")  # Add else case
+#                             #     ),
+#                             #     rx.text("No agent selected")  # Add else case
+#                             # ),
+#                             direction="column",
+#                             flex="1",
+#                             align="center",
+#                             spacing="4"
+#                         ),
+#                         border="1px solid white",
+#                         border_radius=".5rem",
+#                         padding="1rem",
+#                         flex="1"
+#                     ),
+#                     rx.flex(
+#                         rx.flex(
+#                             # rx.cond(
+#                             #     True,
+#                                 rx.box(),
+#                             # )
+#                             direction="column",
+#                             flex="1",
+#                             align="center"
+#                         ),
+#                         # border="1px solid white",
+#                         border_radius=".5rem",
+#                         padding="1rem",
+#                         flex="1"
+#                     ),
+#                     align="center",
+#                     spacing="4",
+#                     direction="row",
+#                     padding_top="1rem",
+#                     width="100%"
+#                 ),
+#                 value="2"
+#             ),
+#             default_value="1"
+#         ),
+#         rx.hstack(
+#             rx.button(
+#                 "Save",
+#                 variant="surface",
+#                 color_scheme="green",
+#                 #on_click
+#             ), 
+#             align_items="end",
+#             justify="end"
+#         ),
+#         min_height="clamp(90vh, 30rem)",
+#         direction="column",
+#         spacing="3",
+#     )
+# )))
 
 def agent_config_tile(text, left_component: rx.Component = False, right_component: rx.Component = False)->rx.Component:
     return rx.hstack(
