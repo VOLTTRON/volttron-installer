@@ -21,6 +21,7 @@ class AgentConfigState(rx.State):
     selected_component_id: str = ""
 
     # this being named agent details doesn't make sense but whatever
+    
     @rx.var
     def agent_details(self) -> dict:
         args = self.router.page.params

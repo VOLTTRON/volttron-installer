@@ -503,6 +503,29 @@ def platform_page() -> rx.Component:
             rx.text(f"Platform: {State.current_uid}", size="6"),
         ),
         rx.box(
+            # rx.dialog.root(
+            #     rx.dialog.trigger(
+            #         rx.button("click")
+            #     ),
+            #     rx.dialog.content(
+            #         rx.tabs.root(
+            #             rx.tabs.list(
+            #                 rx.tabs.trigger("a", value="1")
+            #             ),
+            #             rx.tabs.content(
+            #                 rx.vstack(
+            #                     rx.text("something is supposed to be here"),
+            #                     rx.foreach(
+            #                         State.thingy,
+            #                         lambda thing: rx.text(thing)
+            #                     )
+            #                 ),
+            #                 value="1"
+            #             ),
+            #             default_value="1"
+            #         )
+            #     )
+            # ),
             rx.accordion.root(
                 rx.accordion.item(
                     header="Connection",

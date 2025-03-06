@@ -56,7 +56,6 @@ class AgentModelView(rx.Base):
 
     routing_id: str = ""
 
-
 class HostEntryModelView(rx.Base):
     id: str = ""
     ansible_user: str = ""
