@@ -77,12 +77,6 @@ async def agents_off_catalog() -> List[AgentModelView]:
             )
         )
     return agent_list
-    
-class NoAgent(rx.Base):
-    identity = ""
-    source = ""
-    config = ""
-    config_store = []
 
 
 class State(rx.State):
@@ -135,6 +129,7 @@ class State(rx.State):
         new_agent = deepcopy(agent)
         if new_agent.identity in working_platform.platform.agents:
             new_agent.identity = f"{new_agent.identity}_{len(list(working_platform.platform.agents.values()))}"
+        new_agent.routing_id = self.generate_unique_uid()
         working_platform.platform.agents[new_agent.identity] = new_agent
         
     @rx.event
@@ -409,29 +404,6 @@ def platform_page() -> rx.Component:
             rx.text(f"Platform: {State.current_uid}", size="6"),
         ),
         rx.box(
-            # rx.dialog.root(
-            #     rx.dialog.trigger(
-            #         rx.button("click")
-            #     ),
-            #     rx.dialog.content(
-            #         rx.tabs.root(
-            #             rx.tabs.list(
-            #                 rx.tabs.trigger("a", value="1")
-            #             ),
-            #             rx.tabs.content(
-            #                 rx.vstack(
-            #                     rx.text("something is supposed to be here"),
-            #                     rx.foreach(
-            #                         State.thingy,
-            #                         lambda thing: rx.text(thing)
-            #                     )
-            #                 ),
-            #                 value="1"
-            #             ),
-            #             default_value="1"
-            #         )
-            #     )
-            # ),
             rx.accordion.root(
                 rx.accordion.item(
                     header="Connection",
@@ -605,18 +577,14 @@ def platform_page() -> rx.Component:
                                                             on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
                                                             # on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
                                                         ),
-                                                        right_component=rx.dialog.root(
-                                                                rx.dialog.trigger(
-                                                                    tile_icon(
-                                                                        "settings",
-                                                                        on_click=State.set_working_agent(identity_agent_pair[1], identity_agent_pair[0])
-                                                                    )
-                                                                ),
-                                                                rx.dialog.content(
-                                                                    agent_config_modal(identity_agent_pair),
-                                                                    on_close_auto_focus=State.clear_working_agent	
-                                                                ),
-                                                            ),
+                                                        right_component=tile_icon(
+                                                                "settings",
+                                                                on_click=lambda: NavigationState.route_to_agent_config(
+                                                                    State.current_uid,
+                                                                    identity_agent_pair[1].routing_id,
+                                                                    identity_agent_pair[1]
+                                                                )
+                                                            )
                                                         )
                                                 ),
                                                 class_name="agent_config_view_content"
@@ -710,198 +678,6 @@ def agent_dialog() -> rx.Component:
             )
         )
     )
-
-# def agent_identity_section(stable_identity: str, agent: AgentModelView) -> rx.Component:
-#     working_platform: Instance = State.platforms[State.current_uid]
-#     return rx.flex(
-#         form_entry.form_entry(
-#             "Identity",
-#             rx.input(
-#                 value=State.working_agent.identity,
-#                 # value=working_platform.platform.agents[State.working_agent_identity].identity,
-#                 on_change=lambda v: State.update_agent_detail(
-#                     State.working_agent,
-#                     # working_platform.platform.agents[State.working_agent_identity], 
-#                     "identity", 
-#                     v, 
-#                     "agent_identity_field"
-#                 ),
-#                 size="3",
-#                 id="agent_identity_field"
-#             )
-#         ),
-#         form_entry.form_entry(
-#             "Source",
-#             rx.input(
-#                 size="3",
-#                 value=State.working_agent.source,
-#                 # value=working_platform.platform.agents[State.working_agent_identity].source,
-#                 on_change=lambda v: State.update_agent_detail(
-#                     # State.current_agent,
-#                     State.working_agent,
-#                     # working_platform.platform.agents[State.working_agent_identity], 
-#                     "source", 
-#                     v, 
-#                     "agent_source_field"
-#                 ),
-#                 id="agent_source_field"
-#             )
-#         ),
-#         form_entry.form_entry(
-#             "Agent Config",
-#             text_editor(
-#                 placeholder="Type out JSON, YAML, or upload a file!",
-#                 value=State.working_agent.config,
-#                 # value=working_platform.platform.agents[State.working_agent_identity].config,
-#                 on_change=lambda v: State.update_agent_detail(
-#                     State.working_agent,
-#                     # working_platform.platform.agents[State.working_agent_identity], 
-#                     "config", 
-#                     v, 
-#                     "agent_config_field"
-#                 ),
-#                 id="agent_config_field"
-#             ),
-#             upload=rx.upload.root(
-#                 icon_upload(),
-#                 id="agent_config_upload",
-#                 max_files=1,
-#                 accept={
-#                     "text/yaml" : [".yml", ".yaml"],
-#                     "text/json" : [".json"]
-#                 },
-#                 on_drop=State.handle_agent_config_upload(
-#                     rx.upload_files(upload_id="agent_config_upload")
-#                 )
-#             )
-#         ),
-#         direction="column",
-#         spacing="3"
-#     )
-
-# def agent_config_section() -> rx.Component:
-#     return form_entry.form_entry(
-#         "Agent Config",
-#         text_editor(
-#             placeholder="Type out JSON, YAML, or upload a file!",
-#             # value=State.working_agent.config,
-#             value=State.working_agent.config,
-#             on_change=lambda v: State.update_agent_detail(
-#                 State.working_agent, 
-#                 "config", 
-#                 v, 
-#                 "agent_config_field"
-#             ),
-#             id="agent_config_field"
-#         ),
-#         upload=rx.upload.root(
-#             icon_upload(),
-#             id="agent_config_upload",
-#             max_files=1,
-#             accept={
-#                 "text/yaml" : [".yml", ".yaml"],
-#                 "text/json" : [".json"]
-#             },
-#             on_drop=State.handle_agent_config_upload(
-#                 rx.upload_files(upload_id="agent_config_upload")
-#             )
-#         )
-#     )
-
-# def config_store_section() -> rx.Component:
-#     return rx.flex(
-#         rx.flex(
-#             rx.upload.root(
-#                 icon_upload(),
-#                 id="config_store_entry_upload", 
-#                 accept={
-#                     "text/csv" : [".csv"],
-#                     "text/json" : [".json"]
-#                 },
-#                 on_drop=State.handle_config_store_entry_upload(
-#                     rx.upload_files(upload_id="config_store_entry_upload")
-#                 )
-#             ),
-#             # config_store_list(),
-#             direction="column",
-#             flex="1",
-#             align="center",
-#             spacing="4"
-#         ),
-#         rx.flex(
-#             rx.box(),
-#             border_radius=".5rem",
-#             padding="1rem",
-#             flex="1"
-#         ),
-#         align="center",
-#         spacing="4", 
-#         direction="row",
-#         padding_top="1rem",
-#         width="100%"
-#     )
-
-# def config_store_list() -> rx.Component:
-#     return rx.flex(
-#         rx.foreach(
-#             State.working_agent_config_store,
-#             lambda item: rx.text("text")
-#         ),
-#         direction="column",
-#         spacing="4"
-#     )
-
-# def agent_config_modal(identity_agent_pair: tuple[str, AgentModelView]) -> rx.Component:
-#     stable_identity = identity_agent_pair[0]
-#     agent: AgentModelView = identity_agent_pair[1]
-#     # logger.debug(State.working_agent_config_store)
-#     return rx.cond(State.is_hydrated, rx.cond(
-#         State.working_agent != "",
-#         rx.cond(
-#             State.is_hydrated,
-#             rx.fragment(
-#                 rx.flex(
-#                     rx.heading(stable_identity, as_="h3"),
-#                     rx.tabs.root(
-#                         rx.tabs.list(
-#                             rx.tabs.trigger("Agent Config", value="1"),
-#                             rx.tabs.trigger("Config Store Entries", value="2")
-#                         ),
-#                         rx.tabs.content(
-#                             rx.flex(
-#                                 agent_identity_section(stable_identity, agent),
-#                                 agent_config_section(),
-#                                 padding_top="1rem",
-#                                 direction="column", 
-#                                 class_name="agent_config_modal",
-#                                 spacing="3",
-#                             ),
-#                             value="1"
-#                         ),
-#                         rx.tabs.content(
-#                             config_store_section(),
-#                             value="2"
-#                         ),
-#                         default_value="1"
-#                     ),
-#                     rx.hstack(
-#                         rx.button(
-#                             "Save",
-#                             variant="surface",
-#                             color_scheme="green",
-#                             on_click=lambda: State.save_agent_config(identity_agent_pair)
-#                         ),
-#                         align_items="end",
-#                         justify="end"
-#                     ),
-#                     min_height="clamp(90vh, 30rem)",
-#                     direction="column",
-#                     spacing="3",
-#                 )
-#             )
-#         )
-#     )
-# )
 
 def agent_config_modal(identity_agent_pair: tuple[str, AgentModelView]) -> rx.Component:
     working_platform: Instance = State.platforms[State.current_uid]

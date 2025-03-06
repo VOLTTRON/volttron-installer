@@ -9,6 +9,14 @@ class ConfigStoreEntryModelView(rx.Base):
     contains_errors: bool = False
     safe_entry: dict[str, str] = {}
 
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "path": self.path,
+            "data_type": self.data_type,
+            "value": self.value
+        }
+
+
 class AgentModelView(rx.Base):
     identity: str = ""
     source: str = ""
@@ -21,6 +29,9 @@ class AgentModelView(rx.Base):
     safe_agent: dict[str, str] = {}
 
     routing_id: str = ""
+
+
+                              
 
 class HostEntryModelView(rx.Base):
     id: str = ""

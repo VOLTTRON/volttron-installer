@@ -2,20 +2,23 @@ import reflex as rx
 from ..layouts.app_layout import app_layout
 from ..model_views import AgentModelView, ConfigStoreEntryModelView
 from ..components.header.header import header
-from ..components.buttons import icon_button_wrapper, icon_upload
+from ..components.buttons import icon_button_wrapper, icon_upload, tile_icon
 from ..components.form_components import *
 from ..components.custom_fields import text_editor
+from ..components.tiles.config_tile import config_tile
 
 from .platform_page import State as AppState
 from .platform_page import Instance
 from ..navigation.state import NavigationState
 
 import json, csv, yaml
+from loguru import logger
 
 class AgentConfigState(rx.State):
     # Store reference to working agent
     working_agent: AgentModelView = AgentModelView()
     
+    # this being named agent detaile\s doesnt make sense but whatever
     @rx.var
     def agent_details(self) -> dict:
         args = self.router.page.params
@@ -113,8 +116,16 @@ class AgentConfigState(rx.State):
         agent.safe_agent = agent.dict()
         yield rx.toast.success("Agent configuration saved")
 
+    @rx.event
+    def print_config_properties(config: ConfigStoreEntryModelView):
+        import json
+        unpacked = config.to_dict()
+        # Pretty print with indentation
+        formatted = json.dumps(unpacked, indent=2)
+        logger.debug(formatted)  # Or use logger.debug(formatted)
 
-@rx.page(route="/platform/[uid]/agent/[agent_uid]")
+
+@rx.page(route="/platform/[uid]/agent/[agent_uid]", on_load=AgentConfigState.hydrate_working_agent)
 def agent_config_page() -> rx.Component:
     return app_layout(
         header(
@@ -160,22 +171,66 @@ def agent_config_page() -> rx.Component:
                             )
                         ),
                         direction="column",
-                        spacing="3"
+                        spacing="3",
+                        padding="1rem"
                     ),
                     value="1"
                 ),
                 rx.tabs.content(
                     rx.flex(
-                        rx.upload.root(
-                            icon_upload.icon_upload(),
-                            id="config_store_entry_upload",
-                            accept={
-                                "text/csv": [".csv"],
-                                "text/json": [".json"]
-                            },
-                            on_drop=AgentConfigState.handle_config_store_entry_upload
+                        rx.flex(
+                            rx.flex(
+                                rx.box(
+                                    rx.upload.root(
+                                        icon_upload.icon_upload(),
+                                        id="config_store_entry_upload",
+                                        accept={
+                                            "text/csv": [".csv"],
+                                            "text/json": [".json"]
+                                        },
+                                        on_drop=AgentConfigState.handle_config_store_entry_upload
+                                    ),
+                                ),
+                                rx.foreach(
+                                    AgentConfigState.working_agent.config_store,
+                                    lambda item: config_tile(
+                                            text="config entry",
+                                            right_component=tile_icon.tile_icon(
+                                                "settings",
+                                                on_click=lambda: AgentConfigState.print_config_properties(item)
+                                            )
+                                        )
+                                ),
+                                direction="column",
+                                flex="1",
+                                align="center",
+                                spacing="4"
+                            ),
+                            border="1px solid white",
+                            border_radius=".5rem",
+                            padding="1rem",
+                            flex="1"
                         ),
-                        direction="column"
+                        rx.flex(
+                            rx.flex(
+                                # rx.cond(
+                                #     True,
+                                    rx.box(),
+                                # )
+                                direction="column",
+                                flex="1",
+                                align="center"
+                            ),
+                            # border="1px solid white",
+                            border_radius=".5rem",
+                            padding="1rem",
+                            flex="1"
+                        ),
+                        align="center",
+                        spacing="4",
+                        direction="row",
+                        padding_top="1rem",
+                        width="100%"
                     ),
                     value="2"
                 ),
