@@ -22,6 +22,7 @@ class AgentConfigState(rx.State):
 
     # this being named agent details doesn't make sense but whatever
     
+    # this being named agent detaile\s doesnt make sense but whatever
     @rx.var
     def agent_details(self) -> dict:
         args = self.router.page.params
