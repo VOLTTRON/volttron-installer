@@ -20,6 +20,8 @@ class AgentModelView(rx.Base):
     uncaught: bool = True
     safe_agent: dict[str, str] = {}
 
+    routing_id: str = ""
+
 class HostEntryModelView(rx.Base):
     id: str = ""
     ansible_user: str = ""

@@ -2,7 +2,6 @@ import reflex as rx
 from ..layouts.app_layout import app_layout
 from ..components.buttons import icon_button_wrapper, upload_button
 from ..components.header.header import header
-from ..components.tabs.state import PlatformState
 from ..components.buttons.tile_icon import tile_icon
 from ..components.buttons.icon_upload import icon_upload
 from ..navigation.state import NavigationState
@@ -407,9 +406,32 @@ def platform_page() -> rx.Component:
                 icon_key="arrow-left",
                 on_click=lambda: NavigationState.route_to_index()
             ),
-            rx.text(f"Platform: {PlatformState.current_uid}", size="6"),
+            rx.text(f"Platform: {State.current_uid}", size="6"),
         ),
         rx.box(
+            # rx.dialog.root(
+            #     rx.dialog.trigger(
+            #         rx.button("click")
+            #     ),
+            #     rx.dialog.content(
+            #         rx.tabs.root(
+            #             rx.tabs.list(
+            #                 rx.tabs.trigger("a", value="1")
+            #             ),
+            #             rx.tabs.content(
+            #                 rx.vstack(
+            #                     rx.text("something is supposed to be here"),
+            #                     rx.foreach(
+            #                         State.thingy,
+            #                         lambda thing: rx.text(thing)
+            #                     )
+            #                 ),
+            #                 value="1"
+            #             ),
+            #             default_value="1"
+            #         )
+            #     )
+            # ),
             rx.accordion.root(
                 rx.accordion.item(
                     header="Connection",
@@ -582,7 +604,7 @@ def platform_page() -> rx.Component:
                                                             "trash-2",
                                                             on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
                                                             # on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
-                                                            ),
+                                                        ),
                                                         right_component=rx.dialog.root(
                                                                 rx.dialog.trigger(
                                                                     tile_icon(
@@ -591,27 +613,6 @@ def platform_page() -> rx.Component:
                                                                     )
                                                                 ),
                                                                 rx.dialog.content(
-                                                                    # rx.table.root(
-                                                                    #     rx.table.header(
-                                                                    #         rx.foreach(
-                                                                    #             State.thingy,
-                                                                    #             lambda item: rx.table.column_header_cell(item)
-                                                                    #         )
-                                                                    #     ),
-                                                                    #     rx.table.body(
-                                                                    #         rx.table.row(
-                                                                    #             rx.table.cell("a"),
-                                                                    #             rx.table.cell("a"),
-                                                                    #             rx.table.cell("a"),
-                                                                    #         )
-                                                                    #     )
-                                                                    # ),
-                                                                    # rx.flex(
-                                                                    #     rx.foreach(
-                                                                    #         State.thingy,
-                                                                    #         lambda item: rx.text(item)
-                                                                    #     )
-                                                                    # ),
                                                                     agent_config_modal(identity_agent_pair),
                                                                     on_close_auto_focus=State.clear_working_agent	
                                                                 ),
@@ -678,6 +679,37 @@ def platform_page() -> rx.Component:
         class_name="platform_view_container"
         ),
     )))
+
+def agent_dialog() -> rx.Component:
+    return rx.dialog.root(
+        rx.dialog.trigger(
+            tile_icon("settings")
+        ),
+        rx.dialog.content(
+            rx.dialog.title("Agent Details"),
+            rx.dialog.description(
+                f"Configuration for "
+            ),
+            rx.tabs.root(
+                rx.tabs.list(
+                    rx.tabs.trigger("Settings", value="1")
+                ),
+                rx.tabs.content(
+                    rx.vstack(
+                        # Agent specific content here
+                        rx.text(f"Agent ID:"),
+                        rx.foreach(
+                            State.thingy,
+                            lambda thing: rx.text(text=thing)
+                        )
+                        # Other agent details...
+                    ),
+                    value="1"
+                ),
+                default_value="1"
+            )
+        )
+    )
 
 # def agent_identity_section(stable_identity: str, agent: AgentModelView) -> rx.Component:
 #     working_platform: Instance = State.platforms[State.current_uid]
