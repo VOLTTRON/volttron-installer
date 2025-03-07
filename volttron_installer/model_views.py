@@ -47,9 +47,9 @@ class ConfigStoreEntryModelView(rx.Base):
         return {
             "path": self.path,
             "data_type": self.data_type,
-            "value": self.value
+            "value": self.value,
+            "component_id": self.component_id
         }
-
 
 class AgentModelView(rx.Base):
     identity: str = ""
@@ -64,8 +64,6 @@ class AgentModelView(rx.Base):
 
     routing_id: str = ""
 
-
-                              
 
 class HostEntryModelView(rx.Base):
     id: str = ""
