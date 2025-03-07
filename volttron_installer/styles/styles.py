@@ -75,6 +75,9 @@ styles: dict = {
     ".icon_button:hover" : {
         "background-color" : "#2A2A2C"
     },
+    ".icon_button.active": {
+        "background-color": "#389fff"
+    },
 
     ".csv_data_cell" : {
         "cursor" : "pointer",

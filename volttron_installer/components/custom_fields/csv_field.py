@@ -140,7 +140,10 @@ class CSVDataField(rx.ComponentState):
 
     @classmethod
     def get_component(cls, data: str = None, **props) -> rx.Component:
-        
+        """Creating a csv data field component.
+        Params:
+            data: type 'str' which consists of a CSV-like string
+        """
         return rx.flex(
             # Select dropdown
             rx.box(            
@@ -293,6 +296,272 @@ class CSVDataField(rx.ComponentState):
 # Create component instance
 csv_data_field = CSVDataField.create
 
+import reflex as rx
+from typing import Dict, List, Optional
+from ...model_views import ConfigStoreEntryModelView
 
-def csv_field(custom_data: str | dict = None) -> rx.Component:
-    ...
+class CSVDataState(rx.State):
+    working_config_entry: ConfigStoreEntryModelView = ConfigStoreEntryModelView()
+    selected_variant: str = "Default 1"
+    selected_cell: str = ""
+    num_rows: int = 10
+    row_iter: list[int] = list(range(num_rows))
+    show_add_dialog: bool = False
+    show_remove_dialog: bool = False
+
+    # Cached reactive vars
+    @rx.var(cache=True)
+    def variants(self) -> Dict[str, Dict[str, List[str]]]:
+        return self.working_config_entry.csv_variants
+
+    @rx.var(cache=True)
+    def working_headers(self) -> List[str]:
+        return list(self.variants[self.selected_variant].keys())
+
+    @rx.var(cache=True)
+    def working_rows(self) -> List[List[str]]:
+        working_dict = self.variants[self.selected_variant]
+        headers = list(working_dict.keys())
+        return [[working_dict[header][i] for header in headers] 
+                for i in range(self.num_rows)]
+
+    # Event handlers
+    @rx.event
+    def double_click_event(self, cell_uid: str):
+        print("cell has been double clicked and we got ", cell_uid)
+        self.selected_cell = cell_uid
+
+    @rx.event
+    def lose_cell_focus(self):
+        self.selected_cell = ""
+
+    @rx.event
+    def update_cell(self, header: str, changes: str, index: int = None, row_idx: int = None, is_row_cell: bool = False):
+        value = changes
+        
+        if is_row_cell:
+            self.working_config_entry.csv_variants[self.selected_variant][header][row_idx] = value
+        else:
+            # Update header name
+            new_dict = {}
+            for key in self.working_headers:
+                v = list(self.variants[self.selected_variant][key])  # Create new list copy
+                if key == header:
+                    new_dict[value] = v
+                else:
+                    new_dict[key] = v
+            self.working_config_entry.csv_variants[self.selected_variant] = new_dict
+
+    @rx.event
+    def set_variant(self, variant: str):
+        self.selected_variant = variant
+
+    @rx.event
+    def add_column(self, form_data: dict):
+        column_name = form_data["column_name"]
+        self.working_config_entry.csv_variants[self.selected_variant][column_name] = [""] * self.num_rows
+        self.show_add_dialog = False
+        return rx.toast.info(f"Added column: {column_name}", position="bottom-right")
+
+    @rx.event
+    def remove_column(self, form_data: dict):
+        column_name = form_data["column_name"]
+        del self.working_config_entry.csv_variants[self.selected_variant][column_name]
+        self.show_remove_dialog = False
+        return rx.toast.info(f"Removed column: {column_name}", position="bottom-right")
+
+    def set_config_entry(self, config_entry: ConfigStoreEntryModelView):
+        """Sets the working config entry and initializes necessary state variables."""
+        self.working_config_entry = config_entry
+        
+        # Initialize with first variant if available
+        if config_entry.csv_variants:
+            first_variant = next(iter(config_entry.csv_variants.keys()))
+            self.selected_variant = first_variant
+        
+        # Update num_rows if needed
+        if config_entry.csv_variants and config_entry.csv_variants[self.selected_variant]:
+            first_column = next(iter(config_entry.csv_variants[self.selected_variant].values()))
+            self.num_rows = len(first_column)
+            self.row_iter = list(range(self.num_rows))
+
+
+def craft_table_cell(content: str, header: str = None, index: int = None, row_idx: int = None, header_cell: bool = False):
+    cell_component = rx.table.column_header_cell if header_cell else rx.table.cell
+    cell_uid = f"{CSVDataState.selected_variant}-template-cell-{header}-{index}-{row_idx}-header?-{header_cell}"
+    return cell_component(
+        rx.box(
+            rx.cond(
+                CSVDataState.selected_cell == cell_uid,
+                rx.text_field(
+                    value=content,
+                    on_blur=CSVDataState.lose_cell_focus,
+                    autofocus=True,
+                    on_change=lambda changes: CSVDataState.update_cell(header, changes, index, row_idx, not header_cell)
+                ),
+                rx.text(content)
+            ),
+        ),
+        class_name="csv_data_cell",
+        on_double_click=lambda: CSVDataState.double_click_event(cell_uid)
+    )
+
+def csv_table():
+    return rx.table.root(
+        rx.table.header(
+            rx.table.row(
+                rx.foreach(
+                    CSVDataState.working_headers,
+                    lambda header, index: craft_table_cell(
+                        content=header, 
+                        header=header, 
+                        index=index, 
+                        header_cell=True
+                    )
+                )
+            )
+        ),
+        rx.table.body(
+            rx.foreach(
+                CSVDataState.working_rows,
+                lambda row, i: rx.table.row(
+                    rx.foreach(
+                        row,
+                        lambda value, index: craft_table_cell(
+                            content=value, 
+                            header=CSVDataState.working_headers[index], 
+                            index=index,
+                            row_idx=i
+                        )
+                    )
+                )
+            )
+        ),
+        width="40rem",
+        height="25rem",
+    )
+
+def add_column_dialog():
+    return rx.dialog.root(
+        rx.dialog.trigger(
+            add_icon_button.add_icon_button(
+                tool_tip_content="Add a new column"
+            ),
+        ),
+        rx.dialog.content(
+            rx.dialog.title("Add a new column"),
+            rx.form(
+                rx.flex(
+                    form_entry.form_entry(
+                        "Column Name",
+                        rx.input(
+                            name="column_name",
+                            required=True
+                        ),
+                        required_entry=True
+                    ),
+                    rx.flex(
+                        rx.dialog.close(
+                            rx.button(
+                                "Cancel",
+                                variant="soft"
+                            )
+                        ),
+                        rx.dialog.close(
+                            rx.button(
+                                "Add",
+                                type="submit"
+                            )
+                        ),
+                        spacing="3",
+                        justify="end"
+                    ),
+                    direction="column",
+                    spacing="6"
+                ),
+                on_submit=CSVDataState.add_column,
+                reset_on_submit=False,
+            ),
+            max_width="450px",
+        )
+    )
+
+def remove_column_dialog():
+    return rx.dialog.root(
+        rx.dialog.trigger(
+            icon_button_wrapper.icon_button_wrapper(
+                tool_tip_content="Remove a column",
+                icon_key="minus"
+            ),
+        ),
+        rx.dialog.content(
+            rx.dialog.title("Remove a column"),
+            rx.form(
+                rx.flex(
+                    form_entry.form_entry(
+                        "Column Name",
+                        rx.select(
+                            CSVDataState.working_headers,
+                            name="column_name",
+                            required=True
+                        ),
+                        required_entry=True
+                    ),
+                    rx.flex(
+                        rx.dialog.close(
+                            rx.button(
+                                "Cancel",
+                                variant="soft"
+                            )
+                        ),
+                        rx.dialog.close(
+                            rx.button(
+                                "Remove",
+                                color_scheme="red",
+                                type="submit"
+                            )
+                        ),
+                        spacing="3",
+                        justify="end"
+                    ),
+                    direction="column",
+                    spacing="6"
+                ),
+                on_submit=CSVDataState.remove_column,
+                reset_on_submit=False,
+            ),
+            max_width="450px",
+        )
+    )
+
+def csv_data_field(config_entry: Optional[ConfigStoreEntryModelView] = None):
+    # If a config entry is provided, set it in the state
+    if config_entry is not None:
+        CSVDataState.set_config_entry(config_entry)
+
+    return rx.flex(
+        rx.box(
+            rx.select(
+                CSVDataState.variants.keys(),
+                value=CSVDataState.selected_variant,
+                on_change=CSVDataState.set_variant,
+                variant="surface",
+            )
+        ),
+        rx.flex(
+            rx.el.div(
+                csv_table(),
+                class_name="config_template_config_container"
+            ),
+            rx.flex(
+                add_column_dialog(),
+                remove_column_dialog(),
+                direction="column",
+                spacing="4"
+            ),
+            direction="row",
+            spacing="4"
+        ),
+        spacing="6",
+        direction="column"
+    )

@@ -5,7 +5,7 @@ def tile_icon(icon="arrow-right", class_name="icon_button", width="1.5rem", heig
         rx.icon(icon, size=20),
         # width=width,
         # height=height,
-        class_name="icon_button",
+        class_name=class_name,
         direction="column",
         justify="center",
         align="center",

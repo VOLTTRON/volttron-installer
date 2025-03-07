@@ -4,8 +4,9 @@ from ..model_views import AgentModelView, ConfigStoreEntryModelView
 from ..components.header.header import header
 from ..components.buttons import icon_button_wrapper, icon_upload, tile_icon
 from ..components.form_components import *
-from ..components.custom_fields import text_editor
+from ..components.custom_fields import text_editor, csv_field
 from ..components.tiles.config_tile import config_tile
+from ..functions.create_component_uid import generate_unique_uid
 
 from .platform_page import State as AppState
 from .platform_page import Instance
@@ -17,8 +18,9 @@ from loguru import logger
 class AgentConfigState(rx.State):
     # Store reference to working agent
     working_agent: AgentModelView = AgentModelView()
-    
-    # this being named agent detaile\s doesnt make sense but whatever
+    selected_component_id: str = ""
+
+    # this being named agent details doesn't make sense but whatever
     @rx.var
     def agent_details(self) -> dict:
         args = self.router.page.params
@@ -39,18 +41,31 @@ class AgentConfigState(rx.State):
                 break
 
     @rx.event
-    def update_agent_detail(self, field: str, value: str, id: str = ""):
+    def update_agent_detail(self, field: str, value: str, id: str = None):
         """Update agent details directly"""
         setattr(self.working_agent, field, value)
         
-        if id:
+        if id is not None:
             yield rx.set_value(id, value)
 
     @rx.event
+    def update_config_detail(self, field: str, value: str, id: str = None):
+        """Update a config store entry directly"""
+        for config in self.working_agent.config_store:
+            # get the working config
+            if config.component_id == self.selected_component_id:
+                logger.debug("updating details...")
+                setattr(config, field, value)
+
+                if id is not None:
+                    yield rx.set_value(id, value)
+
+
+    @rx.event
     async def handle_config_store_entry_upload(self, files: list[rx.UploadFile]):
-        file = files[0]
-        upload_data = await file.read()
-        outfile = (rx.get_upload_dir() / file.filename)
+        current_file = files[0]
+        upload_data = await current_file.read()
+        outfile = (rx.get_upload_dir() / current_file.filename)
         
         with outfile.open("wb") as file_object:
             file_object.write(upload_data)
@@ -58,12 +73,12 @@ class AgentConfigState(rx.State):
         result: str = ""
         file_type: str = ""
 
-        if file.filename.endswith('.json'):
+        if current_file.filename.endswith('.json'):
             with open(outfile, 'r') as file_object:
                 data = json.load(file_object)
                 file_type = "JSON"
                 result = json.dumps(data, indent=4)
-        elif file.filename.endswith('.csv'):
+        elif current_file.filename.endswith('.csv'):
             with open(outfile, 'r') as file_object:
                 reader = csv.reader(file_object)
                 file_type = "CSV"
@@ -73,13 +88,17 @@ class AgentConfigState(rx.State):
             return
         
         agent = self.working_agent
-        agent.config_store.append(
-            ConfigStoreEntryModelView(
+        new_config_entry= ConfigStoreEntryModelView(
                 path="",
                 data_type=file_type,
-                value=result
+                value=result,
+                component_id=generate_unique_uid()
             )
+        logger.debug(f"pls add: {new_config_entry.component_id}")
+        agent.config_store.append(
+            new_config_entry
         )
+        logger.debug("agent config store entry was uploaded")
 
     @rx.event
     async def handle_agent_config_upload(self, files: list[rx.UploadFile]):
@@ -117,13 +136,19 @@ class AgentConfigState(rx.State):
         yield rx.toast.success("Agent configuration saved")
 
     @rx.event
-    def print_config_properties(config: ConfigStoreEntryModelView):
-        import json
-        unpacked = config.to_dict()
-        # Pretty print with indentation
-        formatted = json.dumps(unpacked, indent=2)
-        logger.debug(formatted)  # Or use logger.debug(formatted)
+    def print_config_properties(self, config: ConfigStoreEntryModelView):
+        unpacked = config.dict()
+        logger.debug(f"here is my config: \n {unpacked}")
+        logger.debug("this is a component id ")
+        logger.debug(config.component_id)
 
+    @rx.event
+    def set_component_id(self, component_id: str):
+        if self.selected_component_id == component_id:
+            self.selected_component_id = ""
+        else:
+            self.selected_component_id = component_id
+        logger.debug("our new config entry")
 
 @rx.page(route="/platform/[uid]/agent/[agent_uid]", on_load=AgentConfigState.hydrate_working_agent)
 def agent_config_page() -> rx.Component:
@@ -136,7 +161,7 @@ def agent_config_page() -> rx.Component:
                     AgentConfigState.agent_details["uid"]
                 )
             ),
-            rx.heading(AgentConfigState.working_agent.identity, as_="h3"),
+            rx.heading(AgentConfigState.working_agent.safe_agent["identity"], as_="h3"),
         ),
         rx.flex(
             rx.tabs.root(
@@ -168,10 +193,25 @@ def agent_config_page() -> rx.Component:
                                 placeholder="Type out JSON, YAML, or upload a file!",
                                 value=AgentConfigState.working_agent.config,
                                 on_change=lambda v: AgentConfigState.update_agent_detail("config", v),
+                            ),
+                            upload=rx.upload.root( 
+                                icon_upload.icon_upload(),
+                                id="agent_config_upload",
+                                max_files=1,
+                                accept={
+                                    "text/yaml" : [".yml", ".yaml"],
+                                    "text/json" : [".json"]
+                                },
+                                on_drop=AgentConfigState.handle_agent_config_upload(
+                                    # agent, 
+                                    rx.upload_files(upload_id="agent_config_upload")
+                                )
                             )
                         ),
                         direction="column",
-                        spacing="3",
+                        justify="start",
+                        spacing="6",
+                        align="start",
                         padding="1rem"
                     ),
                     value="1"
@@ -188,16 +228,24 @@ def agent_config_page() -> rx.Component:
                                             "text/csv": [".csv"],
                                             "text/json": [".json"]
                                         },
-                                        on_drop=AgentConfigState.handle_config_store_entry_upload
+                                        on_drop=AgentConfigState.handle_config_store_entry_upload(
+                                            rx.upload_files(upload_id="config_store_entry_upload")
+                                        )
                                     ),
                                 ),
                                 rx.foreach(
                                     AgentConfigState.working_agent.config_store,
-                                    lambda item: config_tile(
-                                            text="config entry",
+                                    lambda config: config_tile(
+                                            text=config.path,
                                             right_component=tile_icon.tile_icon(
                                                 "settings",
-                                                on_click=lambda: AgentConfigState.print_config_properties(item)
+                                                class_name=rx.cond(
+                                                    AgentConfigState.selected_component_id == config.component_id,
+                                                    "icon_button active",  # Combined class names
+                                                    "icon_button"
+                                                ),
+                                                # on_click=AgentConfigState.print_config_properties(config)
+                                                on_click=lambda: AgentConfigState.set_component_id(config.component_id)
                                             )
                                         )
                                 ),
@@ -213,21 +261,71 @@ def agent_config_page() -> rx.Component:
                         ),
                         rx.flex(
                             rx.flex(
-                                # rx.cond(
-                                #     True,
-                                    rx.box(),
-                                # )
+                                rx.cond(
+                                    AgentConfigState.selected_component_id != "",
+                                    rx.fragment(
+                                        rx.foreach(
+                                            AgentConfigState.working_agent.config_store,
+                                            lambda config: rx.cond(
+                                                config.component_id == AgentConfigState.selected_component_id,
+                                                rx.fragment(
+                                                    form_entry.form_entry(
+                                                        "Path",
+                                                        rx.input(
+                                                            size="3",
+                                                            value=config.path,
+                                                            on_change=lambda v: AgentConfigState.update_config_detail("path", v)
+                                                        )
+                                                    ),
+                                                    form_entry.form_entry(
+                                                        "Data Type",
+                                                        rx.radio(
+                                                            ["JSON", "CSV"],
+                                                            value=config.data_type,
+                                                            on_change=lambda v: AgentConfigState.update_config_detail("data_type", v)
+                                                        )
+                                                    ),
+                                                    form_entry.form_entry(
+                                                        "Config",
+                                                        rx.cond(
+                                                            config.data_type=="JSON",
+                                                            text_editor.text_editor(
+                                                                value=config.value
+                                                            ),
+                                                            csv_field.csv_data_field(config)
+                                                        ),
+                                                        upload=rx.upload.root( 
+                                                            icon_upload.icon_upload(),
+                                                            id="config_upload",
+                                                            max_files=1,
+                                                            accept={
+                                                                "text/csv" : [".csv"],
+                                                                "text/json" : [".json"]
+                                                            },
+                                                            # on_drop=AgentConfigState.handle_config_entry_config_upload(
+                                                            #     # agent, 
+                                                            #     rx.upload_files(upload_id="config_upload")
+                                                            # )
+                                                        )
+                                                    ),
+                                                )
+                                            )
+                                        )
+                                    ),
+                                    rx.box(rx.text("baka"))
+                                ),
                                 direction="column",
                                 flex="1",
-                                align="center"
+                                align="start",
+                                spacing="6",
                             ),
                             # border="1px solid white",
                             border_radius=".5rem",
                             padding="1rem",
                             flex="1"
                         ),
-                        align="center",
-                        spacing="4",
+                        align="start",
+                        spacing="6",
                         direction="row",
                         padding_top="1rem",
                         width="100%"

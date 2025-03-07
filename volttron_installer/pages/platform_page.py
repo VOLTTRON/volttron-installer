@@ -15,7 +15,7 @@ import string, random, json, csv, yaml
 from ..backend.endpoints import get_all_platforms, create_platform, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host, \
     get_agent_catalog
-
+from ..functions.create_component_uid import generate_unique_uid
 from loguru import logger
 from copy import deepcopy
 from ..model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView
@@ -61,6 +61,7 @@ class Instance(rx.Base):
 async def agents_off_catalog() -> List[AgentModelView]:
     catalog: Dict[str, AgentType] = await get_agent_catalog()
     agent_list: List[AgentModelView] = []
+
     for identity, agent in catalog.items():
         agent_list.append(
             AgentModelView(
@@ -70,10 +71,10 @@ async def agents_off_catalog() -> List[AgentModelView]:
                     ConfigStoreEntryModelView(
                         path=path,
                         data_type=entry.data_type,
-                        value=str(entry.value)
+                        value=str(entry.value),
                     ) for path, entry in agent.default_config_store.items()
                 ],
-                config=str(agent.default_config)
+                config=str(agent.default_config),
             )
         )
     return agent_list
@@ -130,6 +131,19 @@ class State(rx.State):
         if new_agent.identity in working_platform.platform.agents:
             new_agent.identity = f"{new_agent.identity}_{len(list(working_platform.platform.agents.values()))}"
         new_agent.routing_id = self.generate_unique_uid()
+
+        logger.debug("im going to add new component ids for config store...")
+        # go through the config store, create new component ids for each config entry
+        for i in new_agent.config_store:
+            i.component_id = self.generate_unique_uid()
+            logger.debug(f"added component uid: {i.component_id}")
+
+        # Set up the safe agent for validation
+        new_agent.safe_agent={
+                    "identity": new_agent.identity,
+                    "source": new_agent.source,
+                    "config": new_agent.config
+                }
         working_platform.platform.agents[new_agent.identity] = new_agent
         
     @rx.event

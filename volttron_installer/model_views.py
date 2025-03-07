@@ -8,14 +8,40 @@ class ConfigStoreEntryModelView(rx.Base):
 
     contains_errors: bool = False
     safe_entry: dict[str, str] = {}
+    component_id: str = "_"
 
-    def to_dict(self) -> dict[str, str]:
+    csv_variants: dict[str, dict[str, list[str]]] = {
+        "Default 1" : {
+            "Reference Point Name": ["default 1"]*10,
+            "Volttron Point Name": [""]*10,
+            "Units": [""]*10,
+            "Units Details": [""]*10,
+            "Modbus Register": [""]*10,
+            "Writable": [""]*10,
+            "Point Address": [""]*10,
+            "Default Value": [""]*10,
+            "Notes": [""]*10,
+        },
+        "Default 2": {
+            "Point Name": [""]*10,
+            "Volttron Point Name": [""]*10,
+            "Units": [""]*10,
+            "Unit Details": [""]*10,
+            "BACnet Object Type": [""]*10,
+            "Property": [""]*10,
+            "Writable": ["f"]*10,
+            "Index": [""]*10,
+            "Notes" : [""]*10,
+        }
+    }
+
+    def dict(self, *args, **kwargs) -> dict:
         return {
             "path": self.path,
             "data_type": self.data_type,
-            "value": self.value
+            "value": self.value,
+            "component_id": self.component_id
         }
-
 
 class AgentModelView(rx.Base):
     identity: str = ""
@@ -30,8 +56,6 @@ class AgentModelView(rx.Base):
 
     routing_id: str = ""
 
-
-                              
 
 class HostEntryModelView(rx.Base):
     id: str = ""
