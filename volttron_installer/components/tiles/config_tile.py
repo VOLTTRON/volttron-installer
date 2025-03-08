@@ -1,6 +1,6 @@
 import reflex as rx
 
-def config_tile(text: str, left_component: rx.Component = False, right_component: rx.Component = False, **props)->rx.Component:
+def config_tile(text: str, class_name="agent_config_tile", left_component: rx.Component = False, right_component: rx.Component = False, **props)->rx.Component:
     return rx.hstack(
         rx.cond(
             left_component,
@@ -12,7 +12,7 @@ def config_tile(text: str, left_component: rx.Component = False, right_component
         ),
         rx.flex(
             rx.text(text),
-            class_name=f"agent_config_tile",
+            class_name=class_name,
         ),
         rx.cond(
             right_component,

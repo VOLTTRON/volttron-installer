@@ -62,7 +62,6 @@ class AgentConfigState(rx.State):
                 if id is not None:
                     yield rx.set_value(id, value)
 
-
     @rx.event
     async def handle_config_store_entry_upload(self, files: list[rx.UploadFile]):
         current_file = files[0]
@@ -96,6 +95,8 @@ class AgentConfigState(rx.State):
                 value=result,
                 component_id=generate_unique_uid()
             )
+        new_config_entry.safe_entry=new_config_entry.dict()
+        logger.debug(f"I submitted a safe entry: {new_config_entry.safe_entry}")
         logger.debug(f"pls add: {new_config_entry.component_id}")
         agent.config_store.append(
             new_config_entry
@@ -128,13 +129,31 @@ class AgentConfigState(rx.State):
         agent = self.working_agent
         agent.config = result
         yield rx.set_value("agent_config_field", result)
+    
+    @rx.event
+    def save_config_store_entry(self, config: ConfigStoreEntryModelView):
+        list_of_config_paths: list[str] = [entry.safe_entry["path"] for entry in self.working_agent.config_store]
+        if config.path in list_of_config_paths or config.path== "":
+            return rx.toast.error(f"Config path is already in use or isn't valid")
+        
+        config.safe_entry = config.dict()
+        return rx.toast.success("Config saved successfully")
 
     @rx.event
     async def save_agent_config(self):
         """Save agent configuration"""
         agent = self.working_agent
+        # check if identity already exists:
+        platform_state: AppState = await self.get_state(AppState)
+        working_platform: Instance = platform_state.platforms[self.agent_details["uid"]]
+        registered_identities: list[str] = [ i for i, a in working_platform.platform.agents.items() if a.routing_id != agent.routing_id]
+        if agent.identity in registered_identities:
+            yield rx.toast.error("Identity is already in use!")
+            return    
         agent.uncaught = False
-        agent.safe_agent = agent.dict()
+        agent.safe_agent = agent.to_dict()
+        logger.debug("oh yeah, we saved and here is our platform agents:")
+        logger.debug(f"{working_platform.platform.agents}")
         yield rx.toast.success("Agent configuration saved")
 
     @rx.event
@@ -150,7 +169,7 @@ class AgentConfigState(rx.State):
             self.selected_component_id = ""
         else:
             self.selected_component_id = component_id
-        logger.debug("our new config entry")
+        logger.debug("our new config entry: ", self.selected_component_id)
 
 @rx.page(route="/platform/[uid]/agent/[agent_uid]", on_load=AgentConfigState.hydrate_working_agent)
 def agent_config_page() -> rx.Component:
@@ -163,7 +182,17 @@ def agent_config_page() -> rx.Component:
                     AgentConfigState.agent_details["uid"]
                 )
             ),
-            rx.heading(AgentConfigState.working_agent.safe_agent["identity"], as_="h3"),
+            rx.hstack(
+                rx.heading(AgentConfigState.working_agent.safe_agent["identity"], as_="h3"),
+                rx.button(
+                    "Save Agent",
+                    variant="soft",
+                    color_scheme="green",
+                    on_click=lambda: AgentConfigState.save_agent_config()
+                ),
+                spacing="6",
+                align="center"
+                ),
         ),
         rx.flex(
             rx.tabs.root(
@@ -248,7 +277,12 @@ def agent_config_page() -> rx.Component:
                                                 ),
                                                 # on_click=AgentConfigState.print_config_properties(config)
                                                 on_click=lambda: AgentConfigState.set_component_id(config.component_id)
-                                            )
+                                            ),
+                                            # class_name=rx.cond(
+                                            #     config.changed,
+                                            #     "agent_config_tile active"
+                                            #     "agent_config_tile"
+                                            # )
                                         )
                                 ),
                                 direction="column",
@@ -277,7 +311,8 @@ def agent_config_page() -> rx.Component:
                                                             size="3",
                                                             value=config.path,
                                                             on_change=lambda v: AgentConfigState.update_config_detail("path", v)
-                                                        )
+                                                        ),
+                                                        required_entry=True
                                                     ),
                                                     form_entry.form_entry(
                                                         "Data Type",
@@ -310,11 +345,20 @@ def agent_config_page() -> rx.Component:
                                                             # )
                                                         )
                                                     ),
+                                                    rx.hstack(
+                                                        rx.button(
+                                                            "Save",
+                                                            size="3",
+                                                            variant="surface",
+                                                            color_scheme="green",
+                                                            on_click=lambda: AgentConfigState.save_config_store_entry(config)
+                                                        )
+                                                    )
                                                 )
                                             )
                                         )
                                     ),
-                                    rx.box(rx.text("baka"))
+                                    rx.box()
                                 ),
                                 direction="column",
                                 flex="1",

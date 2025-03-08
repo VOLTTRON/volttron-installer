@@ -6,16 +6,15 @@ from ..components.buttons.tile_icon import tile_icon
 from ..components.buttons.icon_upload import icon_upload
 from ..navigation.state import NavigationState
 from ..components.form_components import form_entry
-from ..backend.models import AgentType, HostEntry, PlatformDefinition, ConfigStoreEntry
+from ..backend.models import AgentType, HostEntry, PlatformDefinition, ConfigStoreEntry, AgentDefinition, PlatformConfig
 from ..components.custom_fields.text_editor import text_editor
 # storing stuff here just for now, will move to a better place later
 from typing import List, Dict, Literal
 from typing import List, Dict, Literal
 import string, random, json, csv, yaml
-from pydantic import BaseModel, root_validator, model_validator
 from ..backend.endpoints import get_all_platforms, create_platform, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host, \
-    get_agent_catalog
+    get_agent_catalog, update_platform
 from ..functions.create_component_uid import generate_unique_uid
 from loguru import logger
 from copy import deepcopy
@@ -23,28 +22,6 @@ from ..model_views import HostEntryModelView, PlatformModelView, AgentModelView,
 
 
 parts = Literal["connection", "instance_configuration"]
-
-class AgentDefinition(BaseModel):
-    identity: str
-    agent_source: str = ""
-    agent_running: bool = True
-    has_config_store: bool = False
-    agent_config: dict[str, str] = {}
-    agent_config_store: list[ConfigStoreEntry] = []
-
-    # instead of agent_config, we work with config because we
-    # need it to be a string. This is expected to be a JSON
-    # serealizable string
-    config: str = ""
-
-    # @model_validator()
-    # def allow_empty_agent_source(cls, values):
-    #     if 'agent_source' not in values or values['agent_source'] is None:
-    #         values['agent_source'] = ''
-    #     return values
-
-
-
  
 class Instance(rx.Base):
     # TODO: Implement a system to check the platform,
@@ -52,7 +29,7 @@ class Instance(rx.Base):
     host: HostEntryModelView
     platform: PlatformModelView
 
-    web_bind_address: str = ""
+    web_bind_address: str = "http://127.0.0.1:8080"
 
     safe_host_entry: dict = {}
     uncaught: bool = False
@@ -102,6 +79,31 @@ async def agents_off_catalog() -> List[AgentDefinition]:
         )
     return agent_list
 
+async def instances_from_api() -> dict[str, Instance]:
+    platforms = await get_all_platforms()
+    return {
+        p.config.instance_name: Instance(
+            host=HostEntryModelView(),
+            platform=PlatformModelView(
+                config=PlatformConfigModelView(
+                    instance_name=p.config.instance_name,
+                    vip_address=p.config.vip_address,
+                ),
+                agents={
+                    identity: AgentModelView(
+                        identity=identity,
+                        source=agent.source,
+                        # config=agent.config
+                        config_store=[
+                            ConfigStoreEntryModelView()
+                        ]
+                    )
+                    for identity, agent in p.agents.items()
+                }
+            )
+        ) for p in platforms
+    }
+
 
 class State(rx.State):
     platforms: dict[str, Instance] = {}
@@ -118,12 +120,6 @@ class State(rx.State):
     thingy: list[str] = ["bro", "no", "sense"]
 # ==================================================================================================
     # Vars
-    # @rx.var(cache=True)
-    # def current_agent(self) -> AgentModelView:
-    #     current_platform = self.platforms[self.current_uid]
-
-    #     return current_platform.platform.agents[self.working_agent_identity] if self.working_agent_identity in current_platform.platform.agents else AgentModelView()
-
     @rx.var(cache=True)
     def current_uid(self) -> str:
         return self.router.page.params.get("uid", "")
@@ -132,6 +128,7 @@ class State(rx.State):
     @rx.event
     async def hydrate_state(self):
         self.list_of_agents = await agents_off_catalog()
+
 
     @rx.event
     async def hydrate_state(self):
@@ -150,11 +147,11 @@ class State(rx.State):
         self.working_agent_config_store = []
 
     @rx.event
-    def handle_adding_agent(self, agent: AgentDefinition):
+    def handle_adding_agent(self, agent: AgentModelView):
         working_platform = self.platforms[self.current_uid]
         # if agent_name in self.list_of_agents:
         #     self.added_agents.append(agent_name)
-        new_agent = agent.model_copy()
+        new_agent: AgentModelView = agent.model_copy()
         if new_agent.identity in working_platform.platform.agents:
             new_agent.identity = f"{new_agent.identity}_{len(list(working_platform.platform.agents.values()))}"
         new_agent.routing_id = self.generate_unique_uid()
@@ -203,12 +200,13 @@ class State(rx.State):
     async def generate_new_platform(self):
         new_uid = self.generate_unique_uid()
         new_host = HostEntryModelView(id="", ansible_user="", ansible_host="")
-        new_platform = PlatformModelView()
+        new_platform = PlatformModelView(config=PlatformConfigModelView(instance_name=new_uid))
         self.platforms[new_uid] = Instance(
                 host=new_host, 
                 platform=new_platform,
                 safe_host_entry=new_host.to_dict()
             )
+        logger.debug(f"This is new instance_name: {self.platforms[new_uid].platform.config.instance_name}")
 
         # nav_state: NavigationState = await self.get_state(NavigationState)
         # await nav_state.create_platform_route(new_uid)
@@ -255,20 +253,20 @@ class State(rx.State):
     @rx.event
     async def handle_save(self):
         working_platform: Instance = self.platforms[self.current_uid]
-
+        all_platforms: list[PlatformDefinition] = await get_all_platforms()
         # if working_platform.uncaught and working_platform.valid:
         # Should just save anyway, we wont be able to deploy as long as its
-        # not valid
+        # not valid.
+        # actually, this sort of complicates things, like what if we are saving the same
+        # platform? does that change stuff
+
+        # if workking_platform not in await endpoints.get_platforms()
+        # then we one time do this, every other time we save we would go
+        # into the api and save from there directly 
+
         working_platform.safe_host_entry = working_platform.host.to_dict()
         working_platform.uncaught = False
-
-        # NOTE, theres a problem here
-        # this thing worked ONE time and hasn't worked since,
-
-        request = CreateOrUpdateHostEntryRequest(**working_platform.host.to_dict())
-        await add_host(request)
-        await create_platform(
-            CreatePlatformRequest(
+        base_platform_request= CreatePlatformRequest(
                     config=PlatformConfig(**working_platform.platform.config.to_dict()),
                     agents={
                         identity: AgentDefinition(
@@ -280,15 +278,36 @@ class State(rx.State):
                                     data_type=entry.data_type,
                                     value=entry.value
                                 )
-                                for entry in agent.config_store
+                                # only include valid and non "" config paths 
+                                for entry in (
+                                        ConfigStoreEntryModelView(
+                                            path=config.path,
+                                            data_type=config.data_type,
+                                            value=config.value
+                                        ) for config in agent.config_store if config.dict()["path"] != "" 
+                                    )
                             }
                         )
-                        for identity, agent in working_platform.platform.agents.items()
+                        # only include non "" agent identities
+                        for identity, agent in working_platform.platform.agents.items() if agent.identity != ""
                     }
                 )
+        
+        if working_platform.platform.config.instance_name in [p.config.instance_name for p in all_platforms]:
+            logger.debug("yes we have committed this already")
+            update_platform(
+                working_platform.platform.config.instance_name,
+                base_platform_request
             )
+            yield rx.toast.success("Changes saved successfully")
+            return
+                
+        request = CreateOrUpdateHostEntryRequest(**working_platform.host.to_dict())
+        await add_host(request)
+        await create_platform(base_platform_request)
         yield rx.toast.success("Changes saved successfully")
 
+    # deprecated
     @rx.event
     def save_agent_config(self, identity_agent_pair: tuple[str, AgentModelView]):
         stable_identity: str = identity_agent_pair[0]
@@ -304,11 +323,12 @@ class State(rx.State):
                 working_platform.platform.agents=new_agents_dict
             else:
                 #TODO
-                # Through an error
+                # Throw an error
                 pass
         # working_platform.platform.agents[identity_agent_pair[0]]
         ...
 
+    # Deprecated
     @rx.event
     async def handle_config_store_entry_upload(self, files: list[rx.UploadFile]):
         print(f"Starting config store entry upload process for: {self.working_agent.identity}...")
@@ -366,6 +386,7 @@ class State(rx.State):
             )
         )
     
+    # Deprecated
     @rx.event
     async def handle_agent_config_upload(self, files: list[rx.UploadFile]):
 
@@ -425,6 +446,7 @@ class State(rx.State):
         )
         logger.debug(f"this is my agent: {json.dumps(self.working_agent.dict(), indent=4)}")
     
+    # Deprecated
     @rx.event
     async def handle_agent_config_upload(self, files: list[rx.UploadFile]):
 
@@ -474,6 +496,7 @@ class State(rx.State):
         # yield self.update_agent_detail(self.working_agent, "config", result, "agent_config_field")
         setattr(self.working_agent, "config", result)
         yield rx.set_value(id, result)
+
 
     def handle_uncaught(self, working_platform: Instance):
         working_platform.uncaught = working_platform.has_uncaught_changes()
