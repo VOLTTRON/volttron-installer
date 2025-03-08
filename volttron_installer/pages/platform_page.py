@@ -6,7 +6,7 @@ from ..components.buttons.tile_icon import tile_icon
 from ..components.buttons.icon_upload import icon_upload
 from ..navigation.state import NavigationState
 from ..components.form_components import form_entry
-from ..backend.models import AgentType, HostEntry, PlatformDefinition, ConfigStoreEntry, AgentDefinition, PlatformConfig
+from ..backend.models import AgentType, HostEntry, PlatformConfig, PlatformDefinition, ConfigStoreEntry, AgentDefinition
 from ..components.custom_fields.text_editor import text_editor
 # storing stuff here just for now, will move to a better place later
 from typing import List, Dict, Literal
@@ -14,11 +14,11 @@ from typing import List, Dict, Literal
 import string, random, json, csv, yaml
 from ..backend.endpoints import get_all_platforms, create_platform, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host, \
-    get_agent_catalog, update_platform
+    get_agent_catalog, get_hosts, update_platform
 from ..functions.create_component_uid import generate_unique_uid
 from loguru import logger
 from copy import deepcopy
-from ..model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView
+from ..model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
 
 
 parts = Literal["connection", "instance_configuration"]
@@ -58,13 +58,13 @@ class Instance(rx.Base):
             host_dict["ansible_host"] != ""
         )
 
-async def agents_off_catalog() -> List[AgentDefinition]:
+async def agents_off_catalog() -> List[AgentModelView]:
     catalog: Dict[str, AgentType] = await get_agent_catalog()
     agent_list: List[AgentModelView] = []
 
     for identity, agent in catalog.items():
         agent_list.append(
-            AgentDefinition(
+            AgentModelView(
                 identity=str(identity),
                 source=agent.source,
                 config_store=[
@@ -79,11 +79,19 @@ async def agents_off_catalog() -> List[AgentDefinition]:
         )
     return agent_list
 
+# TODO complete this 
 async def instances_from_api() -> dict[str, Instance]:
-    platforms = await get_all_platforms()
+    platforms: list[PlatformDefinition] = await get_all_platforms()
+    hosts: list[HostEntry] = await get_hosts()
+    host_by_id = {}
+    for h in hosts:
+        host_by_id[h.id] = h
+
     return {
         p.config.instance_name: Instance(
-            host=HostEntryModelView(),
+            host=HostEntryModelView(
+
+            ),
             platform=PlatformModelView(
                 config=PlatformConfigModelView(
                     instance_name=p.config.instance_name,
@@ -151,7 +159,7 @@ class State(rx.State):
         working_platform = self.platforms[self.current_uid]
         # if agent_name in self.list_of_agents:
         #     self.added_agents.append(agent_name)
-        new_agent: AgentModelView = agent.model_copy()
+        new_agent: AgentModelView = agent.copy()
         if new_agent.identity in working_platform.platform.agents:
             new_agent.identity = f"{new_agent.identity}_{len(list(working_platform.platform.agents.values()))}"
         new_agent.routing_id = self.generate_unique_uid()
@@ -267,6 +275,7 @@ class State(rx.State):
         working_platform.safe_host_entry = working_platform.host.to_dict()
         working_platform.uncaught = False
         base_platform_request= CreatePlatformRequest(
+                    host_id=working_platform.safe_host_entry["id"],
                     config=PlatformConfig(**working_platform.platform.config.to_dict()),
                     agents={
                         identity: AgentDefinition(
@@ -378,7 +387,7 @@ class State(rx.State):
             return
         
         # Adding config store entry
-        self.working_agent.agent_config_store.append(
+        self.working_agent.config_store.append(
             ConfigStoreEntry(
                 path="",
                 data_type=file_type,
@@ -623,6 +632,15 @@ def platform_page() -> rx.Component:
                     value="instance_configuration",
                     content=rx.box(
                         rx.box(
+                            form_entry.form_entry( # validate
+                                "Instance Name",
+                                rx.input(
+                                    size="3",
+                                    value=working_platform.platform.config.instance_name,
+                                    on_change=lambda v: State.update_platform_config_detail("instance_name", v),
+                                    required=True,
+                                )
+                            ),
                             form_entry.form_entry( # validate
                                 "Vip Address",
                                 rx.input(

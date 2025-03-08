@@ -46,14 +46,6 @@ class ConfigStoreEntryModelView(rx.Base):
             "component_id": self.component_id
         }
 
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "path": self.path,
-            "data_type": self.data_type,
-            "value": self.value,
-            "component_id": self.component_id
-        }
-
 class AgentModelView(rx.Base):
     identity: str = ""
     source: str = ""

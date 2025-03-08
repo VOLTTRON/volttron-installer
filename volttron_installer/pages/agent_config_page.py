@@ -331,19 +331,6 @@ def agent_config_page() -> rx.Component:
                                                             ),
                                                             csv_field.csv_data_field(config)
                                                         ),
-                                                        upload=rx.upload.root( 
-                                                            icon_upload.icon_upload(),
-                                                            id="config_upload",
-                                                            max_files=1,
-                                                            accept={
-                                                                "text/csv" : [".csv"],
-                                                                "text/json" : [".json"]
-                                                            },
-                                                            # on_drop=AgentConfigState.handle_config_entry_config_upload(
-                                                            #     # agent, 
-                                                            #     rx.upload_files(upload_id="config_upload")
-                                                            # )
-                                                        )
                                                     ),
                                                     rx.hstack(
                                                         rx.button(
