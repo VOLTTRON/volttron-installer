@@ -64,7 +64,7 @@ class ConfigStoreEntry(BaseModel):
 class SuccessResponse(BaseModel):
     """Simple success response model"""
     success: bool = True
-    object: dict = {}
+    object: BaseModel = None
 
 class AgentDefinition(BaseModel):
     """Represents an agent definition with validation in model_post_init"""
@@ -215,8 +215,20 @@ class PlatformConfig(BaseModel):
             raise ValueError("instance_name must contain only letters, numbers, hyphens, and underscores")
         return v
 
+    
+
 class PlatformDefinition(BaseModel):
-    """Represents the platform definition with methods to add configuration items"""
+    """
+    Represents the platform definition with methods to add configuration items.
+    
+    Attributes:
+        host_id (str): A reference to the `id` field of a `HostEntry` instance, 
+                       representing a unique VOLTTRON instance connection point.
+        config (PlatformConfig): The configuration specific to the platform.
+        agents (dict[str, AgentDefinition]): A dictionary mapping agent names 
+                                             to their definitions.
+    """
+    host_id: str
     config: PlatformConfig = PlatformConfig()
     agents: dict[str, AgentDefinition] = {}
 
@@ -227,3 +239,23 @@ class CreatePlatformRequest(PlatformDefinition):
     """Request model for creating a platform"""
     pass
 
+class AgentStatus(BaseModel):
+    """Represents the state of an agent"""
+    identity: str
+    state: Literal["not deployed", "deployed", "started", "stopped"] = "not deployed"
+    
+class PlatformDeploymentStatus(BaseModel):
+    """Represents the state of a platform deployment"""
+    platform_id: str
+    host_configured: bool = False
+    keys_verified: bool = False
+    state: Literal["not deployed", "deployed", "running"] = "not deployed"
+    agents: dict[str, AgentStatus] = {}
+
+class DeployPlatformRequest(BaseModel):
+    """Request model for deploying a platform"""
+    platform_id: str
+
+class PlatformDeplymentStatusRequest(BaseModel):
+    """Request model for getting the state of a platform deployment"""
+    platform_id: str

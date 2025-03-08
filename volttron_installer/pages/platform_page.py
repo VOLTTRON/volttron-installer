@@ -12,7 +12,7 @@ from ..components.custom_fields.text_editor import text_editor
 
 # storing stuff here just for now, will move to a better place later
 import typing
-import string, random, json
+import string, random, json, csv, yaml
 from pydantic import BaseModel
 from ..backend.endpoints import get_all_platforms, create_platform, CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host
 import asyncio
@@ -26,6 +26,11 @@ class AgentDefinition(BaseModel):
     has_config_store: bool = False
     agent_config: dict[str, str] = {}
     agent_config_store: list[ConfigStoreEntry] = []
+
+    # instead of agent_config, we work with config because we
+    # need it to be a string. This is expected to be a JSON
+    # serealizable string
+    config: str = ""
 
 
 class Instance(rx.Base):
@@ -63,7 +68,6 @@ class Instance(rx.Base):
             host_dict["ansible_host"] != ""
         )
 
-
 class State(rx.State):
     platforms: dict[str, Instance] = {}
 
@@ -76,6 +80,8 @@ class State(rx.State):
 
     added_agents: list[AgentDefinition] = []
 
+    working_agent: str | AgentDefinition = ""
+
     # list_of_agents: list[str] = [
     #     "Agent 1",
     #     "Agent 2",
@@ -84,9 +90,21 @@ class State(rx.State):
 
     # added_agents: list[str] =[]
 # ==================================================================================================
+    # Vars
     @rx.var(cache=True)
     def current_uid(self) -> str:
         return self.router.page.params.get("uid", "")
+
+    # Events
+    @rx.event
+    def set_working_agent(self, agent: AgentDefinition):
+        self.working_agent = agent
+        print(f"working with {self.working_agent.identity}")
+
+    @rx.event
+    def clear_working_agent(self):
+        self.working_agent = ""
+        print("cleared?", self.working_agent == "")
 
     @rx.event
     def handle_adding_agent(self, agent: AgentDefinition):
@@ -98,6 +116,11 @@ class State(rx.State):
     @rx.event
     def handle_removing_agent(self, index: int):
         self.added_agents.pop(index)
+
+    @rx.event
+    def update_agent_detail(self, agent: AgentDefinition, field: str, value: str, id: str):
+        setattr(agent, field, value)
+        yield rx.set_value(id, value)
 
     @rx.event
     def cancel_changes(self):
@@ -119,8 +142,8 @@ class State(rx.State):
             safe_host_entry=new_host.to_dict()
             )
 
-        nav_state: NavigationState = await self.get_state(NavigationState)
-        await nav_state.create_platform_route(new_uid)
+        # nav_state: NavigationState = await self.get_state(NavigationState)
+        # await nav_state.create_platform_route(new_uid)
 
     @rx.event
     def toggle_advanced(self):
@@ -165,7 +188,7 @@ class State(rx.State):
             yield rx.toast.success("Deployed Successfully!")
 
     @rx.event
-    def handle_save(self):
+    async def handle_save(self):
         working_platform: Instance = self.platforms[self.current_uid]
         print(f"bruhhhs: {working_platform.uncaught} , {working_platform.valid}")
 
@@ -179,7 +202,7 @@ class State(rx.State):
         # this thing worked ONE time and hasn't worked since,
 
         request = CreateOrUpdateHostEntryRequest(**working_platform.host.to_dict())
-        add_host(request)
+        await add_host(request)
         # await create_platform(
         #     CreatePlatformRequest(
         #         # working_platform.platform
@@ -191,6 +214,61 @@ class State(rx.State):
     def handle_cancel(self):
         working_platform: Instance = self.platforms[self.current_uid]
         ...
+
+    @rx.event
+    def handle_upload(self, agent: AgentDefinition, files: list[rx.UploadFile], destination: str):
+        for file in files:
+            upload_data = file.read()
+        pass
+    
+    @rx.event
+    async def handle_agent_config_upload(self, files: list[rx.UploadFile]):
+
+        print(f"Starting file upload process for: {self.working_agent.identity}...")
+        
+        file = files[0]
+        print(f"Received file: {file.filename}")
+        
+        upload_data = await file.read()
+        print("File data read successfully.")
+        
+        outfile= (
+            rx.get_upload_dir() / file.filename
+        )
+        print(f"Saving file to: {outfile}")
+        
+        with outfile.open("wb") as file_object:
+            file_object.write(upload_data)
+        print("File saved successfully.")
+
+        result: str =""
+
+        # Print the contents of the file to the console
+        if file.filename.endswith('.json'):
+            print("Detected JSON file format.")
+            with open(outfile, 'r') as file_object:
+                data = json.load(file_object)
+                print("JSON content read successfully.")
+                print("Printing JSON content:")
+                print(json.dumps(data, indent=4))
+                result = json.dumps(data, indent=4)
+
+        elif file.filename.endswith('.yaml') or file.filename.endswith('.yml'):
+            print("Detected YAML file format.")
+            with open(outfile, 'r') as file_object:
+                data = yaml.safe_load(file_object)
+                print("YAML content read successfully.")
+                print("Printing YAML content:")
+                print(yaml.dump(data, sort_keys=False, default_flow_style=False))
+                result = yaml.dump(data, sort_keys=False, default_flow_style=False)
+        else:
+            print("Unsupported file format")
+
+        # self.working_agent.config = result
+        # print(self.working_agent.config)
+        print("File processing completed.")
+        yield self.update_agent_detail(self.working_agent, "config", result, "agent_config_field")
+
 
     def handle_uncaught(self, working_platform: Instance):
         working_platform.uncaught = working_platform.has_uncaught_changes()
@@ -224,6 +302,7 @@ def platform_page() -> rx.Component:
             rx.accordion.root(
                 rx.accordion.item(
                     header="Connection",
+                    value="connection",
                     content=rx.box(
                         rx.box(
                             form_entry.form_entry(
@@ -253,6 +332,7 @@ def platform_page() -> rx.Component:
                                     on_change=lambda v: State.update_detail("ansible_port", v),
                                     size="3",
                                     required=True,
+                                    type="number"
                                 ),
                                 required_entry=True,
                             ),
@@ -314,6 +394,7 @@ def platform_page() -> rx.Component:
                 ),
                 rx.accordion.item(
                     header="Instance Configuration",
+                    value="instance_configuration",
                     content=rx.box(
                         rx.box(
                             form_entry.form_entry( # validate
@@ -368,11 +449,11 @@ def platform_page() -> rx.Component:
                                                 rx.heading("Listed Agents", as_="h3"),
                                                 rx.foreach(
                                                     State.list_of_agents,
-                                                    lambda agent: agent_config_tile(
+                                                    lambda agent, index: agent_config_tile(
                                                         agent.identity, 
                                                         right_component=tile_icon(
                                                             "plus",
-                                                            on_click=lambda: State.handle_adding_agent(agent)
+                                                            on_click=State.handle_adding_agent(agent)
                                                             ),
                                                         ),
                                                 ),
@@ -394,12 +475,14 @@ def platform_page() -> rx.Component:
                                                         right_component=rx.dialog.root(
                                                                 rx.dialog.trigger(
                                                                     tile_icon(
-                                                                        "settings"
+                                                                        "settings",
+                                                                        on_click=State.set_working_agent(agent)
                                                                     )
                                                                 ),
                                                                 rx.dialog.content(
-                                                                    agent_config_modal(agent, index)
-                                                                )
+                                                                    agent_config_modal(agent, index),
+                                                                    on_close_auto_focus=State.clear_working_agent	
+                                                                ),
                                                             ),
                                                         )
                                                 ),
@@ -417,6 +500,7 @@ def platform_page() -> rx.Component:
                     )
                 ),
                 collapsible=True,
+                default_value="connection",
                 variant="outline"
             ),
             rx.box(
@@ -460,6 +544,7 @@ def platform_page() -> rx.Component:
 
 def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
     return rx.flex(
+        rx.heading(agent.identity, as_="h3"),
         rx.tabs.root(
             rx.tabs.list(
                 rx.tabs.trigger("Agent Config", value="1"),
@@ -474,11 +559,34 @@ def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
                         )
                     ),
                     form_entry.form_entry(
+                        "Source",
+                        rx.input(
+                            size="3",
+                            # testing
+                            on_change=lambda v: State.update_agent_detail(agent, "config", v, "agent_config_field"),
+                        )
+                    ),                    
+                    form_entry.form_entry(
                         "Agent Config",
                         text_editor(
-                            placeholder="Type out JSON, YAML, or upload a file!"
+                            placeholder="Type out JSON, YAML, or upload a file!",
+                            value=agent.config,
+                            on_change=lambda v: State.update_agent_detail(agent, "config", v, "agent_config_field"),
+                            id="agent_config_field"
                         ),
-                        upload=icon_upload()
+                        upload=rx.upload.root(
+                            icon_upload(),
+                            id="agent_config_upload",
+                            max_files=1,
+                            accept={
+                                "text/yaml" : [".yml", ".yaml"],
+                                "text/json" : [".json"]
+                            },
+                            on_drop=State.handle_agent_config_upload(
+                                # agent, 
+                                rx.upload_files(upload_id="agent_config_upload")
+                            )
+                        )
                     ),
                     padding_top="1rem",
                     direction="column",
@@ -492,10 +600,17 @@ def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
                 rx.flex(
                     rx.flex(
                         rx.flex(
-                            icon_upload(),
-                            rx.text("broz"),
-                            rx.text("broz"),
-                            rx.text("broz"),
+                            rx.upload.root(
+                                icon_upload(),
+                                id="config_store_entry_upload",
+                                accept={
+                                    "text/csv" : [".csv"],
+                                    "text/json" : [".json"]
+                                }
+                            ),
+                            # rx.text("broz"),
+                            # rx.text("broz"),
+                            # rx.text("broz"),
                             direction="column",
                             flex="1",
                             align="center",
@@ -541,7 +656,7 @@ def agent_config_modal(agent: AgentDefinition, index) -> rx.Component:
             align_items="end",
             justify="end"
         ),
-        min_height="80vh",
+        min_height="clamp(90vh, 30rem)",
         direction="column",
         spacing="3",
     )
