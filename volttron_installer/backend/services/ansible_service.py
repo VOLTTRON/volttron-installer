@@ -2,8 +2,9 @@ import asyncio
 from pathlib import Path
 import subprocess
 from typing import Optional
-from .. models import HostEntry
+from .. models import HostEntry, PlatformDeploymentStatus
 from .. services.inventory_service import get_inventory_service, InventoryService
+from .. services.platform_service import get_platform_service, PlatformService
 import json
 import os
 from loguru import logger
@@ -17,8 +18,9 @@ class AnsibleService:
             # The playbooks are in the root of the collection
             playbook_dir = Path.home() / '.ansible/collections/ansible_collections/volttron/deployment'
         self.playbook_dir = playbook_dir
+            
 
-    async def run_playbook(self, playbook_name: str, inventory: str = "localhost,", connection: str = "local", extra_vars: dict = None) -> tuple[int, str, str]:
+    async def run_playbook(self, playbook_name: str, hosts: str | list[str], extra_vars: dict = None) -> tuple[int, str, str]:
         """Run an Ansible playbook asynchronously
 
         Args:
@@ -30,10 +32,14 @@ class AnsibleService:
         Returns:
             Tuple of (return_code, stdout, stderr)
         """
-        cmd = ["ansible-playbook", "-i", inventory]
+        inventory_service = await get_inventory_service()
 
-        if connection:
-            cmd.extend(["--connection", connection])
+        cmd = ["ansible-playbook", "-i", inventory_service.inventory_path.as_posix(),
+               "--limit", hosts]
+
+        logger.debug(f"Running playbook {playbook_name} on hosts {hosts} cmd: {cmd}")
+        # if connection:
+        #     cmd.extend(["--connection", connection])
 
         # Merge default vars with provided vars
         default_vars = {
@@ -48,15 +54,17 @@ class AnsibleService:
         if not playbook_name.startswith('volttron.deployment.'):
             playbook_name = f'volttron.deployment.{playbook_name}'
 
-        # Convert collection path to actual playbook name
-        playbook_file = playbook_name.split('.')[-1].replace('_', '-') + '.yml'
-        cmd.append(str(self.playbook_dir / playbook_file))
+        # Convert collection path to actual playbook file
+        # playbook_file = playbook_name if playbook_name.endswith(".yml") else f"{playbook_name}.yml"
+        # cmd.append(str(self.playbook_dir / playbook_file))
+        cmd.append(playbook_name)
 
         # Set environment variables
         env = os.environ.copy()
-        env['ANSIBLE_HOST_KEY_CHECKING'] = 'False'
-        env['ANSIBLE_SSH_ARGS'] = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+        #env['ANSIBLE_HOST_KEY_CHECKING'] = 'False'
+        #env['ANSIBLE_SSH_ARGS'] = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
 
+        logger.debug(f"Executing command: {' '.join(cmd)}")
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -65,6 +73,7 @@ class AnsibleService:
         )
 
         stdout, stderr = await process.communicate()
+        logger.debug(f"Playbook output: {stdout.decode() if stdout else ''}")
         return (
             process.returncode,
             stdout.decode() if stdout else "",
@@ -134,6 +143,47 @@ class AnsibleService:
             stdout.decode() if stdout else "",
             stderr.decode() if stderr else ""
         )
+    
+    async def get_platform_status(self, platform_id: str) -> PlatformDeploymentStatus:
+        """Get the status of a platform
+
+        Args:
+            platform_id: ID of the platform
+
+        Returns:
+            PlatformDeploymentStatus object
+        """
+        inventory_service = await get_inventory_service()
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(platform_id)
+
+        host = await inventory_service.get_host(platform.host_id)
+
+        logger.debug(f"Host: {host}")
+
+        # TODO need to verify the sshpassword is installed.
+        verify_keys = await self.verify_host_keys(host=host.id,
+                                                   user=host.ansible_user,
+                                                   port=host.ansible_port)
+        
+
+        logger.debug(f"Verify keys: {verify_keys}")
+        logger.debug(f"Getting status for platform {platform_id}")
+        if platform is None:
+            logger.error(f"Platform {platform_id} not found")
+        
+        logger.debug(f"Platform {platform_id} found: {platform}")
+        
+
+        #await self.verify_host_keys
+        
+        # return_code, stdout, stderr = await self.run_module("volttron.deployment.get_platform_status", platform_id)
+        # if return_code != 0:
+        #     raise Exception(f"Error getting platform status: {stderr}")
+        
+        # return PlatformDeploymentStatus.model_validate(json.loads(stdout))
+    
+
 
     async def verify_host_keys(self, host: str, user: str, port: int = 22, password: str = None) -> tuple[bool, str]:
         """Verify SSH host keys for a given host
@@ -150,9 +200,9 @@ class AnsibleService:
         """
         try:
             host_vars = {
-                "ansible_host": host,
-                "ansible_user": user,  # System user is safe to use directly
-                "ansible_port": port,
+                # "ansible_host": host,
+                # "ansible_user": user,  # System user is safe to use directly
+                # "ansible_port": port,
                 "ansible_connection": "ssh"  # Force SSH connection
             }
 
@@ -161,8 +211,8 @@ class AnsibleService:
                 host_vars["ansible_password"] = password
 
             return_code, stdout, stderr = await self.run_playbook(
-                "ensure-host-keys",
-                inventory=f"{host},",  # Use the actual host
+                "ensure_host_keys",
+                hosts=host,
                 extra_vars=host_vars
             )
 
@@ -206,8 +256,8 @@ class AnsibleService:
             host_vars.update(config_vars)
 
         return await self.run_playbook(
-            "configure-host",
-            inventory=f"{host_entry.host},",
+            "configure_host",
+            hosts=host_entry.id,
             extra_vars=host_vars
         )
 
