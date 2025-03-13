@@ -1169,7 +1169,7 @@ from ..form_components import form_entry
 from ...pages.agent_config_page import AgentConfigState
 class CSVDataState(AgentConfigState):
     """State management for CSV data editing."""
-    selected_variant: str = "Default 1"
+    selected_variant: str = "Custom"
     selected_cell: str = ""
     num_rows: int = 10
 
@@ -1188,6 +1188,7 @@ class CSVDataState(AgentConfigState):
 
     @rx.var(cache=True)
     def working_headers(self) -> List[str]:
+        logger.debug(f"variant: {self.selected_variant}\nkeys: {list(self.variants[self.selected_variant].keys())}")
         return list(self.variants[self.selected_variant].keys())
 
     @rx.var(cache=True)

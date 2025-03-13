@@ -90,7 +90,7 @@ async def instances_from_api() -> dict[str, Instance]:
     return {
         p.config.instance_name: Instance(
             host=HostEntryModelView(
-
+                
             ),
             platform=PlatformModelView(
                 config=PlatformConfigModelView(
@@ -274,6 +274,7 @@ class State(rx.State):
 
         working_platform.safe_host_entry = working_platform.host.to_dict()
         working_platform.uncaught = False
+        logger.debug(f"getting the host id: {working_platform.safe_host_entry['id']}")
         base_platform_request= CreatePlatformRequest(
                     host_id=working_platform.safe_host_entry["id"],
                     config=PlatformConfig(**working_platform.platform.config.to_dict()),
@@ -312,6 +313,7 @@ class State(rx.State):
             return
                 
         request = CreateOrUpdateHostEntryRequest(**working_platform.host.to_dict())
+        logger.debug(f"this is the request: {request}")
         await add_host(request)
         await create_platform(base_platform_request)
         yield rx.toast.success("Changes saved successfully")

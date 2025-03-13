@@ -11,6 +11,7 @@ from ..functions.create_component_uid import generate_unique_uid
 from .platform_page import State as AppState
 from .platform_page import Instance
 from ..navigation.state import NavigationState
+import io
 
 import json, csv, yaml
 from loguru import logger
@@ -21,8 +22,6 @@ class AgentConfigState(rx.State):
     selected_component_id: str = ""
 
     # this being named agent details doesn't make sense but whatever
-    
-    # this being named agent detaile\s doesnt make sense but whatever
     @rx.var
     def agent_details(self) -> dict:
         args = self.router.page.params
@@ -79,11 +78,17 @@ class AgentConfigState(rx.State):
                 data = json.load(file_object)
                 file_type = "JSON"
                 result = json.dumps(data, indent=4)
+
         elif current_file.filename.endswith('.csv'):
             with open(outfile, 'r') as file_object:
                 reader = csv.reader(file_object)
-                file_type = "CSV"
-                # Handle CSV processing
+                output = io.StringIO()
+                writer = csv.writer(output)
+                for row in reader:
+                    writer.writerow(row)
+                file_type="CSV"
+                result = output.getvalue()
+                output.close()
         else:
             yield rx.toast.error("Unsupported file format")
             return
@@ -169,11 +174,11 @@ class AgentConfigState(rx.State):
             self.selected_component_id = ""
         else:
             self.selected_component_id = component_id
-        logger.debug("our new config entry: ", self.selected_component_id)
+        logger.debug(f"our new config entry: {self.selected_component_id}")
 
 @rx.page(route="/platform/[uid]/agent/[agent_uid]", on_load=AgentConfigState.hydrate_working_agent)
 def agent_config_page() -> rx.Component:
-    return app_layout(
+    return rx.cond(AgentConfigState.is_hydrated, app_layout(
         header(
             icon_button_wrapper.icon_button_wrapper(
                 tool_tip_content="Go back to platform",
@@ -319,17 +324,18 @@ def agent_config_page() -> rx.Component:
                                                         rx.radio(
                                                             ["JSON", "CSV"],
                                                             value=config.data_type,
+                                                            spacing="4",
                                                             on_change=lambda v: AgentConfigState.update_config_detail("data_type", v)
-                                                        )
+                                                        ),
                                                     ),
                                                     form_entry.form_entry(
                                                         "Config",
                                                         rx.cond(
                                                             config.data_type=="JSON",
-                                                            text_editor.text_editor(
-                                                                value=config.value
-                                                            ),
-                                                            csv_field.csv_data_field(config)
+                                                            text_editor.text_editor(value=config.value),
+                                                            csv_field.csv_data_field()
+                                                            # csv_field.csv_data_field(config)
+                                                            # csv_field.csv_data_field(config)
                                                         ),
                                                     ),
                                                     rx.hstack(
@@ -340,7 +346,8 @@ def agent_config_page() -> rx.Component:
                                                             color_scheme="green",
                                                             on_click=lambda: AgentConfigState.save_config_store_entry(config)
                                                         )
-                                                    )
+                                                    ),
+                                                    key=config.component_id,
                                                 )
                                             )
                                         )
@@ -371,4 +378,6 @@ def agent_config_page() -> rx.Component:
             spacing="4",
             padding="4"
         )
-    )
+    ),
+    rx.spinner()
+)
