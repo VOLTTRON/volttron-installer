@@ -7,7 +7,6 @@ from ..components.form_components import *
 from ..components.custom_fields import text_editor, csv_field
 from ..components.tiles.config_tile import config_tile
 from ..functions.create_component_uid import generate_unique_uid
-
 from .platform_page import State as AppState
 from .platform_page import Instance
 from ..navigation.state import NavigationState
@@ -65,7 +64,8 @@ class AgentConfigState(rx.State):
                     # Means we are switching from CSV -> JSON
                     if format == "CSV":
                         json_string =  csv_string_to_json_string(config.value)
-                        setattr(config, field, json_string)
+                        setattr(config, field, value)
+                        setattr(config, "value", json_string)
                     elif format == "JSON":
                         csv_string =  json_string_to_csv_string(config.value)
                         usable_csv =  csv_string_to_usable_dict(csv_string)
@@ -83,6 +83,7 @@ class AgentConfigState(rx.State):
 
     @rx.event
     async def handle_config_store_entry_upload(self, files: list[rx.UploadFile]):
+        # dealing with file uploads
         current_file = files[0]
         upload_data = await current_file.read()
         outfile = (rx.get_upload_dir() / current_file.filename)
@@ -113,6 +114,7 @@ class AgentConfigState(rx.State):
             yield rx.toast.error("Unsupported file format")
             return
         
+        # creating a model view from our uploaded config
         agent = self.working_agent
         new_config_entry= ConfigStoreEntryModelView(
                 path="",
@@ -314,33 +316,34 @@ def agent_config_page() -> rx.Component:
                                 rx.foreach(
                                     AgentConfigState.working_agent.config_store,
                                     lambda config: config_tile(
-                                            text=config.path,
-                                            right_component=tile_icon.tile_icon(
-                                                "settings",
-                                                class_name=rx.cond(
-                                                    AgentConfigState.working_agent.selected_config_component_id == config.component_id,
-                                                    "icon_button active",  # Combined class names
-                                                    "icon_button"
-                                                ),
-                                                # on_click=AgentConfigState.print_config_properties(config)
-                                                on_click=lambda: AgentConfigState.set_component_id(config.component_id)
-                                            ),
+                                        text=config.path,
+                                        right_component=tile_icon.tile_icon(
+                                            "settings",
                                             class_name=rx.cond(
-                                                config.uncommitted,
-                                                "agent_config_tile uncommitted",
-                                                "agent_config_tile"
-                                            )
-                                        )
+                                                AgentConfigState.working_agent.selected_config_component_id == config.component_id,
+                                                "icon_button active",  # Combined class names
+                                                "icon_button"
+                                            ),
+                                            # on_click=AgentConfigState.print_config_properties(config)
+                                            on_click=lambda: AgentConfigState.set_component_id(config.component_id)
+                                        ),
+                                        class_name=rx.cond(
+                                            config.uncommitted,
+                                            "agent_config_tile uncommitted",
+                                            "agent_config_tile"
+                                        ),
+                                    )
                                 ),
                                 direction="column",
                                 flex="1",
-                                align="center",
-                                spacing="4"
+                                align="start",
+                                spacing="4",
+                                justify="start",
                             ),
-                            border="1px solid white",
+                            # border="1px solid white",
                             border_radius=".5rem",
                             padding="1rem",
-                            flex="1"
+                            # flex="1"
                         ),
                         rx.flex(
                             rx.flex(
@@ -352,52 +355,52 @@ def agent_config_page() -> rx.Component:
                                             lambda config: rx.cond(
                                                 config.component_id == AgentConfigState.working_agent.selected_config_component_id,
                                                 rx.fragment(
-                                                    form_entry.form_entry(
-                                                        "Path",
-                                                        rx.input(
-                                                            size="3",
-                                                            value=config.path,
-                                                            on_change=lambda v: AgentConfigState.update_config_detail("path", v)
-                                                        ),
-                                                        required_entry=True
-                                                    ),
-                                                    form_entry.form_entry(
-                                                        "Data Type",
-                                                        rx.radio(
-                                                            ["JSON", "CSV"],
-                                                            value=config.data_type,
-                                                            spacing="4",
-                                                            on_change=lambda v: AgentConfigState.update_config_detail("data_type", v)
-                                                        ),
-                                                    ),
-                                                    form_entry.form_entry(
-                                                        "Config",
-                                                        rx.cond(
-                                                            config.data_type=="JSON",
-                                                            text_editor.text_editor(
-                                                                value=config.value,
-                                                                color_scheme=rx.cond(
-                                                                    config.valid,
-                                                                    "tomato",
-                                                                    "gray"
-                                                                ),
-                                                                on_change=lambda v: AgentConfigState.text_editor_edit(config, v)
+                                                    form_view.form_view_wrapper(
+                                                        form_entry.form_entry(
+                                                            "Path",
+                                                            rx.input(
+                                                                size="3",
+                                                                value=config.path,
+                                                                on_change=lambda v: AgentConfigState.update_config_detail("path", v)
                                                             ),
-                                                            csv_field.csv_data_field()
-                                                            # csv_field.csv_data_field(config)
-                                                            # csv_field.csv_data_field(config)
+                                                            required_entry=True
                                                         ),
+                                                        form_entry.form_entry(
+                                                            "Data Type",
+                                                            rx.radio(
+                                                                ["JSON", "CSV"],
+                                                                value=config.data_type,
+                                                                spacing="4",
+                                                                on_change=lambda v: AgentConfigState.update_config_detail("data_type", v)
+                                                            ),
+                                                        ),
+                                                        form_entry.form_entry(
+                                                            "Config",
+                                                            rx.cond(
+                                                                config.data_type=="JSON",
+                                                                text_editor.text_editor(
+                                                                    value=config.value,
+                                                                    color_scheme=rx.cond(
+                                                                        config.valid,
+                                                                        "tomato",
+                                                                        "gray"
+                                                                    ),
+                                                                    on_change=lambda v: AgentConfigState.text_editor_edit(config, v)
+                                                                ),
+                                                                csv_field.csv_data_field()
+                                                            ),
+                                                        ),
+                                                        rx.hstack(
+                                                            rx.button(
+                                                                "Save",
+                                                                size="3",
+                                                                variant="surface",
+                                                                color_scheme="green",
+                                                                on_click=lambda: AgentConfigState.save_config_store_entry(config)
+                                                            )
+                                                        ),
+                                                        key=config.component_id
                                                     ),
-                                                    rx.hstack(
-                                                        rx.button(
-                                                            "Save",
-                                                            size="3",
-                                                            variant="surface",
-                                                            color_scheme="green",
-                                                            on_click=lambda: AgentConfigState.save_config_store_entry(config)
-                                                        )
-                                                    ),
-                                                    key=config.component_id,
                                                 )
                                             )
                                         )

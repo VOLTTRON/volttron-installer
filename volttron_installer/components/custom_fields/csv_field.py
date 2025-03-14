@@ -130,7 +130,7 @@ def craft_table_cell(content: str, header: str = None, index: int = None, row_id
         on_double_click=lambda: CSVDataState.double_click_event(cell_uid)
     )
 
-def csv_table():
+def csv_table(width="40rem", height="25rem", **props):
     """Create the main table component."""
     return rx.table.root(
         rx.table.header(
@@ -162,8 +162,9 @@ def csv_table():
                 )
             )
         ),
-        width="40rem",
-        height="25rem",
+        width=width,
+        height=height,
+        **props
     )
 
 def add_column_dialog():
@@ -261,7 +262,7 @@ def remove_column_dialog():
         )
     )
 
-def csv_data_field():
+def csv_data_field(**props):
     """Main CSV data field component."""
 
     return rx.cond(
@@ -277,7 +278,7 @@ def csv_data_field():
             ),
             rx.flex(
                 rx.el.div(
-                    csv_table(),
+                    csv_table(**props),
                     class_name="config_template_config_container"
                 ),
                 rx.flex(
