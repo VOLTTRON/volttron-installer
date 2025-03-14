@@ -182,6 +182,10 @@ styles: dict = {
         "background-color": "#2A2A2C"
     },
 
+    ".agent_config_tile.uncommitted": {
+        "background-color" : "orange"
+    },
+
     ".agent_config_tile:hover" : {
         "background-color" : "#333335"
     },

@@ -12,6 +12,7 @@ from .platform_page import State as AppState
 from .platform_page import Instance
 from ..navigation.state import NavigationState
 from ..functions.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
+from ..functions.validate_content import check_json
 import io
 
 import json, csv, yaml
@@ -166,8 +167,23 @@ class AgentConfigState(rx.State):
         if config.path in list_of_config_paths or config.path== "":
             return rx.toast.error(f"Config path is already in use or isn't valid")
         
+        if config.data_type == "CSV":
+            pass
+
+        elif config.data_type =="JSON":
+            pass
+
         config.safe_entry = config.dict()
+        logger.debug(f"our agent after entry save: {self.working_agent}")
+        config.uncommitted=False
         return rx.toast.success("Config saved successfully")
+
+    @rx.event
+    def text_editor_edit(self, config: ConfigStoreEntryModelView, value: str):
+        logger.debug("im being ran right?")
+        config.value = value
+        config.valid = check_json(config.value)
+        logger.debug(f"valid?: {config.valid}")
 
     @rx.event
     async def save_agent_config(self):
@@ -308,11 +324,11 @@ def agent_config_page() -> rx.Component:
                                                 # on_click=AgentConfigState.print_config_properties(config)
                                                 on_click=lambda: AgentConfigState.set_component_id(config.component_id)
                                             ),
-                                            # class_name=rx.cond(
-                                            #     config.changed,
-                                            #     "agent_config_tile active"
-                                            #     "agent_config_tile"
-                                            # )
+                                            class_name=rx.cond(
+                                                config.uncommitted,
+                                                "agent_config_tile uncommitted",
+                                                "agent_config_tile"
+                                            )
                                         )
                                 ),
                                 direction="column",
@@ -357,7 +373,15 @@ def agent_config_page() -> rx.Component:
                                                         "Config",
                                                         rx.cond(
                                                             config.data_type=="JSON",
-                                                            text_editor.text_editor(value=config.value),
+                                                            text_editor.text_editor(
+                                                                value=config.value,
+                                                                color_scheme=rx.cond(
+                                                                    config.valid,
+                                                                    "tomato",
+                                                                    "gray"
+                                                                ),
+                                                                on_change=lambda v: AgentConfigState.text_editor_edit(config, v)
+                                                            ),
                                                             csv_field.csv_data_field()
                                                             # csv_field.csv_data_field(config)
                                                             # csv_field.csv_data_field(config)

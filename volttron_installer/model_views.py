@@ -10,6 +10,7 @@ class ConfigStoreEntryModelView(rx.Base):
     safe_entry: dict[str, str] = {}
     component_id: str = "_"
 
+    uncommitted: bool = True
     changed: bool = True
     valid: bool = False
 
