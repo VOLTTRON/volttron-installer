@@ -11,6 +11,7 @@ from ..functions.create_component_uid import generate_unique_uid
 from .platform_page import State as AppState
 from .platform_page import Instance
 from ..navigation.state import NavigationState
+from ..functions.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
 import io
 
 import json, csv, yaml
@@ -50,13 +51,31 @@ class AgentConfigState(rx.State):
             yield rx.set_value(id, value)
 
     @rx.event
-    def update_config_detail(self, field: str, value: str, id: str = None):
+    async def update_config_detail(self, field: str, value: str, id: str = None):
         """Update a config store entry directly"""
         for config in self.working_agent.config_store:
             # get the working config
-            if config.component_id == self.selected_component_id:
+            if config.component_id == self.working_agent.selected_config_component_id:
                 logger.debug("updating details...")
-                setattr(config, field, value)
+                
+                if field == "data_type":
+                    # method to convert if json to csv and vice versa
+                    format =  identify_string_format(config.value) 
+                    # Means we are switching from CSV -> JSON
+                    if format == "CSV":
+                        json_string =  csv_string_to_json_string(config.value)
+                        setattr(config, field, json_string)
+                    elif format == "JSON":
+                        csv_string =  json_string_to_csv_string(config.value)
+                        usable_csv =  csv_string_to_usable_dict(csv_string)
+                        config.csv_variants["Custom"] = usable_csv
+                        setattr(config, field, value)
+                    else:
+                        # i give up
+                        setattr(config, field, value)
+                else:
+                    setattr(config, field, value)
+
 
                 if id is not None:
                     yield rx.set_value(id, value)
@@ -100,6 +119,12 @@ class AgentConfigState(rx.State):
                 value=result,
                 component_id=generate_unique_uid()
             )
+        if file_type == "CSV":
+            usable_csv = csv_string_to_usable_dict(result)
+            logger.debug(f"this is the usable? csv: {usable_csv}")
+            new_config_entry.csv_variants["Custom"] = usable_csv
+            logger.debug(f"this is out variants: {new_config_entry.csv_variants}")
+
         new_config_entry.safe_entry=new_config_entry.dict()
         logger.debug(f"I submitted a safe entry: {new_config_entry.safe_entry}")
         logger.debug(f"pls add: {new_config_entry.component_id}")
@@ -170,11 +195,11 @@ class AgentConfigState(rx.State):
 
     @rx.event
     def set_component_id(self, component_id: str):
-        if self.selected_component_id == component_id:
-            self.selected_component_id = ""
+        if self.working_agent.selected_config_component_id == component_id:
+            self.working_agent.selected_config_component_id = ""
         else:
-            self.selected_component_id = component_id
-        logger.debug(f"our new config entry: {self.selected_component_id}")
+            self.working_agent.selected_config_component_id = component_id
+        logger.debug(f"our new config entry: {self.working_agent.selected_config_component_id}")
 
 @rx.page(route="/platform/[uid]/agent/[agent_uid]", on_load=AgentConfigState.hydrate_working_agent)
 def agent_config_page() -> rx.Component:
@@ -276,7 +301,7 @@ def agent_config_page() -> rx.Component:
                                             right_component=tile_icon.tile_icon(
                                                 "settings",
                                                 class_name=rx.cond(
-                                                    AgentConfigState.selected_component_id == config.component_id,
+                                                    AgentConfigState.working_agent.selected_config_component_id == config.component_id,
                                                     "icon_button active",  # Combined class names
                                                     "icon_button"
                                                 ),
@@ -303,12 +328,12 @@ def agent_config_page() -> rx.Component:
                         rx.flex(
                             rx.flex(
                                 rx.cond(
-                                    AgentConfigState.selected_component_id != "",
+                                    AgentConfigState.working_agent.selected_config_component_id != "",
                                     rx.fragment(
                                         rx.foreach(
                                             AgentConfigState.working_agent.config_store,
                                             lambda config: rx.cond(
-                                                config.component_id == AgentConfigState.selected_component_id,
+                                                config.component_id == AgentConfigState.working_agent.selected_config_component_id,
                                                 rx.fragment(
                                                     form_entry.form_entry(
                                                         "Path",

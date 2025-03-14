@@ -13,6 +13,8 @@ class ConfigStoreEntryModelView(rx.Base):
     changed: bool = True
     valid: bool = False
 
+    selected_variant: str = "Custom"
+    selected_cell: str = ""
     csv_variants: dict[str, dict[str, list[str]]] = {
         "Default 1" : {
             "Reference Point Name": [""]*10,
@@ -68,6 +70,7 @@ class AgentModelView(rx.Base):
     uncaught: bool = True
     safe_agent: dict[str, str] = {}
 
+    selected_config_component_id: str = ""
     routing_id: str = ""
 
     def to_dict(self) -> dict[str, str]:
