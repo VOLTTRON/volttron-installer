@@ -1240,7 +1240,8 @@ class CSVDataState(AgentConfigState):
         """Add a new column."""
         column_name = form_data["column_name"]
         self.working_config.csv_variants[self.selected_variant][column_name] = [""] * self.num_rows
-        return rx.toast.info(f"Added column: {column_name}", position="bottom-right")
+        yield rx.toast.info(f"Added column: {column_name}", position="bottom-right")
+        yield CSVDataState.force_rerender
 
     @rx.event
     def force_rerender(self):
@@ -1259,7 +1260,8 @@ class CSVDataState(AgentConfigState):
         """Remove a column."""
         column_name = form_data["column_name"]
         del self.working_config.csv_variants[self.selected_variant][column_name]
-        return rx.toast.info(f"Removed column: {column_name}", position="bottom-right")
+        yield rx.toast.info(f"Removed column: {column_name}", position="bottom-right")
+        yield CSVDataState.force_rerender
 
 # Components
 def craft_table_cell(content: str, header: str = None, index: int = None, row_idx: int = None, header_cell: bool = False):
