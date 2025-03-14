@@ -133,6 +133,7 @@ class AgentConfigState(rx.State):
             new_config_entry
         )
         logger.debug("agent config store entry was uploaded")
+        yield AgentConfigState.set_component_id(new_config_entry.component_id)
 
     @rx.event
     async def handle_agent_config_upload(self, files: list[rx.UploadFile]):

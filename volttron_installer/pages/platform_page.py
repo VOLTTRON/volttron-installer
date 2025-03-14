@@ -16,10 +16,12 @@ from ..backend.endpoints import get_all_platforms, create_platform, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host, \
     get_agent_catalog, get_hosts, update_platform
 from ..functions.create_component_uid import generate_unique_uid
+from ..functions.conversion_methods import csv_string_to_usable_dict
+from ..functions.validate_content import check_json
+from ..functions.prettify import prettify_json
 from loguru import logger
-from copy import deepcopy
 from ..model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
-
+import re
 
 parts = Literal["connection", "instance_configuration"]
  
@@ -117,16 +119,6 @@ class State(rx.State):
     platforms: dict[str, Instance] = {}
     list_of_agents: list[AgentModelView] = []
 
-# =========== Putting this here for now, ideally will be inside Instance class ==============
-        # initialize with agent_catalogue
-        
-        # AgentDefinition(identity="Agent 1", agent_source=""),
-        # AgentDefinition(identity="Agent 2", agent_source=""),
-        # AgentDefinition(identity="Agent 3", agent_source="")
-    
-
-    thingy: list[str] = ["bro", "no", "sense"]
-# ==================================================================================================
     # Vars
     @rx.var(cache=True)
     def current_uid(self) -> str:
@@ -176,13 +168,35 @@ class State(rx.State):
                     "source": new_agent.source,
                     "config": new_agent.config
                 }
+        
+        # Prettify its config and config store contents:
+        # loop through our agents one more time, and their config store. make if we 
+        # encounter a csv file, then we adjust the "Custom" CSV variant
+        for config in new_agent.config_store:
+            if config.data_type == "CSV":
+                # logger.debug(f"this is the config: {config}")
+                usable_csv = csv_string_to_usable_dict(config.value)
+                config.csv_variants["Custom"] = usable_csv
+                # logger.debug(f"this is the usable csv: {usable_csv}")
+            elif config.data_type == "JSON":
+                try:
+                    json_data = json.loads(config.value)
+                    pretty_json = json.dumps(json_data, indent=4)
+                    config.value = pretty_json
+                except json.JSONDecodeError as e:
+                    # logger.error(f"Failed to decode JSON: {e}")
+                    pass
+
+        # if config is json
+        logger.debug(f"checking if valid json: {check_json(new_agent.config)}")
+        pretty_json, success = prettify_json(new_agent.config)
+        if success:
+            new_agent.config = pretty_json
+            
+        logger.debug(f"this is the config,{new_agent.config}")
         working_platform.platform.agents[new_agent.identity] = new_agent
-        # self.added_agents.append(new_agent)
         
     @rx.event
-    def handle_removing_agent(self, identity: str):
-        working_platform = self.platforms[self.current_uid]
-        del(working_platform.platform.agents[identity])
     def handle_removing_agent(self, identity: str):
         working_platform = self.platforms[self.current_uid]
         del(working_platform.platform.agents[identity])
@@ -616,12 +630,6 @@ def platform_page() -> rx.Component:
                                             required=True,
                                         )
                                     ),
-                                    # ok wow so things can render just fine here but when we put it in the modal everything breaks...
-                                    # got it...
-                                    # rx.foreach(
-                                    #     State.thingy,
-                                    #     lambda item: agent_config_tile(text="am i real")
-                                    # ),
                                 )
                             ),
                             class_name="platform_content_view"
@@ -790,188 +798,6 @@ def platform_page() -> rx.Component:
         ),
     )))
 
-def agent_dialog() -> rx.Component:
-    return rx.dialog.root(
-        rx.dialog.trigger(
-            tile_icon("settings")
-        ),
-        rx.dialog.content(
-            rx.dialog.title("Agent Details"),
-            rx.dialog.description(
-                f"Configuration for "
-            ),
-            rx.tabs.root(
-                rx.tabs.list(
-                    rx.tabs.trigger("Settings", value="1")
-                ),
-                rx.tabs.content(
-                    rx.vstack(
-                        # Agent specific content here
-                        rx.text(f"Agent ID:"),
-                        rx.foreach(
-                            State.thingy,
-                            lambda thing: rx.text(text=thing)
-                        )
-                        # Other agent details...
-                    ),
-                    value="1"
-                ),
-                default_value="1"
-            )
-        )
-    )
-
-def agent_config_modal(identity_agent_pair: tuple[str, AgentModelView]) -> rx.Component:
-    working_platform: Instance = State.platforms[State.current_uid]
-    stable_identity = identity_agent_pair[0]
-    agent: AgentModelView = identity_agent_pair[1]
-    return rx.cond(State.working_agent !="", rx.cond(State.is_hydrated, rx.fragment(rx.flex(
-        rx.heading(stable_identity, as_="h3"),
-        rx.tabs.root(
-            rx.tabs.list(
-                rx.tabs.trigger("Agent Config", value="1"),
-                rx.tabs.trigger("Config Store Entries", value="2")
-            ),
-            rx.tabs.content(
-                rx.flex(
-                    form_entry.form_entry(
-                        "Identity",
-                        rx.input(
-                            value=working_platform.platform.agents[stable_identity].identity,
-                            on_change=lambda v: State.update_agent_detail(
-                                working_platform.platform.agents[stable_identity], 
-                                "identity", 
-                                v, 
-                                "agent_identity_field"
-                            ),
-                            size="3",
-                            id="agent_identity_field"
-                        )
-                    ),
-                    form_entry.form_entry(
-                        "Source",
-                        rx.input(
-                            size="3",
-                            # testing
-                            value=agent.source,
-                            on_change=lambda v: State.update_agent_detail(agent, "source", v, "agent_source_field"),
-                            id="agent_source_field"
-                        )
-                    ),                    
-                    form_entry.form_entry(
-                        "Agent Config",
-                        text_editor(
-                            placeholder="Type out JSON, YAML, or upload a file!",
-                            # value=working_platform.platform.agents[stable_identity].config,
-                            value=State.working_agent.config,
-                            on_change=lambda v: State.update_agent_detail(
-                                State.working_agent, 
-                                "config", 
-                                v, 
-                                "agent_config_field"
-                                ),
-                            id="agent_config_field"
-                        ),
-                        upload=rx.upload.root(
-                            icon_upload(),
-                            id="agent_config_upload",
-                            max_files=1,
-                            accept={
-                                "text/yaml" : [".yml", ".yaml"],
-                                "text/json" : [".json"]
-                            },
-                            on_drop=State.handle_agent_config_upload(
-                                # agent, 
-                                rx.upload_files(upload_id="agent_config_upload")
-                            )
-                        )
-                    ),
-                    padding_top="1rem",
-                    direction="column",
-                    class_name="agent_config_modal",
-                    spacing="3",
-                ),
-                value="1"
-            ),
-            rx.tabs.content(
-                # This will look like the 
-                rx.flex(
-                    rx.flex(
-                        rx.flex(
-                            rx.upload.root(
-                                icon_upload(),
-                                id="config_store_entry_upload",
-                                accept={
-                                    "text/csv" : [".csv"],
-                                    "text/json" : [".json"]
-                                },
-                                on_drop=State.handle_config_store_entry_upload(
-                                    rx.upload_files(upload_id="config_store_entry_upload")
-                                )
-                            ),
-
-                            # rx.cond(
-                            #     State.working_agent != "",
-                            #     rx.cond(
-                            #         State.working_agent.config_store.length() > 0,
-                            #         rx.foreach(
-                            #             State.working_agent.config_store,
-                            #             lambda item: agent_config_tile(f"heyy")  # Add item parameter
-                            #         ),
-                            #         rx.text("No items")  # Add else case
-                            #     ),
-                            #     rx.text("No agent selected")  # Add else case
-                            # ),
-                            direction="column",
-                            flex="1",
-                            align="center",
-                            spacing="4"
-                        ),
-                        border="1px solid white",
-                        border_radius=".5rem",
-                        padding="1rem",
-                        flex="1"
-                    ),
-                    rx.flex(
-                        rx.flex(
-                            # rx.cond(
-                            #     True,
-                                rx.box(),
-                            # )
-                            direction="column",
-                            flex="1",
-                            align="center"
-                        ),
-                        # border="1px solid white",
-                        border_radius=".5rem",
-                        padding="1rem",
-                        flex="1"
-                    ),
-                    align="center",
-                    spacing="4",
-                    direction="row",
-                    padding_top="1rem",
-                    width="100%"
-                ),
-                value="2"
-            ),
-            default_value="1"
-        ),
-        rx.hstack(
-            rx.button(
-                "Save",
-                variant="surface",
-                color_scheme="green",
-                #on_click
-            ), 
-            align_items="end",
-            justify="end"
-        ),
-        min_height="clamp(90vh, 30rem)",
-        direction="column",
-        spacing="3",
-    )
-)))
 
 def agent_config_tile(text, left_component: rx.Component = False, right_component: rx.Component = False)->rx.Component:
     return rx.hstack(
