@@ -366,202 +366,206 @@ def platform_page() -> rx.Component:
                 rx.accordion.item(
                     header="Connection",
                     value="connection",
-                    content=connection_accordion_content(working_platform),                    
                     # content=rx.box(
-                    #     rx.box(
-                    #         form_entry.form_entry(
-                    #             "Host",
-                    #             rx.input(
-                    #                 value= working_platform.host.id,
-                    #                 on_change=lambda v: State.update_detail("id", v),
-                    #                 size="3",
-                    #                 required=True,
-                    #             ),
-                    #             required_entry=True,
-                    #         ),
-                    #         form_entry.form_entry(
-                    #             "Username",
-                    #             rx.input(
-                    #                 value= working_platform.host.ansible_user,
-                    #                 on_change=lambda v: State.update_detail("ansible_user", v),
-                    #                 size="3",
-                    #                 required=True,
-                    #             ),
-                    #             required_entry=True,
-                    #         ),
-                    #         form_entry.form_entry(
-                    #             "Port SSH",
-                    #             rx.input(
-                    #                 value= working_platform.host.ansible_port,
-                    #                 on_change=lambda v: State.update_detail("ansible_port", v),
-                    #                 size="3",
-                    #                 required=True,
-                    #                 type="number"
-                    #             ),
-                    #             required_entry=True,
-                    #         ),
-                    #         rx.box(
-                    #             rx.hstack(
-                    #                 rx.text("Toggle Advanced"),
-                    #                 rx.cond(
-                    #                     working_platform.advanced_expanded,
-                    #                     rx.icon("chevron-up"),
-                    #                     rx.icon("chevron-down")
-                    #                 )
-                    #             ),
-                    #             class_name="toggle_advanced_button",
-                    #             on_click=lambda: State.toggle_advanced(State.current_uid)
-                    #         ),
-                    #         rx.cond(
-                    #             working_platform.advanced_expanded,
-                    #             rx.fragment(
-                    #                 form_entry.form_entry(
-                    #                     "HTTP Proxy",
-                    #                     rx.input(
-                    #                         value= working_platform.host.http_proxy,
-                    #                         on_change=lambda v: State.update_detail("http_proxy", v),
-                    #                         size="3",
-                    #                         required=True,
-                    #                     )
-                    #                 ),
-                    #                 form_entry.form_entry(
-                    #                     "HTTPS Proxy",
-                    #                     rx.input(
-                    #                         value= working_platform.host.https_proxy,
-                    #                         on_change=lambda v: State.update_detail("https_proxy", v),
-                    #                         size="3",
-                    #                         required=True,
-                    #                     )
-                    #                 ),
-                    #                 form_entry.form_entry(
-                    #                     "VOLTTRON Home",
-                    #                     rx.input(
-                    #                         value= working_platform.host.volttron_home,
-                    #                         on_change=lambda v: State.update_detail("volttron_home", v),
-                    #                         size="3",
-                    #                         required=True,
-                    #                     )
-                    #                 ),
-                    #             )
-                    #         ),
-                    #         class_name="platform_content_view"
-                    #     ),
-                    #     class_name="platform_content_container"
-                    # )
+                    #     connection_accordion_content(working_platform)
+                    # ),
+                    content=rx.box(
+                        rx.box(
+                            form_entry.form_entry(
+                                "Host",
+                                rx.input(
+                                    value= working_platform.host.id,
+                                    on_change=lambda v: State.update_detail("id", v),
+                                    size="3",
+                                    required=True,
+                                ),
+                                required_entry=True,
+                            ),
+                            form_entry.form_entry(
+                                "Username",
+                                rx.input(
+                                    value= working_platform.host.ansible_user,
+                                    on_change=lambda v: State.update_detail("ansible_user", v),
+                                    size="3",
+                                    required=True,
+                                ),
+                                required_entry=True,
+                            ),
+                            form_entry.form_entry(
+                                "Port SSH",
+                                rx.input(
+                                    value= working_platform.host.ansible_port,
+                                    on_change=lambda v: State.update_detail("ansible_port", v),
+                                    size="3",
+                                    required=True,
+                                    type="number"
+                                ),
+                                required_entry=True,
+                            ),
+                            rx.box(
+                                rx.hstack(
+                                    rx.text("Toggle Advanced"),
+                                    rx.cond(
+                                        working_platform.advanced_expanded,
+                                        rx.icon("chevron-up"),
+                                        rx.icon("chevron-down")
+                                    )
+                                ),
+                                class_name="toggle_advanced_button",
+                                on_click=lambda: State.toggle_advanced(State.current_uid)
+                            ),
+                            rx.cond(
+                                working_platform.advanced_expanded,
+                                rx.fragment(
+                                    form_entry.form_entry(
+                                        "HTTP Proxy",
+                                        rx.input(
+                                            value= working_platform.host.http_proxy,
+                                            on_change=lambda v: State.update_detail("http_proxy", v),
+                                            size="3",
+                                            required=True,
+                                        )
+                                    ),
+                                    form_entry.form_entry(
+                                        "HTTPS Proxy",
+                                        rx.input(
+                                            value= working_platform.host.https_proxy,
+                                            on_change=lambda v: State.update_detail("https_proxy", v),
+                                            size="3",
+                                            required=True,
+                                        )
+                                    ),
+                                    form_entry.form_entry(
+                                        "VOLTTRON Home",
+                                        rx.input(
+                                            value= working_platform.host.volttron_home,
+                                            on_change=lambda v: State.update_detail("volttron_home", v),
+                                            size="3",
+                                            required=True,
+                                        )
+                                    ),
+                                )
+                            ),
+                            class_name="platform_content_view"
+                        ),
+                        class_name="platform_content_container"
+                    )
                 ),
                 rx.accordion.item(
                     header="Instance Configuration",
                     value="instance_configuration",
-                    content=instance_configuration_accordion_content(working_platform)
                     # content=rx.box(
-                    #     rx.box(
-                    #         form_entry.form_entry( # validate
-                    #             "Instance Name",
-                    #             rx.input(
-                    #                 size="3",
-                    #                 value=working_platform.platform.config.instance_name,
-                    #                 on_change=lambda v: State.update_platform_config_detail("instance_name", v),
-                    #                 required=True,
-                    #             )
-                    #         ),
-                    #         form_entry.form_entry( # validate
-                    #             "Vip Address",
-                    #             rx.input(
-                    #                 size="3",
-                    #                 value=working_platform.platform.config.vip_address,
-                    #                 on_change=lambda v: State.update_platform_config_detail("vip_address", v),
-                    #                 required=True,
-                    #             )
-                    #         ),
-                    #         form_entry.form_entry(
-                    #             "Web",
-                    #             rx.checkbox(
-                    #                 size="3",
-                    #                 checked=working_platform.web_checked,
-                    #                 on_change=lambda: State.toggle_web()
-                    #             )
-                    #         ),
-                    #         rx.cond(
-                    #             working_platform.web_checked,
-                    #             rx.fragment(
-                    #                 form_entry.form_entry(
-                    #                     "Web Bind Address",
-                    #                     rx.input(
-                    #                         size="3",
-                    #                         value=working_platform.web_bind_address,
-                    #                         on_change=lambda v: State.update_platform_config_detail("web_bind_address", v),
-                    #                         required=True,
-                    #                     )
-                    #                 )
-                    #             )
-                    #         ),
-                    #         rx.box(
-                    #             rx.hstack(
-                    #                 rx.text("Agent Configuration"),
-                    #                 rx.cond(
-                    #                     working_platform.agent_configuration_expanded,
-                    #                     rx.icon("chevron-up"),
-                    #                     rx.icon("chevron-down")
-                    #                 )
-                    #             ),
-                    #             class_name="toggle_advanced_button",
-                    #             on_click=lambda: State.toggle_agent_config_details()
-                    #         ),
-                    #         rx.box(
-                    #             rx.cond(
-                    #                 working_platform.agent_configuration_expanded,
-                    #                 rx.el.div(
-                    #                     rx.box(
-                    #                         rx.box(
-                    #                             rx.heading("Listed Agents", as_="h3"),
-                    #                             rx.foreach(
-                    #                                 State.list_of_agents,
-                    #                                 lambda agent, index: agent_config_tile(
-                    #                                     agent.identity, 
-                    #                                     right_component=tile_icon(
-                    #                                         "plus",
-                    #                                         on_click=State.handle_adding_agent(agent)
-                    #                                         ),
-                    #                                     ),
-                    #                             ),
-                    #                             class_name="agent_config_view_content"
-                    #                         ),
-                    #                         class_name="agent_config_views"
-                    #                     ),
-                    #                     rx.box(
-                    #                         rx.box(
-                    #                             rx.heading("Added Agents", as_="h3"),
-                    #                             rx.foreach(
-                    #                                 working_platform.platform.agents,
-                    #                                 lambda identity_agent_pair: agent_config_tile(
-                    #                                     identity_agent_pair[0],
-                    #                                     left_component=tile_icon(
-                    #                                         "trash-2",
-                    #                                         on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
-                    #                                         # on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
-                    #                                     ),
-                    #                                     right_component=tile_icon(
-                    #                                             "settings",
-                    #                                             on_click=lambda: NavigationState.route_to_agent_config(
-                    #                                                 State.current_uid,
-                    #                                                 identity_agent_pair[1].routing_id,
-                    #                                                 identity_agent_pair[1]
-                    #                                             )
-                    #                                         )
-                    #                                     )
-                    #                             ),
-                    #                             class_name="agent_config_view_content"
-                    #                         ),
-                    #                         class_name="agent_config_views"
-                    #                     ),
-                    #                     class_name="agent_config_container"
-                    #                 ),
-                    #             )
-                    #         ),
-                    #         class_name="platform_content_view"
-                    #     ),
-                    #     class_name="platform_content_container"
-                    # )
+                    #     instance_configuration_accordion_content(working_platform)
+                    # ),
+                    content=rx.box(
+                        rx.box(
+                            form_entry.form_entry( # validate
+                                "Instance Name",
+                                rx.input(
+                                    size="3",
+                                    value=working_platform.platform.config.instance_name,
+                                    on_change=lambda v: State.update_platform_config_detail("instance_name", v),
+                                    required=True,
+                                )
+                            ),
+                            form_entry.form_entry( # validate
+                                "Vip Address",
+                                rx.input(
+                                    size="3",
+                                    value=working_platform.platform.config.vip_address,
+                                    on_change=lambda v: State.update_platform_config_detail("vip_address", v),
+                                    required=True,
+                                )
+                            ),
+                            form_entry.form_entry(
+                                "Web",
+                                rx.checkbox(
+                                    size="3",
+                                    checked=working_platform.web_checked,
+                                    on_change=lambda: State.toggle_web()
+                                )
+                            ),
+                            rx.cond(
+                                working_platform.web_checked,
+                                rx.fragment(
+                                    form_entry.form_entry(
+                                        "Web Bind Address",
+                                        rx.input(
+                                            size="3",
+                                            value=working_platform.web_bind_address,
+                                            on_change=lambda v: State.update_platform_config_detail("web_bind_address", v),
+                                            required=True,
+                                        )
+                                    )
+                                )
+                            ),
+                            rx.box(
+                                rx.hstack(
+                                    rx.text("Agent Configuration"),
+                                    rx.cond(
+                                        working_platform.agent_configuration_expanded,
+                                        rx.icon("chevron-up"),
+                                        rx.icon("chevron-down")
+                                    )
+                                ),
+                                class_name="toggle_advanced_button",
+                                on_click=lambda: State.toggle_agent_config_details()
+                            ),
+                            rx.box(
+                                rx.cond(
+                                    working_platform.agent_configuration_expanded,
+                                    rx.el.div(
+                                        rx.box(
+                                            rx.box(
+                                                rx.heading("Listed Agents", as_="h3"),
+                                                rx.foreach(
+                                                    State.list_of_agents,
+                                                    lambda agent, index: agent_config_tile(
+                                                        agent.identity, 
+                                                        right_component=tile_icon(
+                                                            "plus",
+                                                            on_click=State.handle_adding_agent(agent)
+                                                            ),
+                                                        ),
+                                                ),
+                                                class_name="agent_config_view_content"
+                                            ),
+                                            class_name="agent_config_views"
+                                        ),
+                                        rx.box(
+                                            rx.box(
+                                                rx.heading("Added Agents", as_="h3"),
+                                                rx.foreach(
+                                                    working_platform.platform.agents,
+                                                    lambda identity_agent_pair: agent_config_tile(
+                                                        identity_agent_pair[0],
+                                                        left_component=tile_icon(
+                                                            "trash-2",
+                                                            on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
+                                                            # on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
+                                                        ),
+                                                        right_component=tile_icon(
+                                                                "settings",
+                                                                on_click=lambda: NavigationState.route_to_agent_config(
+                                                                    State.current_uid,
+                                                                    identity_agent_pair[1].routing_id,
+                                                                    identity_agent_pair[1]
+                                                                )
+                                                            )
+                                                        )
+                                                ),
+                                                class_name="agent_config_view_content"
+                                            ),
+                                            class_name="agent_config_views"
+                                        ),
+                                        class_name="agent_config_container"
+                                    ),
+                                )
+                            ),
+                            class_name="platform_content_view"
+                        ),
+                        class_name="platform_content_container"
+                    )
                 ),
                 collapsible=True,
                 default_value="connection",
@@ -613,6 +617,28 @@ def platform_page() -> rx.Component:
     )))
 
 # Components
+def initialization_accordion(working_platform: Instance) -> rx.Component:
+    return rx.accordion.root(
+        rx.accordion.item(
+            header="Connection",
+            value="connection",
+            content=rx.box(
+                connection_accordion_content(working_platform)
+            ),
+        ),
+        rx.accordion.item(
+            header="Instance Configuration",
+            value="instance_configuration",
+            content=rx.box(
+                instance_configuration_accordion_content(working_platform)
+            ),
+        ),
+        collapsible=True,
+        default_value="connection",
+        type="multiple",
+        variant="outline"
+    )
+
 def instance_configuration_accordion_content(working_platform: Instance) -> rx.Component:
     return rx.box(
         rx.box(
@@ -722,7 +748,7 @@ def instance_configuration_accordion_content(working_platform: Instance) -> rx.C
             class_name="platform_content_view"
         ),
         class_name="platform_content_container"
-        )
+    )
 
 def connection_accordion_content(working_platform: Instance) -> rx.Component:
     return rx.box(

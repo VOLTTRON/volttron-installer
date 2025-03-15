@@ -250,50 +250,7 @@ def agent_config_page() -> rx.Component:
                     rx.tabs.trigger("Config Store Entries", value="2")
                 ),
                 rx.tabs.content(
-                    rx.flex(
-                        form_entry.form_entry(
-                            "Identity",
-                            rx.input(
-                                value=AgentConfigState.working_agent.identity,
-                                on_change=lambda v: AgentConfigState.update_agent_detail("identity", v),
-                                size="3",
-                            )
-                        ),
-                        form_entry.form_entry(
-                            "Source", 
-                            rx.input(
-                                value=AgentConfigState.working_agent.source,
-                                on_change=lambda v: AgentConfigState.update_agent_detail("source", v),
-                                size="3",
-                            )
-                        ),
-                        form_entry.form_entry(
-                            "Agent Config",
-                            text_editor.text_editor(
-                                placeholder="Type out JSON, YAML, or upload a file!",
-                                value=AgentConfigState.working_agent.config,
-                                on_change=lambda v: AgentConfigState.update_agent_detail("config", v),
-                            ),
-                            upload=rx.upload.root( 
-                                icon_upload.icon_upload(),
-                                id="agent_config_upload",
-                                max_files=1,
-                                accept={
-                                    "text/yaml" : [".yml", ".yaml"],
-                                    "text/json" : [".json"]
-                                },
-                                on_drop=AgentConfigState.handle_agent_config_upload(
-                                    # agent, 
-                                    rx.upload_files(upload_id="agent_config_upload")
-                                )
-                            )
-                        ),
-                        direction="column",
-                        justify="start",
-                        spacing="6",
-                        align="start",
-                        padding="1rem"
-                    ),
+                    agent_config_tab(),
                     value="1"
                 ),
                 rx.tabs.content(
@@ -434,3 +391,49 @@ def agent_config_page() -> rx.Component:
     ),
     rx.spinner()
 )
+
+def agent_config_tab() -> rx.Component:
+    return rx.flex(
+        form_entry.form_entry(
+            "Identity",
+            rx.input(
+                value=AgentConfigState.working_agent.identity,
+                on_change=lambda v: AgentConfigState.update_agent_detail("identity", v),
+                size="3",
+            )
+        ),
+        form_entry.form_entry(
+            "Source", 
+            rx.input(
+                value=AgentConfigState.working_agent.source,
+                on_change=lambda v: AgentConfigState.update_agent_detail("source", v),
+                size="3",
+            )
+        ),
+        form_entry.form_entry(
+            "Agent Config",
+            text_editor.text_editor(
+                placeholder="Type out JSON, YAML, or upload a file!",
+                value=AgentConfigState.working_agent.config,
+                on_change=lambda v: AgentConfigState.update_agent_detail("config", v),
+            ),
+            upload=rx.upload.root( 
+                icon_upload.icon_upload(),
+                id="agent_config_upload",
+                max_files=1,
+                accept={
+                    "text/yaml" : [".yml", ".yaml"],
+                    "text/json" : [".json"]
+                },
+                on_drop=AgentConfigState.handle_agent_config_upload(
+                    # agent, 
+                    rx.upload_files(upload_id="agent_config_upload")
+                )
+            )
+        ),
+        direction="column",
+        justify="start",
+        spacing="6",
+        align="start",
+        padding="1rem"
+    )

@@ -1,5 +1,5 @@
 import reflex as rx
-from typing import Literal
+from typing import Any, Literal
 
 class ConfigStoreEntryModelView(rx.Base):
     path: str = ""
@@ -7,12 +7,13 @@ class ConfigStoreEntryModelView(rx.Base):
     value: str = ""
 
     contains_errors: bool = False
-    safe_entry: dict[str, str] = {}
+    safe_entry: dict[str, Any] = {}
     component_id: str = "_"
 
     uncommitted: bool = True
     changed: bool = True
     valid: bool = False
+    in_file: bool = False
 
     selected_variant: str = "Custom"
     selected_cell: str = ""
@@ -57,7 +58,8 @@ class ConfigStoreEntryModelView(rx.Base):
             "path": self.path,
             "data_type": self.data_type,
             "value": self.value,
-            "component_id": self.component_id
+            "component_id": self.component_id,
+            "csv_variants": self.csv_variants 
         }
 
 class AgentModelView(rx.Base):
@@ -65,16 +67,17 @@ class AgentModelView(rx.Base):
     source: str = ""
     config: str = ""
     config_store: list[ConfigStoreEntryModelView] = []
-    # config_store: dict[str, ConfigStoreEntryModelView] = {}
 
     contains_errors: bool = False
     uncaught: bool = True
-    safe_agent: dict[str, str] = {}
+    safe_agent: dict[str, Any] = {}
+
+    in_file: bool = False
 
     selected_config_component_id: str = ""
     routing_id: str = ""
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "identity": self.identity,
             "source": self.source,
@@ -132,3 +135,4 @@ class PlatformConfigModelView(rx.Base):
 class PlatformModelView(rx.Base):
     config: PlatformConfigModelView = PlatformConfigModelView()
     agents: dict[str, AgentModelView] = {}
+    in_file: bool = False
