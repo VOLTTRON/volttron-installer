@@ -24,6 +24,7 @@ def index() -> rx.Component:
                 rx.text("Overview", size="7"),
                 add_icon_button.add_icon_button(
                     tool_tip_content="Create a Platform",
+                    # on_click=rx.redirect("/platform/new")
                     on_click=lambda: PlatformState.generate_new_platform
                 ),
                 justify="between"

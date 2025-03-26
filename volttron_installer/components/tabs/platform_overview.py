@@ -9,7 +9,7 @@ def craft_new_platform_tile(platform_entry: tuple[str, typing.Any]) -> rx.Compon
     platform_uid = platform_entry[0]
     platform_item = platform_entry[1]
     return platform_tile(
-        platform_uid,
+        platform_item.platform.config.instance_name,
         platform_item,
         on_click=NavigationState.route_to_platform(platform_uid)
     )
@@ -19,7 +19,10 @@ def platform_overview() -> rx.Component:
     return rx.flex(
         rx.foreach(
             PlatformState.platforms,
-            craft_new_platform_tile
+            lambda platform: rx.cond(
+                platform[1].new_instance == False,
+                craft_new_platform_tile(platform),
+            )
         ),
         wrap="wrap",
         spacing="6",

@@ -21,6 +21,7 @@ class AgentConfigState(rx.State):
     # Store reference to working agent
     working_agent: AgentModelView = AgentModelView()
     selected_component_id: str = ""
+    draft_visible: bool = False
 
     # this being named agent details doesn't make sense but whatever
     @rx.var
@@ -29,6 +30,12 @@ class AgentConfigState(rx.State):
         uid = args.get("uid", "")
         agent_uid = args.get("agent_uid", "")
         return {"uid": uid, "agent_uid": agent_uid}
+
+    @rx.var
+    def has_valid_configs(self) -> bool:
+        # This runs on backend so we can use regular Python operations
+        return (len(self.working_agent.config_store) > 0 and 
+                any(not config.uncommitted for config in self.working_agent.config_store))
 
     @rx.event
     async def hydrate_working_agent(self):
@@ -41,6 +48,11 @@ class AgentConfigState(rx.State):
             if agent.routing_id == self.agent_details["agent_uid"]:
                 self.working_agent = agent
                 break
+
+    @rx.event
+    def flip_draft_visibility(self):
+        self.draft_visible = not self.draft_visible
+        logger.debug(f"ok bro is {self.draft_visible}")
 
     @rx.event
     def update_agent_detail(self, field: str, value: str, id: str = None):
@@ -165,7 +177,27 @@ class AgentConfigState(rx.State):
         yield rx.set_value("agent_config_field", result)
     
     @rx.event
+    def create_blank_config_entry(self):
+        agent = self.working_agent
+        new_component_id = generate_unique_uid()
+        agent.config_store.append(
+            ConfigStoreEntryModelView(
+                path="",
+                data_type="JSON",
+                value="",
+                component_id=new_component_id,
+                safe_entry={
+                    "path" : "",
+                    "data_type" : "JSON",
+                    "value" : ""
+                }
+            )
+        )
+        yield AgentConfigState.set_component_id(new_component_id)
+
+    @rx.event
     def save_config_store_entry(self, config: ConfigStoreEntryModelView):
+        logger.debug(f"this is our agent's safe entries: {[entry.safe_entry for entry in self.working_agent.config_store]}")
         list_of_config_paths: list[str] = [entry.safe_entry["path"] for entry in self.working_agent.config_store]
         if config.path in list_of_config_paths or config.path== "":
             return rx.toast.error(f"Config path is already in use or isn't valid")
@@ -237,13 +269,15 @@ def agent_config_page() -> rx.Component:
                     "Save Agent",
                     variant="soft",
                     color_scheme="green",
-                    on_click=lambda: AgentConfigState.save_agent_config()
+                    on_click = AgentConfigState.flip_draft_visibility
+                    # on_click=lambda: AgentConfigState.save_agent_config()
                 ),
                 spacing="6",
                 align="center"
                 ),
         ),
         rx.flex(
+            agent_draft(),
             rx.tabs.root(
                 rx.tabs.list(
                     rx.tabs.trigger("Agent Config", value="1"),
@@ -257,9 +291,17 @@ def agent_config_page() -> rx.Component:
                     rx.flex(
                         rx.flex(
                             rx.flex(
-                                rx.box(
+                                rx.hstack(
+                                    tile_icon.tile_icon(
+                                        "plus",
+                                        tooltip="Create a new config store entry",
+                                        on_click=AgentConfigState.create_blank_config_entry
+                                    ),
                                     rx.upload.root(
-                                        icon_upload.icon_upload(),
+                                        tile_icon.tile_icon(
+                                            "upload",
+                                            tooltip="Upload a CSV or JSON file",
+                                        ),
                                         id="config_store_entry_upload",
                                         accept={
                                             "text/csv": [".csv"],
@@ -269,7 +311,11 @@ def agent_config_page() -> rx.Component:
                                             rx.upload_files(upload_id="config_store_entry_upload")
                                         )
                                     ),
+                                    align="end",
+                                    justify="end",
+                                    width="100%"
                                 ),
+                                rx.divider(),
                                 rx.foreach(
                                     AgentConfigState.working_agent.config_store,
                                     lambda config: config_tile(
@@ -391,6 +437,69 @@ def agent_config_page() -> rx.Component:
     ),
     rx.spinner()
 )
+
+def agent_draft() -> rx.Component:
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title("Agent Draft"),
+            rx.divider(),
+            rx.vstack(
+                form_entry.form_entry(
+                    "Identity",
+                    rx.input(
+                        value=AgentConfigState.working_agent.identity,
+                        disabled=True
+                    )
+                ),
+                form_entry.form_entry(
+                    "Source",
+                    rx.input(
+                        value=AgentConfigState.working_agent.source,
+                        disabled=True
+                    )
+                ),
+                form_entry.form_entry(
+                    "Config",
+                    text_editor.text_editor(
+                        value=AgentConfigState.working_agent.config,
+                        disabled=True,
+                        max_width="20rem"
+                    )
+                ),
+                rx.cond(
+                    AgentConfigState.has_valid_configs,
+                    rx.fragment(
+                        rx.text("Config Store:"),
+                        rx.foreach(
+                            AgentConfigState.working_agent.config_store,
+                            lambda config: rx.cond(
+                                config.uncommitted == False,
+                                config_tile(
+                                    text=config.path,
+                                    right_component=tile_icon.tile_icon(
+                                        "chevron-down",
+                                        class_name=rx.cond(
+                                            False,
+                                            "icon_button active",
+                                            "icon_button"
+                                        ),
+                                    ),
+                                ),
+                            )
+                        )
+                    ),
+                    rx.text("No Valid Config Store Entries Detected...")
+                ),
+                justify="center",
+                spacing="6",
+                margin_top="1rem"
+            ),
+            rx.button(
+                on_click=AgentConfigState.flip_draft_visibility
+            ),
+        ),
+        open=AgentConfigState.draft_visible
+    )
 
 def agent_config_tab() -> rx.Component:
     return rx.flex(

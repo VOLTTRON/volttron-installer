@@ -11,7 +11,7 @@ def config_tile(text: str, class_name="agent_config_tile", left_component: rx.Co
             )
         ),
         rx.flex(
-            rx.text(text),
+            rx.text(text, white_space="normal"),
             class_name=class_name,
         ),
         rx.cond(
