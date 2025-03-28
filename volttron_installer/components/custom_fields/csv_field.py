@@ -103,9 +103,30 @@ class CSVDataState(AgentConfigState):
         yield rx.toast.info(f"Removed column: {column_name}", position="bottom-right")
         yield CSVDataState.force_rerender
 
+
 # Components
-def craft_table_cell(content: str, header: str = None, index: int = None, row_idx: int = None, header_cell: bool = False):
-    """Create a table cell component."""
+def base_component_wrapper(func_or_disabled=False):
+    # If we're called directly with the function
+    if callable(func_or_disabled):
+        # This is the function case like @base_component_wrapper
+        def wrapped(*args, **kwargs):
+            return func_or_disabled(*args, **kwargs)
+        return wrapped
+    
+    # This is the parameterized case like @base_component_wrapper(disabled=False)
+    disabled = func_or_disabled
+    def wrapper(component_func):
+        def wrapped(*args, **kwargs):
+            # Remove disabled from kwargs if it exists to avoid duplicate
+            kwargs.pop('disabled', None)
+            # Add the wrapper's disabled value
+            kwargs['disabled'] = disabled
+            return component_func(*args, **kwargs)
+        return wrapped
+    return wrapper
+
+@base_component_wrapper
+def craft_table_cell(content: str, header: str = None, index: int = None, row_idx: int = None, header_cell: bool = False, disabled: bool = False):
     cell_component = rx.table.column_header_cell if header_cell else rx.table.cell
     cell_uid = f"{CSVDataState.selected_variant}-template-cell-{header}-{index}-{row_idx}-header?-{header_cell}"
     
@@ -114,24 +135,24 @@ def craft_table_cell(content: str, header: str = None, index: int = None, row_id
             rx.cond(
                 CSVDataState.selected_cell == cell_uid,
                 rx.text_field(
-                    # id=cell_uid,
                     value=content,
                     on_blur=CSVDataState.lose_cell_focus,
                     autofocus=True,
-                    on_change=lambda changes: CSVDataState.update_cell(cell_uid, header, changes, index, row_idx, not header_cell)
+                    on_change=lambda changes: CSVDataState.update_cell(cell_uid, header, changes, index, row_idx, not header_cell),
+                    disabled=disabled
                 ),
                 rx.text(
                     content,
                     id=cell_uid
-                    )
+                )
             ),
         ),
         class_name="csv_data_cell",
-        on_double_click=lambda: CSVDataState.double_click_event(cell_uid)
+        on_double_click=lambda: None if disabled else CSVDataState.double_click_event(cell_uid)
     )
 
+@base_component_wrapper
 def csv_table(width="40rem", height="25rem", **props):
-    """Create the main table component."""
     return rx.table.root(
         rx.table.header(
             rx.table.row(
@@ -167,12 +188,13 @@ def csv_table(width="40rem", height="25rem", **props):
         **props
     )
 
-def add_column_dialog():
-    """Dialog for adding a new column."""
+@base_component_wrapper
+def add_column_dialog(disabled: bool = False):
     return rx.dialog.root(
         rx.dialog.trigger(
             add_icon_button.add_icon_button(
-                tool_tip_content="Add a new column"
+                tool_tip_content="Add a new column",
+                disabled=disabled
             ),
         ),
         rx.dialog.content(
@@ -183,7 +205,8 @@ def add_column_dialog():
                         "Column Name",
                         rx.input(
                             name="column_name",
-                            required=True
+                            required=True,
+                            disabled=disabled
                         ),
                         required_entry=True
                     ),
@@ -191,13 +214,15 @@ def add_column_dialog():
                         rx.dialog.close(
                             rx.button(
                                 "Cancel",
-                                variant="soft"
+                                variant="soft",
+                                disabled=disabled
                             )
                         ),
                         rx.dialog.close(
                             rx.button(
                                 "Add",
-                                type="submit"
+                                type="submit",
+                                disabled=disabled
                             )
                         ),
                         spacing="3",
@@ -206,20 +231,21 @@ def add_column_dialog():
                     direction="column",
                     spacing="6"
                 ),
-                on_submit=CSVDataState.add_column,
+                on_submit=CSVDataState.add_column if not disabled else None,
                 reset_on_submit=False,
             ),
             max_width="450px",
         )
     )
 
-def remove_column_dialog():
-    """Dialog for removing a column."""
+@base_component_wrapper
+def remove_column_dialog(disabled: bool = False):
     return rx.dialog.root(
         rx.dialog.trigger(
             icon_button_wrapper.icon_button_wrapper(
                 tool_tip_content="Remove a column",
-                icon_key="minus"
+                icon_key="minus",
+                disabled=disabled
             ),
         ),
         rx.dialog.content(
@@ -231,7 +257,8 @@ def remove_column_dialog():
                         rx.select(
                             CSVDataState.working_headers,
                             name="column_name",
-                            required=True
+                            required=True,
+                            disabled=disabled
                         ),
                         required_entry=True
                     ),
@@ -239,14 +266,16 @@ def remove_column_dialog():
                         rx.dialog.close(
                             rx.button(
                                 "Cancel",
-                                variant="soft"
+                                variant="soft",
+                                disabled=disabled
                             )
                         ),
                         rx.dialog.close(
                             rx.button(
                                 "Remove",
                                 color_scheme="red",
-                                type="submit"
+                                type="submit",
+                                disabled=disabled
                             )
                         ),
                         spacing="3",
@@ -255,16 +284,14 @@ def remove_column_dialog():
                     direction="column",
                     spacing="6"
                 ),
-                on_submit=CSVDataState.remove_column,
+                on_submit=CSVDataState.remove_column if not disabled else None,
                 reset_on_submit=False,
             ),
             max_width="450px",
         )
     )
 
-def csv_data_field(**props):
-    """Main CSV data field component."""
-
+def csv_data_field(disabled: bool = False, **props):
     return rx.cond(
         CSVDataState.is_hydrated, 
         rx.flex(
@@ -274,17 +301,18 @@ def csv_data_field(**props):
                     value=CSVDataState.selected_variant,
                     on_change=CSVDataState.set_variant,
                     variant="surface",
+                    disabled=disabled
                 )
             ),
             rx.flex(
                 rx.el.div(
-                    csv_table(**props),
+                    csv_table(disabled=disabled, **props),
                     class_name="config_template_config_container"
                 ),
                 rx.flex(
-                    add_column_dialog(),
+                    add_column_dialog(disabled=disabled),
                     rx.divider(),
-                    remove_column_dialog(),
+                    remove_column_dialog(disabled=disabled),
                     direction="column",
                     spacing="4"
                 ),
@@ -295,4 +323,49 @@ def csv_data_field(**props):
             direction="column"
         ),
         rx.spinner(height="100vh")
+    )
+
+def simple_table(headers: list, rows: list, width="40rem", height="25rem", **props):
+    """
+    A simple table component that displays data without editing functionality.
+    
+    Args:
+        headers: List of column headers
+        rows: 2D list of row data
+        width: Table width (default: "40rem")
+        height: Table height (default: "25rem")
+        **props: Additional props to pass to the table
+        
+    Returns:
+        A Reflex table component
+    """
+    return rx.table.root(
+        rx.table.header(
+            rx.table.row(
+                rx.foreach(
+                    headers,
+                    lambda header, index: rx.table.column_header_cell(
+                        rx.text(header),
+                        class_name="simple-table-header-cell"
+                    )
+                )
+            )
+        ),
+        rx.table.body(
+            rx.foreach(
+                rows,
+                lambda row, i: rx.table.row(
+                    rx.foreach(
+                        row,
+                        lambda value, index: rx.table.cell(
+                            rx.text(value),
+                            class_name="simple-table-cell"
+                        )
+                    )
+                )
+            )
+        ),
+        width=width,
+        height=height,
+        **props
     )

@@ -75,6 +75,7 @@ class AgentDefinition(BaseModel):
     tag: str | None = None
     pypi_package: str | None = None
     source: str | None = None
+    config: str | None = None
     config_store: dict[str, ConfigStoreEntry] = {}
 
     def to_dict(self) -> dict[str, str]:

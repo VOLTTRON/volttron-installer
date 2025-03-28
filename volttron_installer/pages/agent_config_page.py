@@ -32,8 +32,17 @@ class AgentConfigState(rx.State):
         return {"uid": uid, "agent_uid": agent_uid}
 
     @rx.var
+    def committed_configs(self) -> list[ConfigStoreEntryModelView]:
+        return [
+            ConfigStoreEntryModelView(
+                    path=config.safe_entry["path"], 
+                    data_type=config.safe_entry["data_type"],
+                    value=config.safe_entry["value"],
+                    csv_variants=config.csv_variants,
+                ) for config in self.working_agent.config_store if not config.uncommitted]
+    
+    @rx.var
     def has_valid_configs(self) -> bool:
-        # This runs on backend so we can use regular Python operations
         return (len(self.working_agent.config_store) > 0 and 
                 any(not config.uncommitted for config in self.working_agent.config_store))
 
@@ -53,6 +62,8 @@ class AgentConfigState(rx.State):
     def flip_draft_visibility(self):
         self.draft_visible = not self.draft_visible
         logger.debug(f"ok bro is {self.draft_visible}")
+        logger.debug(f"this is our working agent config store: {self.working_agent.config_store}")
+        logger.debug(f"committed configs in agent config store: {self.committed_configs}")
 
     @rx.event
     def update_agent_detail(self, field: str, value: str, id: str = None):
@@ -197,7 +208,7 @@ class AgentConfigState(rx.State):
 
     @rx.event
     def save_config_store_entry(self, config: ConfigStoreEntryModelView):
-        logger.debug(f"this is our agent's safe entries: {[entry.safe_entry for entry in self.working_agent.config_store]}")
+        logger.debug(f"this is our config's safe entry: {[entry.safe_entry for entry in self.working_agent.config_store]}")
         list_of_config_paths: list[str] = [entry.safe_entry["path"] for entry in self.working_agent.config_store]
         if config.path in list_of_config_paths or config.path== "":
             return rx.toast.error(f"Config path is already in use or isn't valid")
@@ -209,8 +220,17 @@ class AgentConfigState(rx.State):
             pass
 
         config.safe_entry = config.dict()
-        logger.debug(f"our agent after entry save: {self.working_agent}")
         config.uncommitted=False
+
+        # Find and update the entry in the config_store just to be safe
+        for i, entry in enumerate(self.working_agent.config_store):
+            if entry.component_id == config.component_id:
+                logger.debug(f"ok first of all, uncommitted??: {self.working_agent.config_store[i].uncommitted}")
+                self.working_agent.config_store[i] = config
+                logger.debug(f"updated entries committed state: {self.working_agent.config_store[i].uncommitted}")
+                break
+
+        logger.debug(f"our agent after entry save: {self.working_agent}")
         return rx.toast.success("Config saved successfully")
 
     @rx.event
@@ -219,6 +239,7 @@ class AgentConfigState(rx.State):
         config.value = value
         config.valid = check_json(config.value)
         logger.debug(f"valid?: {config.valid}")
+        logger.debug(f" bruhhh this odddeee: {self.has_valid_configs}")
 
     @rx.event
     async def save_agent_config(self):
@@ -229,12 +250,14 @@ class AgentConfigState(rx.State):
         working_platform: Instance = platform_state.platforms[self.agent_details["uid"]]
         registered_identities: list[str] = [ i for i, a in working_platform.platform.agents.items() if a.routing_id != agent.routing_id]
         if agent.identity in registered_identities:
+            yield AgentConfigState.flip_draft_visibility
             yield rx.toast.error("Identity is already in use!")
-            return    
+            return
         agent.uncaught = False
         agent.safe_agent = agent.to_dict()
         logger.debug("oh yeah, we saved and here is our platform agents:")
         logger.debug(f"{working_platform.platform.agents}")
+        yield AgentConfigState.flip_draft_visibility
         yield rx.toast.success("Agent configuration saved")
 
     @rx.event
@@ -463,39 +486,82 @@ def agent_draft() -> rx.Component:
                     text_editor.text_editor(
                         value=AgentConfigState.working_agent.config,
                         disabled=True,
+                        max_height="20rem",
                         max_width="20rem"
                     )
                 ),
                 rx.cond(
                     AgentConfigState.has_valid_configs,
                     rx.fragment(
-                        rx.text("Config Store:"),
+                        rx.divider(),
+                        rx.heading("Config Store:", as_="h5"),
                         rx.foreach(
-                            AgentConfigState.working_agent.config_store,
-                            lambda config: rx.cond(
-                                config.uncommitted == False,
-                                config_tile(
-                                    text=config.path,
-                                    right_component=tile_icon.tile_icon(
-                                        "chevron-down",
-                                        class_name=rx.cond(
-                                            False,
-                                            "icon_button active",
-                                            "icon_button"
-                                        ),
+                            AgentConfigState.committed_configs,
+                            lambda config: rx.vstack(
+                                form_entry.form_entry(
+                                    "Path",
+                                    rx.input(
+                                        value=config.path,
+                                        disabled=True
+                                    )
+                                ),
+                                form_entry.form_entry(
+                                    "Data Type",
+                                    rx.radio(
+                                        ["JSON", "CSV"],
+                                        value=config.data_type,
+                                        spacing="4",
+                                        disabled=True,
                                     ),
                                 ),
-                            )
+                                form_entry.form_entry(
+                                    "Config",
+                                    rx.cond(
+                                        config.data_type=="JSON",
+                                        text_editor.text_editor(
+                                            value=config.value,
+                                            disabled=True,
+                                            max_height="20rem",
+                                            max_width="20rem"
+                                        ),
+                                        rx.box(
+                                            # TODO: deal with saving the config, and storing the csv value
+                                            # to be usable with a table
+                                            # rx.table.root(
+                                            #     rx.table.row(
+                                            #         rx.foreach(
+                                            #             config.csv_variants[config.selected_variant],
+                                                        
+                                            #         )
+                                            #     )
+                                            # )
+                                        )
+                                    )
+                                )
+                            ),
                         )
                     ),
                     rx.text("No Valid Config Store Entries Detected...")
                 ),
                 justify="center",
                 spacing="6",
-                margin_top="1rem"
+                margin_top="1rem",
+                margin_bottom="1rem"
             ),
-            rx.button(
-                on_click=AgentConfigState.flip_draft_visibility
+            rx.hstack(
+                rx.button(
+                    "Close",
+                    variant="outline",
+                    color_scheme="red",
+                    on_click=AgentConfigState.flip_draft_visibility
+                ),
+                rx.button(
+                    "Save",
+                    variant="outline",
+                    color_scheme="green",
+                    on_click=AgentConfigState.save_agent_config
+                ),
+                justify="between"
             ),
         ),
         open=AgentConfigState.draft_visible
