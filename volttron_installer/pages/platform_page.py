@@ -193,6 +193,7 @@ class State(rx.State):
         a = []
         for config in new_agent.config_store:
             config.safe_entry = config.dict()
+            config.uncommitted = False
             a.append(config.safe_entry)
         logger.debug(f"safe entries all around: {a}")
         working_platform.platform.agents[new_agent.identity] = new_agent
@@ -431,7 +432,7 @@ class State(rx.State):
             if new_uid not in self.platforms:
                 return new_uid
 
-@rx.page(route="/platform/[uid]")
+@rx.page(route="/platform/[uid]", on_load=State.hydrate_state)
 def platform_page() -> rx.Component:
 
     working_platform: Instance = State.platforms[State.current_uid]

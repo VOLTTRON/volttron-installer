@@ -498,6 +498,7 @@ def agent_draft() -> rx.Component:
                         rx.foreach(
                             AgentConfigState.committed_configs,
                             lambda config: rx.vstack(
+                                rx.divider(),
                                 form_entry.form_entry(
                                     "Path",
                                     rx.input(
@@ -537,7 +538,7 @@ def agent_draft() -> rx.Component:
                                             # )
                                         )
                                     )
-                                )
+                                ),
                             ),
                         )
                     ),

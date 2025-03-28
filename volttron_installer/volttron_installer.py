@@ -8,7 +8,8 @@ from rxconfig import config
 from pprint import pprint
 from .styles import styles
 from .pages.index import index
-from .pages.platform_page import State as PlatformState
+from .pages.platform_new import new_platform_page
+from .pages.platform_page import platform_page, State as PlatformState
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -25,7 +26,19 @@ async def lifespan(app: FastAPI):
 #backend_app = FastAPI()
 app = rx.App(
         style=styles.styles
-    )
+)
+
+# dynamic routes
+app.add_page(
+    platform_page,
+    route="/platform/[uid]"
+)
+
+# static routes
+app.add_page(
+    new_platform_page,
+    route="/platform/new",
+)
 
 app.add_page(
     index, 
