@@ -126,6 +126,7 @@ async def instances_from_api() -> dict[str, Instance]:
 
 
 class State(rx.State):
+    #TODO once we save a platform, we create a routing id off of it's instance name, and redirect to it haha lolz
     platforms: dict[str, Instance] = {
         # "new": Instance(
         #     host=HostEntryModelView(),
@@ -139,6 +140,10 @@ class State(rx.State):
     def current_uid(self) -> str:
         return self.router.page.params.get("uid", "")
 
+    @rx.var(cache=True)
+    def in_file_platforms(self) -> list[Instance]:
+        return [instance for instance in self.platforms.values() if instance.platform.in_file]
+    
     # Events
     @rx.event
     async def hydrate_state(self):
@@ -172,17 +177,17 @@ class State(rx.State):
         # encounter a csv file, then we adjust the "Custom" CSV variant
         for config in new_agent.config_store:
             if config.data_type == "CSV":
-                # logger.debug(f"this is the config: {config}")
+                logger.debug(f"this is the config: {config}")
                 usable_csv = csv_string_to_usable_dict(config.value)
                 config.csv_variants["Custom"] = usable_csv
-                # logger.debug(f"this is the usable csv: {usable_csv}")
+                logger.debug(f"this is the usable csv: {usable_csv}")
             elif config.data_type == "JSON":
                 try:
                     json_data = json.loads(config.value)
                     pretty_json = json.dumps(json_data, indent=4)
                     config.value = pretty_json
                 except json.JSONDecodeError as e:
-                    # logger.error(f"Failed to decode JSON: {e}")
+                    logger.error(f"Failed to decode JSON: {e}")
                     pass
 
         # if config is json
@@ -192,6 +197,12 @@ class State(rx.State):
             new_agent.config = pretty_json
         a = []
         for config in new_agent.config_store:
+            # im kind of sick of all of this copy and pasting of block of code:
+            # TODO find a better and safer way of doing this 
+            working_dict = config.csv_variants[config.selected_variant]
+            config.csv_header_row = list(working_dict.keys()) 
+            config.formatted_csv = [[working_dict[header] for header in config.csv_header_row] for i in range(10)]
+            # ==============================================================
             config.safe_entry = config.dict()
             config.uncommitted = False
             a.append(config.safe_entry)
@@ -218,7 +229,7 @@ class State(rx.State):
     async def generate_new_platform(self):
         new_uid = self.generate_unique_uid()
         new_host = HostEntryModelView(id="", ansible_user="", ansible_host="")
-        new_platform = PlatformModelView(config=PlatformConfigModelView())
+        new_platform = PlatformModelView(config=PlatformConfigModelView(), in_file=False)
         self.platforms[new_uid] = Instance(
                 host=new_host, 
                 platform=new_platform,
@@ -308,8 +319,9 @@ class State(rx.State):
                     if config.safe_entry.get("path"):
                         notes: str = config.safe_entry["path"] 
                         logger.debug(f"Adding Config Path to store: {notes}")
-                        bruh = deepcopy(notes)
-                        logger.debug(f"this is the deepcopy that im injecting into entry: {bruh}")
+                        valid_field_name_for_config_pattern = re.compile(r"^[a-zA-Z_-][a-zA-Z0-9_-]*$")
+                        logger.debug(f"this is the deepcopy that im injecting into entry: {notes}")
+                        logger.debug(f"Validating config path: {valid_field_name_for_config_pattern.match(notes)}")
                         entry = ConfigStoreEntry(
                             path=notes,
                             data_type=config.safe_entry["data_type"],
@@ -317,7 +329,7 @@ class State(rx.State):
                             )
                         logger.debug(f"initial path: {entry.path}, {type(entry.path)}")
                         # for some reason these guys appear as tuples??? what...
-                        entry.path=f"{str(notes)}",
+                        # entry.path=f"{str(notes)}",
                         # ===
                         logger.debug(f"Created ConfigStoreEntry: {entry}")
                         config_store[notes] = entry

@@ -57,6 +57,7 @@ class CSVDataState(AgentConfigState):
     def set_variant(self, variant: str):
         """Switch between variants."""
         self.selected_variant = variant
+        self.working_config.selected_variant = variant
 
     @rx.event
     def update_cell(self, cell_uid: str, header: str, changes: str, index: int = None, row_idx: int = None, is_row_cell: bool = False):
@@ -73,6 +74,13 @@ class CSVDataState(AgentConfigState):
                 else:
                     new_dict[key] = v
             self.working_config.csv_variants[self.selected_variant] = new_dict
+        
+        # Ensure that the selected variant change is pushed through into working_config_store_agent
+        for config in self.working_agent.config_store:
+            if config.component_id == self.working_agent.selected_config_component_id:
+                logger.debug(f"Updating config store entry: {config.component_id}")
+                config.csv_variants = self.working_config.csv_variants
+                break
         yield CSVDataState.force_rerender
 
     @rx.event
@@ -88,12 +96,14 @@ class CSVDataState(AgentConfigState):
         logger.debug("bro is not going back home x3")
         yield
         if self.selected_variant == "Custom":
-            self.selected_variant="Default 1"
-            self.selected_variant="Custom"
+            self.selected_variant = "Default 1"
+            self.selected_variant = "Custom"
+            self.working_config.selected_variant = "Custom"
         else:
-            safe = self.selected_variant.copy()
-            self.selected_variant="Custom"
-            self.selected_variant=safe
+            safe = self.selected_variant
+            self.selected_variant = "Custom"
+            self.selected_variant = safe
+            self.working_config.selected_variant = safe
 
     @rx.event
     def remove_column(self, form_data: dict):
@@ -152,7 +162,7 @@ def craft_table_cell(content: str, header: str = None, index: int = None, row_id
     )
 
 @base_component_wrapper
-def csv_table(width="40rem", height="25rem", **props):
+def csv_table(width=r"100%", height="100%", **props):
     return rx.table.root(
         rx.table.header(
             rx.table.row(
@@ -317,7 +327,9 @@ def csv_data_field(disabled: bool = False, **props):
                     spacing="4"
                 ),
                 direction="row",
-                spacing="4"
+                spacing="4",
+                width=r"calc(100% - 2rem)",
+                max_width="100%"
             ),
             spacing="6",
             direction="column"

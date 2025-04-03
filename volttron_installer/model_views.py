@@ -17,6 +17,7 @@ class ConfigStoreEntryModelView(rx.Base):
 
     selected_variant: str = "Custom"
     selected_cell: str = ""
+    
     csv_variants: dict[str, dict[str, list[str]]] = {
         "Default 1" : {
             "Reference Point Name": [""]*10,
@@ -52,6 +53,23 @@ class ConfigStoreEntryModelView(rx.Base):
             "9" : [""]*10,
         }
     }
+    
+    # these fields are for when we save the config store entry, we can put data into these
+    # fields to make it easier to display the data in the agent draft, will also be really
+    # easy to make csv_strings out of these fields
+    csv_header_row: list[str] = []
+    formatted_csv: list[list[str]] = []
+
+    def variant_headers(self) -> list[str]:
+        if self.selected_variant in self.csv_variants:
+            return list(self.csv_variants[self.selected_variant].keys())
+        return []
+
+    def variant_rows(self) -> list[list[str]]:
+        working_dict = self.csv_variants[self.selected_variant]
+        headers = list(working_dict.keys())
+        return [[working_dict[header][i] for header in headers] 
+                for i in range(10)]
 
     def dict(self, *args, **kwargs) -> dict:
         return {

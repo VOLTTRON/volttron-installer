@@ -50,7 +50,8 @@ class RemoveHostEntryRequest(BaseModel):
     
 class ConfigStoreEntry(BaseModel):
     """Represents an entry in the configuration store"""
-    path: Annotated[str, AfterValidator(is_valid_field_name_for_config)]
+    # path: Annotated[str, AfterValidator(is_valid_field_name_for_config)]
+    path: str
     data_type: Literal["CSV", "JSON"] = "JSON"
     value: str = ""
 

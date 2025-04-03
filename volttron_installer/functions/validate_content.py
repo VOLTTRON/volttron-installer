@@ -1,5 +1,5 @@
-import json
-import re
+import json, re, csv, io, yaml
+from loguru import logger
 
 def check_json(json_string: str) -> bool:
     # Remove leading and trailing whitespace from the input string
@@ -18,4 +18,25 @@ def check_json(json_string: str) -> bool:
         dumped_json = json.dumps(loaded_json, indent=4)
         return True
     except json.JSONDecodeError:
+        return False
+
+def check_csv(csv_string: str) -> bool:
+    try:
+        # Parse the CSV string
+        input = io.StringIO(csv_string)
+        reader = csv.reader(input)
+        
+        headers = next(reader)  # Read the headers
+        num_columns = len(headers)
+        
+        # Check each row for the correct number of columns
+        for row in reader:
+            if len(row) != num_columns:
+                logger.debug(f"Row length mismatch: expected {num_columns}, got {len(row)}")
+                return False
+
+        return True
+
+    except Exception as e:
+        logger.debug(f"CSV verification error: {e}")
         return False

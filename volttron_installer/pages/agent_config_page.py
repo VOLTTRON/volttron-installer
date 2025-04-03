@@ -11,7 +11,8 @@ from .platform_page import State as AppState
 from .platform_page import Instance
 from ..navigation.state import NavigationState
 from ..functions.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
-from ..functions.validate_content import check_json
+from ..functions.validate_content import check_json, check_csv
+from ..functions.create_csv_string import create_csv_string
 import io
 
 import json, csv, yaml
@@ -208,29 +209,68 @@ class AgentConfigState(rx.State):
 
     @rx.event
     def save_config_store_entry(self, config: ConfigStoreEntryModelView):
-        logger.debug(f"this is our config's safe entry: {[entry.safe_entry for entry in self.working_agent.config_store]}")
-        list_of_config_paths: list[str] = [entry.safe_entry["path"] for entry in self.working_agent.config_store]
-        if config.path in list_of_config_paths or config.path== "":
-            return rx.toast.error(f"Config path is already in use or isn't valid")
+        # Keep a variable so we can stack the toast errors if config entry has many errors, instead of ending
+        # the function at just one error
+        import re
+        committable: bool = True
         
-        if config.data_type == "CSV":
+        logger.debug(f"this is our config's safe entry: {[entry.safe_entry for entry in self.working_agent.config_store]}")
+        list_of_config_paths: list[tuple[str, str]] = [
+            (entry.safe_entry["path"], entry.component_id) for entry in self.working_agent.config_store
+        ]
+        logger.debug(f"list of config paths: {list_of_config_paths}")
+        
+        # Check if the path exists and belongs to a different component
+        for path, component_id in list_of_config_paths:
+            if config.path == "" or (config.path == path and config.component_id != component_id):
+                # This check catches all empty paths or duplicate paths
+                committable = False
+                yield rx.toast.error(f"Config path is already in use.")
+
+        # Validate the path format using a stricter regex pattern
+        valid_field_name_for_config_pattern = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
+        if not valid_field_name_for_config_pattern.fullmatch(config.path):
+            committable = False
+            yield rx.toast.error("Path must start with a letter and can only contain letters, numbers, underscores, or hyphens.")
+            
+        if config.data_type == "CSV" and committable:
+            try:
+                logger.debug(f"just for notes, here is thing: {config.csv_variants}")
+                working_dict = config.csv_variants[config.selected_variant]
+                headers=list(working_dict.keys())
+                rows = [[working_dict[header] for header in headers] for i in range(10)]
+                
+                csv_string = create_csv_string(headers, rows)
+                
+                if not check_csv(csv_string):
+                    raise ValueError("CSV String is not valid")
+
+                config.csv_header_row=headers
+                config.formatted_csv=rows
+            except Exception as e:
+                logger.debug(f"error: {e}")
+                committable = False
+                yield rx.toast.error("Selected CSV variant was not valid")
             pass
 
-        elif config.data_type =="JSON":
+        elif config.data_type =="JSON" and committable:
             pass
-
+        
+        if committable == False:
+            return
+        
         config.safe_entry = config.dict()
         config.uncommitted=False
 
         # Find and update the entry in the config_store just to be safe
         for i, entry in enumerate(self.working_agent.config_store):
             if entry.component_id == config.component_id:
-                logger.debug(f"ok first of all, uncommitted??: {self.working_agent.config_store[i].uncommitted}")
+                # logger.debug(f"ok first of all, uncommitted??: {self.working_agent.config_store[i].uncommitted}")
                 self.working_agent.config_store[i] = config
-                logger.debug(f"updated entries committed state: {self.working_agent.config_store[i].uncommitted}")
+                # logger.debug(f"updated entries committed state: {self.working_agent.config_store[i].uncommitted}")
                 break
 
-        logger.debug(f"our agent after entry save: {self.working_agent}")
+        # logger.debug(f"our agent after entry save: {self.working_agent}")
         return rx.toast.success("Config saved successfully")
 
     @rx.event
@@ -383,11 +423,16 @@ def agent_config_page() -> rx.Component:
                                                 rx.fragment(
                                                     form_view.form_view_wrapper(
                                                         form_entry.form_entry(
+                                                            #TODO need to fix this weird warping stuff,
                                                             "Path",
                                                             rx.input(
                                                                 size="3",
                                                                 value=config.path,
                                                                 on_change=lambda v: AgentConfigState.update_config_detail("path", v)
+                                                            ),
+                                                            upload=tile_icon.tile_icon(
+                                                                "badge-info",
+                                                                tooltip="Path must start with a letter and can only contain letters, numbers, underscores, or hyphens."
                                                             ),
                                                             required_entry=True
                                                         ),
@@ -487,7 +532,7 @@ def agent_draft() -> rx.Component:
                         value=AgentConfigState.working_agent.config,
                         disabled=True,
                         max_height="20rem",
-                        max_width="20rem"
+                        width="30rem"
                     )
                 ),
                 rx.cond(
@@ -523,16 +568,30 @@ def agent_draft() -> rx.Component:
                                             value=config.value,
                                             disabled=True,
                                             max_height="20rem",
-                                            max_width="20rem"
+                                            width="30rem"
                                         ),
                                         rx.box(
+                                            rx.text(f"{config.value}")
                                             # TODO: deal with saving the config, and storing the csv value
                                             # to be usable with a table
                                             # rx.table.root(
-                                            #     rx.table.row(
+                                            #     rx.table.header(
+                                            #         rx.table.row(
+                                            #             rx.foreach(
+                                            #                 config.csv_header_row,
+                                            #                 lambda header: rx.table.column_header_cell(header)
+                                            #             )
+                                            #         )
+                                            #     ),
+                                            #     rx.table.body(
                                             #         rx.foreach(
-                                            #             config.csv_variants[config.selected_variant],
-                                                        
+                                            #             config.formatted_csv,
+                                            #             lambda row: rx.table.row(
+                                            #                 rx.foreach(
+                                            #                     row,
+                                            #                     lambda cell: rx.table.cell(cell)
+                                            #                 )
+                                            #             )
                                             #         )
                                             #     )
                                             # )

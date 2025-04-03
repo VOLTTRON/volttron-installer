@@ -1,32 +1,36 @@
 import io, csv, json
+from loguru import logger
 
 def json_string_to_csv_string(json_string: str) -> str:
     # Clean JSON string
     json_string.replace("\n", "").replace(" ", "").replace("\r", "").replace("\ ", "")
 
-    # Convert JSON string to a dictionary
-    data = json.loads(json_string)
+    """Convert a JSON string back to a CSV string"""
+    # Parse JSON string to Python data
+    json_data = json.loads(json_string)
     
-    # Check if data is a list of dictionaries or a single dictionary
-    if isinstance(data, list):
-        dict_list = data
-    elif isinstance(data, dict):
-        dict_list = [data]
-    else:
-        raise ValueError("JSON data must be a dictionary or a list of dictionaries")
+    if not json_data:
+        return ""
     
-    # Get the keys (column names) from the first dictionary
-    keys = dict_list[0].keys()
-
-    # Create in-memory file object for CSV
-    csv_file = io.StringIO()
-    csv_writer = csv.DictWriter(csv_file, fieldnames=keys)
-    csv_writer.writeheader()
-    csv_writer.writerows(dict_list)
-
-    # Get CSV string from in-memory file object
-    csv_file.seek(0)  # Reset pointer to the start of the file
-    csv_string = csv_file.getvalue()
+    logger.debug(f"this is the json data: {json_data}")
+    # Get field names from the first object
+    fieldnames = json_data[0].keys()
+    
+    # Create a string buffer to write CSV data
+    output = io.StringIO()
+    
+    # Create CSV writer
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    
+    # Write header and rows
+    writer.writeheader()
+    for row in json_data:
+        writer.writerow(row)
+    
+    # Get the resulting CSV string
+    csv_string = output.getvalue()
+    output.close()
+    
     return csv_string
 
 def identify_string_format(mystery_string: str) -> str:
@@ -51,16 +55,18 @@ def identify_string_format(mystery_string: str) -> str:
     return "Unknown"
 
 def csv_string_to_json_string(csv_string) -> str:
-    # Convert CSV string to in-memory file object
+    """Convert a CSV string to a JSON string"""
+    # Use a string IO object to simulate a file
     csv_file = io.StringIO(csv_string)
-    csv_reader = csv.DictReader(csv_file)
     
-    # Assuming the CSV contains only one row of data
-    data = next(csv_reader)
-
-    # Convert dictionary to JSON string
-    json_string = json.dumps(data, indent=4)
-    return json_string
+    # Read CSV data
+    reader = csv.DictReader(csv_file)
+    
+    # Convert to list of dictionaries
+    result = [row for row in reader]
+    
+    # Convert to JSON string
+    return json.dumps(result)
 
 def csv_string_to_usable_dict(csv_string: str) -> dict[str, list[str]]:
     """
@@ -107,3 +113,6 @@ def csv_string_to_usable_dict(csv_string: str) -> dict[str, list[str]]:
             result[header].extend([""] * (10 - current_length))
     
     return result
+
+def usable_dict_to_csv_string(working_dict: dict[str, list[str]]) -> str:
+    return ''
