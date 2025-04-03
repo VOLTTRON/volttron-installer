@@ -91,42 +91,97 @@ async def agents_off_catalog() -> List[AgentModelView]:
         )
     return agent_list
 
-# TODO complete this 
+# TODO add some validation where needed, like if a user messed up deleteing a host a platform was using yk
 async def instances_from_api() -> dict[str, Instance]:
     platforms: list[PlatformDefinition] = await get_all_platforms()
     hosts: list[HostEntry] = await get_hosts()
-    host_by_id = {}
+    host_by_id: dict[str, HostEntry] = {}
     for h in hosts:
         host_by_id[h.id] = h
+    
+    instances: dict[str, Instance] = {}
 
-    return {
-        p.config.instance_name: Instance(
-            host=HostEntryModelView(
-                
-            ),
-            platform=PlatformModelView(
-                config=PlatformConfigModelView(
-                    instance_name=p.config.instance_name,
-                    vip_address=p.config.vip_address,
+    # Creating the platform
+    for p in platforms:
+        working_host_entry = host_by_id[p.host_id]
+        host = HostEntryModelView(
+            id=p.host_id,
+            ansible_user=working_host_entry.ansible_user,
+            ansible_host=working_host_entry.ansible_host,
+            ansible_port=working_host_entry.ansible_port,
+            http_proxy=working_host_entry.http_proxy,
+            https_proxy=working_host_entry.https_proxy,
+            volttron_venv=working_host_entry.volttron_venv,
+            volttron_home=working_host_entry.volttron_home,
+        )
+
+        instance = {
+            p.config.instance_name: Instance(
+                host=host,
+                platform=PlatformModelView(
+                    in_file=True,
+                    config=PlatformConfigModelView(
+                        instance_name=p.config.instance_name,
+                        vip_address=p.config.vip_address,
+                    ),
+                    agents={
+                        identity: AgentModelView(
+                            identity=identity,
+                            source=agent.source,
+                            config_store=[
+                                ConfigStoreEntryModelView(
+                                    path=path,
+                                    data_type=entry.data_type,
+                                    value=str(entry.value),
+                                    uncommitted=False,
+                                    safe_entry={
+                                        "path": path,
+                                        "data_type": entry.data_type,
+                                        "value": str(entry.value)
+                                    }
+                                ) for path, entry in agent.config_store.items()
+                            ],
+                            config=str(agent.config),
+                        )
+                        for identity, agent in p.agents.items()
+                    }
                 ),
-                agents={
-                    identity: AgentModelView(
-                        identity=identity,
-                        source=agent.source,
-                        # config=agent.config
-                        config_store=[
-                            ConfigStoreEntryModelView()
-                        ]
-                    )
-                    for identity, agent in p.agents.items()
-                }
+                new_instance = False,
             )
-        ) for p in platforms
-    }
+        }
+        instances.update(instance)
+    return instances
+# {
+#         p.config.instance_name: Instance(
+#             host=HostEntryModelView(
+                
+#             ),
+#             platform=PlatformModelView(
+#                 config=PlatformConfigModelView(
+#                     instance_name=p.config.instance_name,
+#                     vip_address=p.config.vip_address,
+#                 ),
+#                 agents={
+#                     identity: AgentModelView(
+#                         identity=identity,
+#                         source=agent.source,
+#                         # config=agent.config
+#                         config_store=[
+#                             ConfigStoreEntryModelView()
+#                         ]
+#                     )
+#                     for identity, agent in p.agents.items()
+#                 }
+#             )
+#         ) for p in platforms
+#     }
 
 
 class State(rx.State):
-    #TODO once we save a platform, we create a routing id off of it's instance name, and redirect to it haha lolz
+    #TODO once we save a platform, we create a routing id 
+    # off of it's instance name, and redirect the user to 
+    # platforms/x, maybe we might have to delete the old 
+    # routing id
     platforms: dict[str, Instance] = {
         # "new": Instance(
         #     host=HostEntryModelView(),
@@ -148,6 +203,7 @@ class State(rx.State):
     @rx.event
     async def hydrate_state(self):
         self.list_of_agents = await agents_off_catalog()
+        self.platforms = await instances_from_api()
 
     @rx.event
     def handle_adding_agent(self, agent: AgentModelView):
