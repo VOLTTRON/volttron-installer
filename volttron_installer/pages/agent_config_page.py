@@ -23,6 +23,10 @@ class AgentConfigState(rx.State):
     working_agent: AgentModelView = AgentModelView()
     selected_component_id: str = ""
     draft_visible: bool = False
+    
+    #
+    notes: list[str] = ["random", "text"]
+    #
 
     # this being named agent details doesn't make sense but whatever
     @rx.var
@@ -274,6 +278,18 @@ class AgentConfigState(rx.State):
         return rx.toast.success("Config saved successfully")
 
     @rx.event
+    def delete_config_store_entry(self, config: ConfigStoreEntryModelView):
+        logger.debug(f"implement the rest of this, {config.component_id} was clicked for deletion")
+        for index, entry in enumerate(self.working_agent.config_store):
+            if entry.component_id == config.component_id:
+                self.working_agent.config_store.pop(index)
+                logger.debug(f"selected_component_id = {self.selected_component_id}, entry.component_id = {config.component_id}")
+                if self.selected_component_id == config.component_id:
+                    yield AgentConfigState.set_component_id("")
+                yield rx.toast.info(f"Config store entry has been deleted.")
+                return
+
+    @rx.event
     def text_editor_edit(self, config: ConfigStoreEntryModelView, value: str):
         logger.debug("im being ran right?")
         config.value = value
@@ -383,6 +399,11 @@ def agent_config_page() -> rx.Component:
                                     AgentConfigState.working_agent.config_store,
                                     lambda config: config_tile(
                                         text=config.path,
+                                        left_component=tile_icon.tile_icon(
+                                            "trash-2",
+                                            class_name="icon_button delete",
+                                            on_click=lambda: AgentConfigState.delete_config_store_entry(config)
+                                        ),
                                         right_component=tile_icon.tile_icon(
                                             "settings",
                                             class_name=rx.cond(
@@ -507,7 +528,7 @@ def agent_config_page() -> rx.Component:
 )
 
 def agent_draft() -> rx.Component:
-    return rx.dialog.root(
+    return rx.cond(AgentConfigState.is_hydrated, rx.dialog.root(
         rx.dialog.content(
             rx.dialog.title("Agent Draft"),
             rx.divider(),
@@ -528,12 +549,21 @@ def agent_draft() -> rx.Component:
                 ),
                 form_entry.form_entry(
                     "Config",
-                    text_editor.text_editor(
-                        value=AgentConfigState.working_agent.config,
-                        disabled=True,
-                        max_height="20rem",
-                        width="30rem"
-                    )
+                    # text_editor.text_editor(
+                    #     value=AgentConfigState.working_agent.config,
+                    #     disabled=True,
+                    #     max_height="20rem",
+                    #     width="30rem"
+                    # )
+                    rx.scroll_area(
+                        rx.code_block(
+                            AgentConfigState.working_agent.config,
+                            language="json",
+                        ),
+                        scrollbars="horizontal",
+                        type="auto",
+                        style={"width":"30rem"}
+                    ),
                 ),
                 rx.cond(
                     AgentConfigState.has_valid_configs,
@@ -564,37 +594,31 @@ def agent_draft() -> rx.Component:
                                     "Config",
                                     rx.cond(
                                         config.data_type=="JSON",
-                                        text_editor.text_editor(
-                                            value=config.value,
-                                            disabled=True,
-                                            max_height="20rem",
-                                            width="30rem"
+                                        rx.scroll_area(
+                                            rx.code_block(
+                                                config.value,
+                                                language="json",
+                                            ),
+                                            scrollbars="horizontal",
+                                            type="auto",
+                                            style={"width":"30rem"}
                                         ),
+                                        # text_editor.text_editor(
+                                        #     value=config.value,
+                                        #     disabled=True,
+                                        #     max_height="20rem",
+                                        #     width="30rem"
+                                        # ),
                                         rx.box(
-                                            rx.text(f"{config.value}")
-                                            # TODO: deal with saving the config, and storing the csv value
-                                            # to be usable with a table
-                                            # rx.table.root(
-                                            #     rx.table.header(
-                                            #         rx.table.row(
-                                            #             rx.foreach(
-                                            #                 config.csv_header_row,
-                                            #                 lambda header: rx.table.column_header_cell(header)
-                                            #             )
-                                            #         )
-                                            #     ),
-                                            #     rx.table.body(
-                                            #         rx.foreach(
-                                            #             config.formatted_csv,
-                                            #             lambda row: rx.table.row(
-                                            #                 rx.foreach(
-                                            #                     row,
-                                            #                     lambda cell: rx.table.cell(cell)
-                                            #                 )
-                                            #             )
-                                            #         )
-                                            #     )
-                                            # )
+                                            rx.scroll_area(
+                                                rx.code_block(
+                                                    config.value,
+                                                    language="csv",
+                                                ),
+                                                scrollbars="horizontal",
+                                                type="auto",
+                                                style={"width":"30rem"}
+                                            ),
                                         )
                                     )
                                 ),
@@ -625,7 +649,7 @@ def agent_draft() -> rx.Component:
             ),
         ),
         open=AgentConfigState.draft_visible
-    )
+    ))
 
 def agent_config_tab() -> rx.Component:
     return rx.flex(

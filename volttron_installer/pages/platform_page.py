@@ -8,14 +8,11 @@ from ..navigation.state import NavigationState
 from ..components.form_components import form_entry
 from ..backend.models import AgentType, HostEntry, PlatformConfig, PlatformDefinition, ConfigStoreEntry, AgentDefinition
 from ..components.custom_fields.text_editor import text_editor
-# storing stuff here just for now, will move to a better place later
 from typing import List, Dict, Literal
-from typing import List, Dict, Literal
-import string, random, json, csv, yaml
 from ..backend.endpoints import get_all_platforms, create_platform, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host, \
     get_agent_catalog, get_hosts, update_platform, get_inventory_service, \
-    get_platform_service
+    get_platform_service, get_platform_status
 from ..functions.create_component_uid import generate_unique_uid
 from ..functions.conversion_methods import csv_string_to_usable_dict
 from ..functions.validate_content import check_json
@@ -23,7 +20,8 @@ from ..functions.prettify import prettify_json
 from loguru import logger
 from ..model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
 from copy import deepcopy
-import re
+from ..thin_endpoint_wrappers import *
+import string, random, json, csv, yaml, re
 
 parts = Literal["connection", "instance_configuration"]
  
@@ -101,7 +99,7 @@ async def instances_from_api() -> dict[str, Instance]:
     
     instances: dict[str, Instance] = {}
 
-    # Creating the platform
+    # Creating platform model views, and instances
     for p in platforms:
         working_host_entry = host_by_id[p.host_id]
         host = HostEntryModelView(
@@ -115,6 +113,9 @@ async def instances_from_api() -> dict[str, Instance]:
             volttron_home=working_host_entry.volttron_home,
         )
 
+        # platform_status = await get_platform_status(
+        #     get_request("http://localhost:8000/api/platforms/status", p.config.instance_name)
+        #     )
         instance = {
             p.config.instance_name: Instance(
                 host=host,
@@ -128,17 +129,24 @@ async def instances_from_api() -> dict[str, Instance]:
                         identity: AgentModelView(
                             identity=identity,
                             source=agent.source,
+                            routing_id=generate_unique_uid(),
+                            safe_agent={
+                                "identity" : identity,
+                                "source" : agent.source,
+                                "config": agent.config
+                            },
                             config_store=[
                                 ConfigStoreEntryModelView(
                                     path=path,
                                     data_type=entry.data_type,
                                     value=str(entry.value),
                                     uncommitted=False,
+                                    component_id=generate_unique_uid(),
                                     safe_entry={
                                         "path": path,
                                         "data_type": entry.data_type,
                                         "value": str(entry.value)
-                                    }
+                                    },
                                 ) for path, entry in agent.config_store.items()
                             ],
                             config=str(agent.config),
@@ -150,31 +158,15 @@ async def instances_from_api() -> dict[str, Instance]:
             )
         }
         instances.update(instance)
+    for uid, instance in instances.items():
+        for agent in instance.platform.agents.values():
+            for config in agent.config_store:
+                if config.data_type == "CSV":
+                    usable_csv = csv_string_to_usable_dict(config.value)
+                    config.csv_variants["Custom"] = usable_csv
+                    # logger.debug(f"Loaded usable CSV for config {config.path} inside agent {agent.identity}: {usable_csv}")
     return instances
-# {
-#         p.config.instance_name: Instance(
-#             host=HostEntryModelView(
-                
-#             ),
-#             platform=PlatformModelView(
-#                 config=PlatformConfigModelView(
-#                     instance_name=p.config.instance_name,
-#                     vip_address=p.config.vip_address,
-#                 ),
-#                 agents={
-#                     identity: AgentModelView(
-#                         identity=identity,
-#                         source=agent.source,
-#                         # config=agent.config
-#                         config_store=[
-#                             ConfigStoreEntryModelView()
-#                         ]
-#                     )
-#                     for identity, agent in p.agents.items()
-#                 }
-#             )
-#         ) for p in platforms
-#     }
+
 
 
 class State(rx.State):
@@ -203,7 +195,8 @@ class State(rx.State):
     @rx.event
     async def hydrate_state(self):
         self.list_of_agents = await agents_off_catalog()
-        self.platforms = await instances_from_api()
+        platforms_from_api = await instances_from_api()
+        self.platforms.update(platforms_from_api)
 
     @rx.event
     def handle_adding_agent(self, agent: AgentModelView):

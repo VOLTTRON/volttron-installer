@@ -72,6 +72,9 @@ styles: dict = {
         "padding" : ".25rem",
         "transition": HOVER_TRANSITION
     },
+    "icon_button.delete:hover": {
+        "background-color": "red"
+    },
     ".icon_button:hover" : {
         "background-color" : "#2A2A2C"
     },
