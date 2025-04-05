@@ -19,16 +19,11 @@ import json, csv, yaml
 from loguru import logger
 
 class AgentConfigState(rx.State):
-    # Store reference to working agent
     working_agent: AgentModelView = AgentModelView()
     selected_component_id: str = ""
     draft_visible: bool = False
     
-    #
-    notes: list[str] = ["random", "text"]
-    #
-
-    # this being named agent details doesn't make sense but whatever
+    # this being named agent details doesn't make sense to be honest
     @rx.var
     def agent_details(self) -> dict:
         args = self.router.page.params
@@ -105,7 +100,11 @@ class AgentConfigState(rx.State):
                 else:
                     setattr(config, field, value)
 
-
+                config.changed = config.dict() != config.safe_entry
+                # this shows the "changed" field as we update the config entry
+                # logger.debug(f"this is the changed value: {config.changed}")
+                # logger.debug(f"manually checking dict: {config.dict()}")
+                # logger.debug(f"manually checking safe_entry: {config.safe_entry}")
                 if id is not None:
                     yield rx.set_value(id, value)
 
@@ -196,8 +195,7 @@ class AgentConfigState(rx.State):
     def create_blank_config_entry(self):
         agent = self.working_agent
         new_component_id = generate_unique_uid()
-        agent.config_store.append(
-            ConfigStoreEntryModelView(
+        blank_config = ConfigStoreEntryModelView(
                 path="",
                 data_type="JSON",
                 value="",
@@ -208,7 +206,8 @@ class AgentConfigState(rx.State):
                     "value" : ""
                 }
             )
-        )
+        blank_config.safe_entry = blank_config.dict()
+        agent.config_store.append(blank_config)
         yield AgentConfigState.set_component_id(new_component_id)
 
     @rx.event
@@ -254,11 +253,13 @@ class AgentConfigState(rx.State):
             except Exception as e:
                 logger.debug(f"error: {e}")
                 committable = False
-                yield rx.toast.error("Selected CSV variant was not valid")
+                yield rx.toast.error("CSV variant is not valid")
             pass
 
         elif config.data_type =="JSON" and committable:
-            pass
+            if check_json(config.value) == False:
+                committable = False
+                yield rx.toast.error("Inputted JSON is not valid")
         
         if committable == False:
             return
@@ -286,7 +287,7 @@ class AgentConfigState(rx.State):
                 logger.debug(f"selected_component_id = {self.selected_component_id}, entry.component_id = {config.component_id}")
                 if self.selected_component_id == config.component_id:
                     yield AgentConfigState.set_component_id("")
-                yield rx.toast.info(f"Config store entry has been deleted.")
+                yield rx.toast.info(f"Config store entry has been removed.")
                 return
 
     @rx.event
@@ -411,7 +412,6 @@ def agent_config_page() -> rx.Component:
                                                 "icon_button active",  # Combined class names
                                                 "icon_button"
                                             ),
-                                            # on_click=AgentConfigState.print_config_properties(config)
                                             on_click=lambda: AgentConfigState.set_component_id(config.component_id)
                                         ),
                                         class_name=rx.cond(
@@ -444,7 +444,7 @@ def agent_config_page() -> rx.Component:
                                                 rx.fragment(
                                                     form_view.form_view_wrapper(
                                                         form_entry.form_entry(
-                                                            #TODO need to fix this weird warping stuff,
+                                                            #TODO need to fix this weird warping stuff with the upload component
                                                             "Path",
                                                             rx.input(
                                                                 size="3",
@@ -489,7 +489,19 @@ def agent_config_page() -> rx.Component:
                                                                 variant="surface",
                                                                 color_scheme="green",
                                                                 on_click=lambda: AgentConfigState.save_config_store_entry(config)
-                                                            )
+                                                            ),
+                                                            # NOTE for some reason the config.changed param isn't being read,
+                                                            # uncommenting the logs in the update_config_detail function shows this.
+                                                            rx.cond(
+                                                                config.changed,
+                                                                rx.button(
+                                                                    rx.icon("undo"),
+                                                                    size="3",
+                                                                    variant="surface",
+                                                                    color_scheme="orange"
+                                                                ),
+                                                            ),
+                                                            align="center"
                                                         ),
                                                         key=config.component_id
                                                     ),
@@ -549,12 +561,6 @@ def agent_draft() -> rx.Component:
                 ),
                 form_entry.form_entry(
                     "Config",
-                    # text_editor.text_editor(
-                    #     value=AgentConfigState.working_agent.config,
-                    #     disabled=True,
-                    #     max_height="20rem",
-                    #     width="30rem"
-                    # )
                     rx.scroll_area(
                         rx.code_block(
                             AgentConfigState.working_agent.config,
@@ -625,7 +631,10 @@ def agent_draft() -> rx.Component:
                             ),
                         )
                     ),
-                    rx.text("No Valid Config Store Entries Detected...")
+                    rx.fragment(
+                        rx.divider(),
+                        rx.text("No Valid Config Store Entries Detected...")
+                    )
                 ),
                 justify="center",
                 spacing="6",

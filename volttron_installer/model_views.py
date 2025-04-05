@@ -11,7 +11,7 @@ class ConfigStoreEntryModelView(rx.Base):
     component_id: str = "_"
 
     uncommitted: bool = True
-    changed: bool = True
+    changed: bool = False
     valid: bool = False
     in_file: bool = False
 
