@@ -89,6 +89,7 @@ class AgentModelView(rx.Base):
     contains_errors: bool = False
     uncaught: bool = True
     safe_agent: dict[str, Any] = {}
+    config_store_allowed: bool = True
 
     in_file: bool = False
 

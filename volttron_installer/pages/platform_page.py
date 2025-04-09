@@ -69,6 +69,7 @@ async def agents_off_catalog() -> List[AgentModelView]:
             AgentModelView(
                 identity=str(identity),
                 source=agent.source,
+                config_store_allowed = agent.config_store_allowed,
                 config_store=[
                     ConfigStoreEntryModelView(
                         path=path,
@@ -127,7 +128,7 @@ async def instances_from_api() -> dict[str, Instance]:
                         identity: AgentModelView(
                             identity=identity,
                             source=agent.source,
-                            routing_id=generate_unique_uid(),
+                            routing_id=identity,
                             safe_agent={
                                 "identity" : identity,
                                 "source" : agent.source,
@@ -205,7 +206,7 @@ class State(rx.State):
         new_agent: AgentModelView = agent.copy()
         if new_agent.identity in working_platform.platform.agents:
             new_agent.identity = f"{new_agent.identity}_{len(list(working_platform.platform.agents.values()))}"
-        new_agent.routing_id = self.generate_unique_uid()
+        new_agent.routing_id = new_agent.identity
 
         logger.debug("im going to add new component ids for config store...")
         # go through the config store, create new component ids for each config entry
@@ -256,11 +257,13 @@ class State(rx.State):
             a.append(config.safe_entry)
         logger.debug(f"safe entries all around: {a}")
         working_platform.platform.agents[new_agent.identity] = new_agent
+        yield rx.toast.info(f"Agent '{new_agent.identity}' has been added")
         
     @rx.event
     def handle_removing_agent(self, identity: str):
         working_platform = self.platforms[self.current_uid]
         del(working_platform.platform.agents[identity])
+        yield rx.toast.info(f"Agent '{identity}' has been removed")
 
     @rx.event
     def handle_cancel(self):
@@ -367,38 +370,22 @@ class State(rx.State):
                     else:
                         logger.debug(f"Debug: Ignored Config Path: {config.path}")
 
+        # Construct platform elements
         platform_agents: dict[str, AgentDefinition] = {}
+        config_store: dict[str, ConfigStoreEntry] = {}
         for identity, agent in working_platform.platform.agents.items():
             if agent.safe_agent["identity"] != "":
-                config_store: dict[str, ConfigStoreEntry] = {}
-
                 # we iterate through the agent's safe entry
+                logger.debug(f"we are in the safe_agent")
+                logger.debug(f"here is the safe_agent: {agent.safe_agent}")
                 for path, config_dict in agent.safe_agent["config_store"].items():
-                    config = ConfigStoreEntryModelView(
+                    logger.debug(f"we in this, here is the config_dict: {config_dict} ")
+                    config_store[path] = ConfigStoreEntry(
                         path = path,
                         data_type = config_dict["data_type"],
                         value = config_dict["value"]
                     )
-                    if config.safe_entry.get("path"):
-                        notes: str = config.safe_entry["path"] 
-                        logger.debug(f"Adding Config Path to store: {notes}")
-                        valid_field_name_for_config_pattern = re.compile(r"^[a-zA-Z_-][a-zA-Z0-9_-]*$")
-                        logger.debug(f"this is the deepcopy that im injecting into entry: {notes}")
-                        logger.debug(f"Validating config path: {valid_field_name_for_config_pattern.match(notes)}")
-                        entry = ConfigStoreEntry(
-                            path=notes,
-                            data_type=config.safe_entry["data_type"],
-                            value=config.safe_entry["value"]
-                            )
-                        logger.debug(f"initial path: {entry.path}, {type(entry.path)}")
-                        # for some reason these guys appear as tuples??? what...
-                        # entry.path=f"{str(notes)}",
-                        # ===
-                        logger.debug(f"Created ConfigStoreEntry: {entry}")
-                        config_store[notes] = entry
-                    else:
-                        logger.debug(f"Skipped Config: {config.safe_entry.get('path', 'No Path')}")
-                        
+
                 platform_agents[identity] = AgentDefinition(
                     identity=agent.safe_agent["identity"],
                     source=agent.safe_agent["source"],
@@ -417,38 +404,6 @@ class State(rx.State):
         )
 
         logger.debug(f"Final base platform_request: {base_platform_request}")
-        # base_platform_request= CreatePlatformRequest(
-        #             host_id=working_platform.safe_host_entry["id"],
-        #             config=PlatformConfig(
-        #                 instance_name=working_platform.platform.config.instance_name,
-        #                 vip_address=working_platform.platform.config.vip_address
-        #                 ),
-        #             agents={
-        #                 identity: AgentDefinition(
-        #                     identity=agent.identity,
-        #                     source=agent.source,
-        #                     config_store={
-        #                         entry.path: ConfigStoreEntry(
-        #                             path=entry.path,
-        #                             data_type=entry.data_type,
-        #                             value=entry.value
-        #                         )
-        #                         # only include valid and non "" config paths 
-        #                         for entry in (
-        #                             ConfigStoreEntryModelView(
-        #                                 # IF THE CONFIG PATH IS SOOOOO VALID, WHY ISNT IT SHOWING UP RIGHT HERE OMGGGGGG
-        #                                 path=config.path,
-        #                                 data_type=config.data_type,
-        #                                 value=config.value
-        #                             ) for config in agent.config_store if config.safe_entry["path"] != ""
-        #                         )
-        #                     }
-        #                 )
-        #                 # only include non "" agent identities
-        #                 for identity, agent in working_platform.platform.agents.items() if agent.identity != ""
-        #             }
-        #         )
-
         logger.debug(f"this is my base platform_request: {base_platform_request}")
         if working_platform.platform.config.instance_name in [p.config.instance_name for p in all_platforms]:
             logger.debug("yes we have committed this already")

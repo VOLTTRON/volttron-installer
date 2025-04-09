@@ -13,9 +13,7 @@ from ..navigation.state import NavigationState
 from ..functions.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
 from ..functions.validate_content import check_json, check_csv
 from ..functions.create_csv_string import create_csv_string
-import io
-
-import json, csv, yaml
+import io, re, json, csv, yaml
 from loguru import logger
 
 class AgentConfigState(rx.State):
@@ -94,12 +92,11 @@ class AgentConfigState(rx.State):
                         usable_csv =  csv_string_to_usable_dict(csv_string)
                         config.csv_variants["Custom"] = usable_csv
                         setattr(config, field, value)
-                    else:
-                        # i give up
-                        setattr(config, field, value)
                 else:
                     setattr(config, field, value)
-
+                valid, valid_map = self.check_config_validity(config)
+                logger.debug(f"this is the validity map: {valid_map}")
+                config.valid = valid
                 config.changed = config.dict() != config.safe_entry
                 # this shows the "changed" field as we update the config entry
                 # logger.debug(f"this is the changed value: {config.changed}")
@@ -107,7 +104,7 @@ class AgentConfigState(rx.State):
                 # logger.debug(f"manually checking safe_entry: {config.safe_entry}")
                 if id is not None:
                     yield rx.set_value(id, value)
-
+    
     @rx.event
     async def handle_config_store_entry_upload(self, files: list[rx.UploadFile]):
         # dealing with file uploads
@@ -163,6 +160,7 @@ class AgentConfigState(rx.State):
         )
         logger.debug("agent config store entry was uploaded")
         yield AgentConfigState.set_component_id(new_config_entry.component_id)
+        yield rx.toast.success("Config store entry uploaded successfully")
 
     @rx.event
     async def handle_agent_config_upload(self, files: list[rx.UploadFile]):
@@ -332,6 +330,46 @@ class AgentConfigState(rx.State):
             self.working_agent.selected_config_component_id = component_id
         logger.debug(f"our new config entry: {self.working_agent.selected_config_component_id}")
 
+    def check_config_validity(self, config: ConfigStoreEntryModelView) -> tuple[bool, dict[str, bool]]:
+        """checks the validity of each field in the config. also checks the json/csv versions
+        returns bool for overall validity, and dict containing fields with errors in a string bool value pair"""
+        valid: bool = True
+        config_fields: dict[str, bool] = {
+            "path" : True,
+            "csv" : True,
+            "json" : True
+        }
+
+        if config.data_type == "JSON":
+            config_fields["json"] = check_json(config.value)
+            if check_json(config.value) == False:
+                valid = False
+        else:
+            try:
+                # get selected variant and turn it into legible csv
+                working_dict = config.csv_variants[config.selected_variant]
+                headers=list(working_dict.keys())
+                rows = [[working_dict[header] for header in headers] for i in range(10)]
+                
+                csv_string = create_csv_string(headers, rows)
+                if check_csv(csv_string):
+                    raise ValueError()
+                
+            except Exception as e:
+                valid = False
+                config_fields["csv"] = False
+                logger.debug(f"the working csv field is not valid")
+            pass
+        
+        # Validate the path format using a stricter regex pattern
+        valid_field_name_for_config_pattern = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
+        if not valid_field_name_for_config_pattern.fullmatch(config.path):
+            valid = False
+            config_fields["path"] = False
+
+        return (valid, config_fields)
+
+
 @rx.page(route="/platform/[uid]/agent/[agent_uid]", on_load=AgentConfigState.hydrate_working_agent)
 def agent_config_page() -> rx.Component:
     return rx.cond(AgentConfigState.is_hydrated, app_layout(
@@ -361,7 +399,7 @@ def agent_config_page() -> rx.Component:
             rx.tabs.root(
                 rx.tabs.list(
                     rx.tabs.trigger("Agent Config", value="1"),
-                    rx.tabs.trigger("Config Store Entries", value="2")
+                    rx.tabs.trigger("Config Store Entries", value="2", disabled=rx.cond(AgentConfigState.working_agent.config_store_allowed, False, True))
                 ),
                 rx.tabs.content(
                     agent_config_tab(),
@@ -477,7 +515,7 @@ def agent_config_page() -> rx.Component:
                                                                         "tomato",
                                                                         "gray"
                                                                     ),
-                                                                    on_change=lambda v: AgentConfigState.text_editor_edit(config, v)
+                                                                    on_change=lambda v: AgentConfigState.update_config_detail("value", v)
                                                                 ),
                                                                 csv_field.csv_data_field()
                                                             ),
@@ -488,6 +526,12 @@ def agent_config_page() -> rx.Component:
                                                                 size="3",
                                                                 variant="surface",
                                                                 color_scheme="green",
+                                                                
+                                                                # disabled=rx.cond(
+                                                                #     config.valid,
+                                                                #     False,
+                                                                #     True
+                                                                # ),
                                                                 on_click=lambda: AgentConfigState.save_config_store_entry(config)
                                                             ),
                                                             # NOTE for some reason the config.changed param isn't being read,
@@ -547,16 +591,16 @@ def agent_draft() -> rx.Component:
             rx.vstack(
                 form_entry.form_entry(
                     "Identity",
-                    rx.input(
-                        value=AgentConfigState.working_agent.identity,
-                        disabled=True
+                    rx.code_block(
+                        AgentConfigState.working_agent.identity,
+                        # disabled=True
                     )
                 ),
                 form_entry.form_entry(
                     "Source",
-                    rx.input(
-                        value=AgentConfigState.working_agent.source,
-                        disabled=True
+                    rx.code_block(
+                        AgentConfigState.working_agent.source,
+                        # disabled=True
                     )
                 ),
                 form_entry.form_entry(
@@ -582,10 +626,22 @@ def agent_draft() -> rx.Component:
                                 rx.divider(),
                                 form_entry.form_entry(
                                     "Path",
-                                    rx.input(
-                                        value=config.path,
-                                        disabled=True
+                                    rx.code_block(
+                                        config.path
                                     )
+                                    # rx.scroll_area(
+                                    #     rx.code_block(
+                                    #         config.path,
+                                    #         # language="json",
+                                    #     ),
+                                    #     scrollbars="horizontal",
+                                    #     type="auto",
+                                    #     style={"width":"30rem"}
+                                    # ),
+                                    # rx.input(
+                                    #     value=config.path,
+                                    #     disabled=True
+                                    # )
                                 ),
                                 form_entry.form_entry(
                                     "Data Type",
@@ -609,12 +665,6 @@ def agent_draft() -> rx.Component:
                                             type="auto",
                                             style={"width":"30rem"}
                                         ),
-                                        # text_editor.text_editor(
-                                        #     value=config.value,
-                                        #     disabled=True,
-                                        #     max_height="20rem",
-                                        #     width="30rem"
-                                        # ),
                                         rx.box(
                                             rx.scroll_area(
                                                 rx.code_block(

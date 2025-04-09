@@ -78,6 +78,7 @@ class AgentDefinition(BaseModel):
     source: str | None = None
     config: str | None = None
     config_store: dict[str, ConfigStoreEntry] = {}
+    config_store_allowed: bool = True
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -117,6 +118,7 @@ class AgentType(BaseModel):
     default_config_store: dict[str, ConfigStoreEntry]
     source: str | None = None
     pypi_package: str | None = None
+    config_store_allowed: bool = True
 
 class AgentCatalog(BaseModel):
     """Catalog of default agents available with default configurations"""
@@ -129,6 +131,7 @@ class AgentCatalog(BaseModel):
                 "log-level": "INFO"
             },
             default_config_store={},
+            config_store_allowed=False,
             source="examples/ListenerAgent"
         ),
         "platform.driver": AgentType(
