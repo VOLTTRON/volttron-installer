@@ -1,5 +1,25 @@
-import json, re, csv, io, yaml
+import json, re, csv, io, yaml, os
 from loguru import logger
+
+def check_path(path):
+    # Check if path contains invalid characters for the current OS
+    try:
+        # Normalize path to catch issues
+        normalized_path = os.path.normpath(path)
+        
+        # Check for common invalid path characters
+        # This handles most OS restrictions
+        invalid_chars_pattern = re.compile(r'[:*?"<>|]')  # Common invalid chars in Windows
+        if invalid_chars_pattern.search(normalized_path):
+            return False
+            
+        # Check path isn't empty after normalization
+        if not normalized_path or normalized_path.isspace():
+            return False
+            
+        return True
+    except:
+        return False
 
 def check_json(json_string: str) -> bool:
     # Remove leading and trailing whitespace from the input string

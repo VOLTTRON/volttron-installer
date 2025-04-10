@@ -1,3 +1,4 @@
+from idna import valid_contextj
 import reflex as rx
 from ..layouts.app_layout import app_layout
 from ..model_views import AgentModelView, ConfigStoreEntryModelView
@@ -11,7 +12,7 @@ from .platform_page import State as AppState
 from .platform_page import Instance
 from ..navigation.state import NavigationState
 from ..functions.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
-from ..functions.validate_content import check_json, check_csv
+from ..functions.validate_content import check_json, check_csv, check_path
 from ..functions.create_csv_string import create_csv_string
 import io, re, json, csv, yaml
 from loguru import logger
@@ -21,6 +22,7 @@ class AgentConfigState(rx.State):
     selected_component_id: str = ""
     draft_visible: bool = False
     
+    # Vars
     # this being named agent details doesn't make sense to be honest
     @rx.var
     def agent_details(self) -> dict:
@@ -28,6 +30,53 @@ class AgentConfigState(rx.State):
         uid = args.get("uid", "")
         agent_uid = args.get("agent_uid", "")
         return {"uid": uid, "agent_uid": agent_uid}
+
+    # state vars to streamline working checking the validity of working config
+    @rx.var
+    def path_validity(self) -> bool:
+        self.working_agent.selected_config_component_id
+        for i in self.working_agent.config_store:
+            if i.component_id == self.working_agent.selected_config_component_id:
+                working_config = i
+                validity, validity_map= self.check_config_validity(working_config)
+                return validity_map["path"]
+        return False
+
+    @rx.var
+    def config_json_validity(self) -> bool:
+        for i in self.working_agent.config_store:
+            if i.component_id == self.working_agent.selected_config_component_id:
+                working_config = i
+                validity, validity_map= self.check_config_validity(working_config)
+                return validity_map["json"]
+        return False
+    
+    @rx.var
+    def check_csv_validity(self) -> bool:
+        for i in self.working_agent.config_store:
+            if i.component_id == self.working_agent.selected_config_component_id:
+                working_config = i
+                validity, validity_map= self.check_config_validity(working_config)
+                return validity_map["csv"]
+        return False
+
+    @rx.var
+    def config_validity(self) -> bool:
+        for i in self.working_agent.config_store:
+            if i.component_id == self.working_agent.selected_config_component_id:
+                working_config = i
+                validity, validity_map= self.check_config_validity(working_config)
+                return validity
+        return False
+
+    @rx.var
+    def changes_map(self) -> rx.Field[dict[str, bool]]:
+        """gathers all config stores in a working agent, and returns a dict with 
+        the config store component_id as the key and a bool for if it has been changed"""
+        return rx.field({
+                config.component_id: config.dict() == config.safe_entry 
+                for config in self.working_agent.config_store
+            })
 
     @rx.var
     def committed_configs(self) -> list[ConfigStoreEntryModelView]:
@@ -56,6 +105,7 @@ class AgentConfigState(rx.State):
                 self.working_agent = agent
                 break
 
+    # Events
     @rx.event
     def flip_draft_visibility(self):
         self.draft_visible = not self.draft_visible
@@ -349,7 +399,7 @@ class AgentConfigState(rx.State):
                 # get selected variant and turn it into legible csv
                 working_dict = config.csv_variants[config.selected_variant]
                 headers=list(working_dict.keys())
-                rows = [[working_dict[header] for header in headers] for i in range(10)]
+                rows = [working_dict[header] for header in headers]
                 
                 csv_string = create_csv_string(headers, rows)
                 if check_csv(csv_string):
@@ -361,9 +411,9 @@ class AgentConfigState(rx.State):
                 logger.debug(f"the working csv field is not valid")
             pass
         
-        # Validate the path format using a stricter regex pattern
-        valid_field_name_for_config_pattern = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
-        if not valid_field_name_for_config_pattern.fullmatch(config.path):
+        # Validate the path format to include periods
+        valid_field_name_for_config_path = re.compile(r"^[a-zA-Z][a-zA-Z0-9_.-/-]*$")
+        if not valid_field_name_for_config_path.fullmatch(config.path):
             valid = False
             config_fields["path"] = False
 
@@ -452,8 +502,10 @@ def agent_config_page() -> rx.Component:
                                             ),
                                             on_click=lambda: AgentConfigState.set_component_id(config.component_id)
                                         ),
+                                        #TODO, i would like to create a system to check if the config is changed or not, apparently we cant index the 
+                                        # dict which is annoying....
                                         class_name=rx.cond(
-                                            config.uncommitted,
+                                            AgentConfigState.config_validity.get(config.component_id),
                                             "agent_config_tile uncommitted",
                                             "agent_config_tile"
                                         ),
@@ -484,14 +536,19 @@ def agent_config_page() -> rx.Component:
                                                         form_entry.form_entry(
                                                             #TODO need to fix this weird warping stuff with the upload component
                                                             "Path",
-                                                            rx.input(
-                                                                size="3",
-                                                                value=config.path,
-                                                                on_change=lambda v: AgentConfigState.update_config_detail("path", v)
-                                                            ),
-                                                            upload=tile_icon.tile_icon(
-                                                                "badge-info",
-                                                                tooltip="Path must start with a letter and can only contain letters, numbers, underscores, or hyphens."
+                                                            rx.vstack(
+                                                                rx.input(
+                                                                    size="3",
+                                                                    value=config.path,
+                                                                    on_change=lambda v: AgentConfigState.update_config_detail("path", v)
+                                                                ),
+                                                                rx.cond(
+                                                                    AgentConfigState.path_validity == False,
+                                                                    rx.text(
+                                                                        "Path must start with a letter and can only contain letters, numbers, underscores, periods, or hyphens.",
+                                                                        color_scheme="red"
+                                                                    )
+                                                                )
                                                             ),
                                                             required_entry=True
                                                         ),
@@ -508,16 +565,34 @@ def agent_config_page() -> rx.Component:
                                                             "Config",
                                                             rx.cond(
                                                                 config.data_type=="JSON",
-                                                                text_editor.text_editor(
-                                                                    value=config.value,
-                                                                    color_scheme=rx.cond(
-                                                                        config.valid,
-                                                                        "tomato",
-                                                                        "gray"
+                                                                rx.vstack(
+                                                                    text_editor.text_editor(
+                                                                        value=config.value,
+                                                                        color_scheme=rx.cond(
+                                                                            config.valid,
+                                                                            "tomato",
+                                                                            "gray"
+                                                                        ),
+                                                                        on_change=lambda v: AgentConfigState.update_config_detail("value", v)
                                                                     ),
-                                                                    on_change=lambda v: AgentConfigState.update_config_detail("value", v)
+                                                                    rx.cond(
+                                                                        AgentConfigState.config_json_validity == False,
+                                                                        rx.text(
+                                                                            "Inputted JSON is not valid",
+                                                                            color_scheme="red"
+                                                                        )
+                                                                    )
                                                                 ),
-                                                                csv_field.csv_data_field()
+                                                                rx.vstack(
+                                                                    csv_field.csv_data_field(),
+                                                                    rx.cond(
+                                                                        AgentConfigState.check_csv_validity == False,
+                                                                        rx.text(
+                                                                            "CSV variant is not valid",
+                                                                            color_scheme="red"
+                                                                        )
+                                                                    )
+                                                                )
                                                             ),
                                                         ),
                                                         rx.hstack(
@@ -527,11 +602,11 @@ def agent_config_page() -> rx.Component:
                                                                 variant="surface",
                                                                 color_scheme="green",
                                                                 
-                                                                # disabled=rx.cond(
-                                                                #     config.valid,
-                                                                #     False,
-                                                                #     True
-                                                                # ),
+                                                                disabled=rx.cond(
+                                                                    AgentConfigState.config_validity,
+                                                                    False,
+                                                                    True
+                                                                ),
                                                                 on_click=lambda: AgentConfigState.save_config_store_entry(config)
                                                             ),
                                                             # NOTE for some reason the config.changed param isn't being read,

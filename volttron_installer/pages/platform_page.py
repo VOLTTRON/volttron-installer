@@ -68,7 +68,7 @@ async def agents_off_catalog() -> List[AgentModelView]:
         agent_list.append(
             AgentModelView(
                 identity=str(identity),
-                source=agent.source,
+                source=json.dumps(agent.source, indent=4),
                 config_store_allowed = agent.config_store_allowed,
                 config_store=[
                     ConfigStoreEntryModelView(
@@ -127,13 +127,14 @@ async def instances_from_api() -> dict[str, Instance]:
                     agents={
                         identity: AgentModelView(
                             identity=identity,
-                            source=agent.source,
+                            source=json.dumps(agent.source, indent=4),
                             routing_id=identity,
                             safe_agent={
                                 "identity" : identity,
                                 "source" : agent.source,
                                 "config": agent.config
                             },
+                            config_store_allowed=agent.config_store_allowed,
                             config_store=[
                                 ConfigStoreEntryModelView(
                                     path=path,
