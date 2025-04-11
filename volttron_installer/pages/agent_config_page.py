@@ -480,7 +480,7 @@ class AgentConfigState(rx.State):
         # if not config_valid:
         #     valid = False
         #     validity_map["config"] = False
-        logger.debug(f"this is our validity: {valid} and here is our map: {validity_map}")
+        # logger.debug(f"this is our validity: {valid} and here is our map: {validity_map}")
         return (valid, validity_map)
 
     def check_config_validity(self, config: ConfigStoreEntryModelView) -> tuple[bool, dict[str, bool]]:

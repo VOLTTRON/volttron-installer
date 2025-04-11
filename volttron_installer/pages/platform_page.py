@@ -60,6 +60,10 @@ class Instance(rx.Base):
             host_dict["ansible_host"] != ""
         )
 
+# NOTE: when agents are added, some may have YAML configs, we need to prettify those by
+# detecting type of string, and prettifying it.
+# TODO: implement the functionality described above.
+
 async def agents_off_catalog() -> List[AgentModelView]:
     catalog: Dict[str, AgentType] = await get_agent_catalog()
     agent_list: List[AgentModelView] = []
@@ -88,7 +92,6 @@ async def agents_off_catalog() -> List[AgentModelView]:
         )
     return agent_list
 
-# TODO add some validation where needed, like if a user messed up deleteing a host a platform was using yk
 async def instances_from_api() -> dict[str, Instance]:
     platforms: list[PlatformDefinition] = await get_all_platforms()
     hosts: list[HostEntry] = await get_hosts()
@@ -149,7 +152,7 @@ async def instances_from_api() -> dict[str, Instance]:
                                     },
                                 ) for path, entry in agent.config_store.items()
                             ],
-                            config=json.dumps(agent.config, indent=4),
+                            config=prettify_json(agent.config)[0],
                         )
                         for identity, agent in p.agents.items()
                     }
@@ -192,6 +195,27 @@ class State(rx.State):
     def in_file_platforms(self) -> list[Instance]:
         return [instance for instance in self.platforms.values() if instance.platform.in_file]
     
+    # ==== vars for platform validation ===
+    @rx.var
+    def platform_validity(self) -> bool:
+        if self.current_uid == "":
+            return True
+        return self.platform_validity(self.platforms[self.current_uid])[0]
+    
+    @rx.var
+    def platform_instance_name_validity(self)-> bool:
+        if self.current_uid == "":
+            return True
+        return self.platform_validity(self.platforms[self.current_uid])[1]["instance_name"]
+
+    @rx.var
+    def platform_vip_address_validity(self) -> bool:
+        if self.current_uid == "":
+            return True
+        return self.platform_validity(self.platforms[self.current_uid])[1]["vip_address"]
+    
+    # === end of platform validation vars ===
+
     # Events
     @rx.event
     async def hydrate_state(self):
@@ -442,6 +466,25 @@ class State(rx.State):
             new_uid = ''.join(random.choice(characters) for _ in range(length))
             if new_uid not in self.platforms:
                 return new_uid
+    
+    def platform_validity(self, working_platform: Instance) -> tuple[bool, dict[str, bool]]:
+        valid = True
+        validity_map: dict[str, bool] = {
+            "instance_name" : True,
+            "vip_address" : True
+        }
+        # Validate the instance name
+        valid_field_name_for_instance = re.compile(r"^[a-zA-Z][a-zA-Z0-9_.-/-]*$")
+        if not valid_field_name_for_instance.fullmatch(working_platform.platform.config.instance_name):
+            valid = False
+            validity_map["instance_name"] = False
+        
+        # Validate the tcp address
+        if not re.match(r'^tcp://[\d.]+:\d+$', working_platform.platform.config.vip_address):
+            valid = False
+            validity_map["vip_address"] = False
+
+        return (valid, validity_map)
 
 @rx.page(route="/platform/[uid]", on_load=State.hydrate_state)
 def platform_page() -> rx.Component:
@@ -464,7 +507,14 @@ def platform_page() -> rx.Component:
         platform_tabs()
     )))
 
-# Components: dont work for whatever reason
+# TODO: clean up these components to make it more readable and clean. 
+# These components all work if they have the right setup which follows:
+#   working_platform: Instance = State.platforms[State.current_uid]
+#   return rx.cond(State.is_hydrated,
+#             rest of component...
+#             )
+
+
 def platform_tabs() -> rx.Component:
     working_platform: Instance = State.platforms[State.current_uid]
     return rx.cond(
@@ -500,7 +550,6 @@ def platform_tabs() -> rx.Component:
             )
         )
     )
-
 
 # Config tab and it's components:
 def configuration_tab_content() -> rx.Component:
@@ -611,11 +660,21 @@ def configuration_tab_content() -> rx.Component:
                             rx.box(
                                 form_entry.form_entry( # validate
                                     "Instance Name",
-                                    rx.input(
-                                        size="3",
-                                        value=working_platform.platform.config.instance_name,
-                                        on_change=lambda v: State.update_platform_config_detail("instance_name", v),
-                                        required=True,
+                                    rx.vstack(
+                                        rx.input(
+                                            size="3",
+                                            value=working_platform.platform.config.instance_name,
+                                            on_change=lambda v: State.update_platform_config_detail("instance_name", v),
+                                            required=True,
+                                        ),
+                                        align="center"
+                                    ),
+                                    below_component=rx.cond(
+                                        State.platform_instance_name_validity == False,
+                                        rx.text(
+                                            "Instance Name must contain only letters, numbers, hyphens, and underscores", 
+                                            color_scheme="red"
+                                        )
                                     ),
                                     required_entry=True,
                                     upload=tile_icon(
@@ -625,11 +684,21 @@ def configuration_tab_content() -> rx.Component:
                                 ),
                                 form_entry.form_entry( # validate
                                     "Vip Address",
-                                    rx.input(
-                                        size="3",
-                                        value=working_platform.platform.config.vip_address,
-                                        on_change=lambda v: State.update_platform_config_detail("vip_address", v),
-                                        required=True,
+                                    rx.vstack(
+                                        rx.input(
+                                            size="3",
+                                            value=working_platform.platform.config.vip_address,
+                                            on_change=lambda v: State.update_platform_config_detail("vip_address", v),
+                                            required=True,
+                                        ),  
+                                        align="center"
+                                    ),
+                                    below_component=rx.cond(
+                                        State.platform_vip_address_validity == False,
+                                        rx.text(
+                                            "Vip Address must be in the format tcp://<ip>:<port>", 
+                                            color_scheme="red"
+                                        )
                                     ),
                                     required_entry=True,
                                     upload=tile_icon(

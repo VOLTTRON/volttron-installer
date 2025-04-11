@@ -3,7 +3,7 @@ from loguru import logger
 
 def json_string_to_csv_string(json_string: str) -> str:
     # Clean JSON string
-    json_string.replace("\n", "").replace(" ", "").replace("\r", "").replace("\ ", "")
+    json_string = json_string.replace("\n", "").replace(" ", "").replace("\r", "").replace("\ ", "")
 
     """Convert a JSON string back to a CSV string"""
     # Parse JSON string to Python data
