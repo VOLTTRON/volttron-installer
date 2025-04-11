@@ -12,7 +12,7 @@ from .platform_page import State as AppState
 from .platform_page import Instance
 from ..navigation.state import NavigationState
 from ..functions.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
-from ..functions.validate_content import check_json, check_csv, check_path
+from ..functions.validate_content import check_json, check_csv, check_path, check_yaml
 from ..functions.create_csv_string import create_csv_string
 import io, re, json, csv, yaml
 from loguru import logger
@@ -22,6 +22,8 @@ class AgentConfigState(rx.State):
     selected_component_id: str = ""
     draft_visible: bool = False
     
+
+    _config_changes_map: rx.Field[dict[str, bool]] = rx.field({})
     # Vars
     # this being named agent details doesn't make sense to be honest
     @rx.var
@@ -31,7 +33,7 @@ class AgentConfigState(rx.State):
         agent_uid = args.get("agent_uid", "")
         return {"uid": uid, "agent_uid": agent_uid}
 
-    # state vars to streamline working checking the validity of working config
+    # ========= state vars to streamline working checking the validity of working config =======
     @rx.var
     def path_validity(self) -> bool:
         self.working_agent.selected_config_component_id
@@ -70,14 +72,50 @@ class AgentConfigState(rx.State):
         return False
 
     @rx.var
-    def changes_map(self) -> rx.Field[dict[str, bool]]:
+    def config_changes_map(self) -> rx.Field[dict[str, bool]]:
         """gathers all config stores in a working agent, and returns a dict with 
         the config store component_id as the key and a bool for if it has been changed"""
-        return rx.field({
+        self._config_changes_map = rx.field({
                 config.component_id: config.dict() == config.safe_entry 
                 for config in self.working_agent.config_store
             })
+        return self._config_changes_map 
+    # ======== End of config validation vars =========
 
+
+    # ======= state vars to streamline agent validation =======
+    @rx.var
+    async def agent_valid(self) -> bool:
+        """checks if the agent identity is valid"""
+        valid, validity_map = await self.check_agent_validity()
+        return valid
+    
+    @rx.var
+    async def agent_identity_not_in_use(self) -> bool:
+        """checks if the agent identity is valid"""
+        valid, validity_map = await self.check_agent_validity()
+        return validity_map["identity_not_in_use"]
+
+    @rx.var
+    async def agent_identity_validity(self) -> bool:
+        """checks if the agent identity is valid"""
+        valid, validity_map = await self.check_agent_validity()
+        return validity_map["identity_valid"]
+    
+    @rx.var
+    async def agent_source_validity(self) -> bool:
+        """checks if the agent source is valid"""
+        valid, validity_map = await self.check_agent_validity()
+        return validity_map["source"]
+    
+    @rx.var
+    async def agent_config_validity(self) -> bool:
+        """checks if the agent config is valid"""
+        valid, validity_map = await self.check_agent_validity()
+        return validity_map["config"]
+
+    # ======== End of agent validation vars========
+    
     @rx.var
     def committed_configs(self) -> list[ConfigStoreEntryModelView]:
         return [
@@ -114,12 +152,15 @@ class AgentConfigState(rx.State):
         logger.debug(f"committed configs in agent config store: {self.committed_configs}")
 
     @rx.event
-    def update_agent_detail(self, field: str, value: str, id: str = None):
+    async def update_agent_detail(self, field: str, value: str, id: str = None):
         """Update agent details directly"""
         setattr(self.working_agent, field, value)
         
         if id is not None:
             yield rx.set_value(id, value)
+
+        valid, validity_map = await self.check_agent_validity()
+        self.working_agent.contains_errors = not valid
 
     @rx.event
     async def update_config_detail(self, field: str, value: str, id: str = None):
@@ -380,6 +421,68 @@ class AgentConfigState(rx.State):
             self.working_agent.selected_config_component_id = component_id
         logger.debug(f"our new config entry: {self.working_agent.selected_config_component_id}")
 
+    async def check_agent_validity(self) -> tuple[bool, dict[str, bool]]:
+        valid: bool = True
+        validity_map: dict[str, bool] = {
+            "identity_valid": True,
+            "identity_not_in_use": True,
+            "source": True,
+            "config": True
+        }
+
+        platform_state: AppState = await self.get_state(AppState)
+        if self.agent_details["uid"] == "":
+            return (valid, validity_map)
+        
+        working_platform: Instance = platform_state.platforms[self.agent_details["uid"]]
+        
+
+        
+        # Create a dictionary mapping identities to routing IDs
+        identity_to_rid = {identity: agent.routing_id 
+                        for identity, agent in working_platform.platform.agents.items()}
+
+        # Check if the identity already exists
+        if self.working_agent.identity in identity_to_rid:
+            # Checking if the existing identity is not the same as the current agent's identity via routing id
+            if self.working_agent.routing_id != identity_to_rid[self.working_agent.identity]:
+                valid = False
+                validity_map["identity_not_in_use"] = False
+
+        # implement Source validity:
+        # ...
+        
+        # implement Identity validity:
+        # ...
+
+        # config validity:
+        # verify if the config is valid json or yaml
+        if check_json(self.working_agent.config) == False:
+            if check_yaml(self.working_agent.config) == False:
+                validity_map["config"] = False
+                valid = False
+        
+        # try:
+        #     # First try to parse as JSON
+        #     import json
+        #     json.loads(self.working_agent.config)
+        #     config_valid = True
+        # except json.JSONDecodeError:
+        #     try:
+        #         # If JSON fails, try to parse as YAML
+        #         import yaml
+        #         yaml.safe_load(self.working_agent.config)
+        #         config_valid = True
+        #     except yaml.YAMLError:
+        #         # Config is neither valid JSON nor valid YAML
+        #         pass
+        
+        # if not config_valid:
+        #     valid = False
+        #     validity_map["config"] = False
+        logger.debug(f"this is our validity: {valid} and here is our map: {validity_map}")
+        return (valid, validity_map)
+
     def check_config_validity(self, config: ConfigStoreEntryModelView) -> tuple[bool, dict[str, bool]]:
         """checks the validity of each field in the config. also checks the json/csv versions
         returns bool for overall validity, and dict containing fields with errors in a string bool value pair"""
@@ -437,7 +540,12 @@ def agent_config_page() -> rx.Component:
                     "Save Agent",
                     variant="soft",
                     color_scheme="green",
-                    on_click = AgentConfigState.flip_draft_visibility
+                    on_click = AgentConfigState.flip_draft_visibility,
+                    disabled = rx.cond(
+                        AgentConfigState.agent_valid,
+                        False,
+                        True
+                    )
                     # on_click=lambda: AgentConfigState.save_agent_config()
                 ),
                 spacing="6",
@@ -504,11 +612,12 @@ def agent_config_page() -> rx.Component:
                                         ),
                                         #TODO, i would like to create a system to check if the config is changed or not, apparently we cant index the 
                                         # dict which is annoying....
-                                        class_name=rx.cond(
-                                            AgentConfigState.config_validity.get(config.component_id),
-                                            "agent_config_tile uncommitted",
-                                            "agent_config_tile"
-                                        ),
+                                        # class_name=rx.cond(
+                                        #     # True,
+                                        #     AgentConfigState.config_changes_map[config.component_id],
+                                        #     "agent_config_tile uncommitted",
+                                        #     "agent_config_tile"
+                                        # ),
                                     )
                                 ),
                                 direction="column",
@@ -578,7 +687,7 @@ def agent_config_page() -> rx.Component:
                                                                     rx.cond(
                                                                         AgentConfigState.config_json_validity == False,
                                                                         rx.text(
-                                                                            "Inputted JSON is not valid",
+                                                                            "Invalid JSON detected",
                                                                             color_scheme="red"
                                                                         )
                                                                     )
@@ -789,10 +898,26 @@ def agent_config_tab() -> rx.Component:
     return rx.flex(
         form_entry.form_entry(
             "Identity",
-            rx.input(
-                value=AgentConfigState.working_agent.identity,
-                on_change=lambda v: AgentConfigState.update_agent_detail("identity", v),
-                size="3",
+            rx.vstack(
+                rx.input(
+                    value=AgentConfigState.working_agent.identity,
+                    on_change=lambda v: AgentConfigState.update_agent_detail("identity", v),
+                    size="3",
+                ),
+                rx.cond(
+                    AgentConfigState.agent_identity_validity == False,
+                    rx.text(
+                        "Identity is invalid",
+                        color_scheme="red"
+                    )
+                ),
+                rx.cond(
+                    AgentConfigState.agent_identity_not_in_use == False,
+                    rx.text(
+                        "Identity is already in use",
+                        color_scheme="red"
+                    )
+                )
             )
         ),
         form_entry.form_entry(
@@ -805,10 +930,19 @@ def agent_config_tab() -> rx.Component:
         ),
         form_entry.form_entry(
             "Agent Config",
-            text_editor.text_editor(
+            rx.vstack(
+                text_editor.text_editor(
                 placeholder="Type out JSON, YAML, or upload a file!",
                 value=AgentConfigState.working_agent.config,
-                on_change=lambda v: AgentConfigState.update_agent_detail("config", v),
+                    on_change=lambda v: AgentConfigState.update_agent_detail("config", v),
+                ),
+                rx.cond(
+                    AgentConfigState.agent_config_validity == False,
+                    rx.text(
+                        "Invalid JSON or YAML detected",
+                        color_scheme="red"
+                    )
+                ),
             ),
             upload=rx.upload.root( 
                 icon_upload.icon_upload(),

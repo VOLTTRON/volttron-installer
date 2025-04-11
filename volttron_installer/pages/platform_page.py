@@ -68,7 +68,7 @@ async def agents_off_catalog() -> List[AgentModelView]:
         agent_list.append(
             AgentModelView(
                 identity=str(identity),
-                source=json.dumps(agent.source, indent=4),
+                source=agent.source,
                 config_store_allowed = agent.config_store_allowed,
                 config_store=[
                     ConfigStoreEntryModelView(
@@ -83,7 +83,7 @@ async def agents_off_catalog() -> List[AgentModelView]:
                         }
                     ) for path, entry in agent.default_config_store.items()
                 ],
-                config=str(agent.default_config),
+                config=json.dumps(agent.default_config, indent=4),
             )
         )
     return agent_list
@@ -127,7 +127,7 @@ async def instances_from_api() -> dict[str, Instance]:
                     agents={
                         identity: AgentModelView(
                             identity=identity,
-                            source=json.dumps(agent.source, indent=4),
+                            source=agent.source,
                             routing_id=identity,
                             safe_agent={
                                 "identity" : identity,
@@ -149,7 +149,7 @@ async def instances_from_api() -> dict[str, Instance]:
                                     },
                                 ) for path, entry in agent.config_store.items()
                             ],
-                            config=str(agent.config),
+                            config=json.dumps(agent.config, indent=4),
                         )
                         for identity, agent in p.agents.items()
                     }

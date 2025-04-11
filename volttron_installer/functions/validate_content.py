@@ -40,6 +40,15 @@ def check_json(json_string: str) -> bool:
     except json.JSONDecodeError:
         return False
 
+def check_yaml(yaml_string: str) -> bool:
+    yaml_string = yaml_string.strip()
+
+    try:
+        yaml.safe_load(yaml_string)
+        return True
+    except yaml.YAMLError:
+        return False
+
 def check_csv(csv_string: str) -> bool:
     try:
         # Parse the CSV string

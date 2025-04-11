@@ -6,7 +6,7 @@ def text_editor(height="25rem", width="40rem", size="3", placeholder="Type out J
         width=width,
         height=height,
         size=size,
-        spell_check="false",
+        spell_check=False,
         placeholder=placeholder,
         class_name="text_editor",
         **props
