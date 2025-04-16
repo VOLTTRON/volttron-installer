@@ -155,3 +155,15 @@ class PlatformModelView(rx.Base):
     config: PlatformConfigModelView = PlatformConfigModelView()
     agents: dict[str, AgentModelView] = {}
     in_file: bool = False
+
+    safe_platform: dict[str, Any] = {}
+    
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "config": self.config.to_dict(),
+            "agents": {
+                agent.identity: agent.to_dict()
+                for agent in self.agents.values()
+            }
+        }
+    

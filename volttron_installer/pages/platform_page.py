@@ -47,12 +47,7 @@ class Instance(rx.Base):
     def does_host_have_errors(self) -> bool:
         host_dict = self.host.to_dict()
         if not all([host_dict.get("id"), host_dict.get("ansible_user"), host_dict.get("ansible_host")]):
-            logger.debug("Error: Missing host details", host_dict)
-        logger.debug("\n\nTHIS SI ME HRADCORE CHECKING IF ITS VALID OR NOT")
-        logger.debug("id", host_dict["id"]=="")
-        logger.debug("user", host_dict["ansible_user"]=="")
-        logger.debug("host", host_dict["ansible_host"]=="")
-        logger.debug("\n")
+            logger.debug(f"Error: Missing host details {host_dict}")
         # If all fields are filled out, return false because no errors
         return (
             host_dict["id"] and \
@@ -160,8 +155,10 @@ async def instances_from_api() -> dict[str, Instance]:
                 new_instance = False,
             )
         }
+        
         instances.update(instance)
     for uid, instance in instances.items():
+        instance.platform.safe_platform = instance.platform.to_dict()
         for agent in instance.platform.agents.values():
             for config in agent.config_store:
                 config.safe_entry = config.dict()
@@ -213,8 +210,25 @@ class State(rx.State):
         if self.current_uid == "":
             return True
         return self.platform_validity(self.platforms[self.current_uid])[1]["vip_address"]
-    
     # === end of platform validation vars ===
+
+    # === vars for instance validation ===
+    @rx.var
+    def instance_savable(self) -> bool:
+        if self.current_uid == "":
+            return True
+        return self.check_instance_savable(self.platforms[self.current_uid])
+    
+    @rx.var 
+    def instance_uncaught(self) -> bool:
+        if self.current_uid == "":
+            return False
+        return self.check_instance_uncaught(self.platforms[self.current_uid])
+    
+    @rx.var
+    def instance_deployable(self) -> bool:
+        return True
+    # === end of instance validation bars ===
 
     # Events
     @rx.event
@@ -306,6 +320,7 @@ class State(rx.State):
         new_uid = self.generate_unique_uid()
         new_host = HostEntryModelView(id="", ansible_user="", ansible_host="")
         new_platform = PlatformModelView(config=PlatformConfigModelView(), in_file=False)
+        new_platform.safe_platform = new_platform.to_dict()
         self.platforms[new_uid] = Instance(
                 host=new_host, 
                 platform=new_platform,
@@ -453,7 +468,8 @@ class State(rx.State):
         working_platform.platform.in_file = True
         yield rx.toast.success("Changes saved successfully")
 
-
+    # NOTE: i would like to offload the uncaught and valid vars into the state vars because it's easier for the UI to read off of 
+    # state vars, for faster development, ive kept these here and i'll change it once it's time to refine the code.
     def handle_uncaught(self, working_platform: Instance):
         working_platform.uncaught = working_platform.has_uncaught_changes()
 
@@ -467,6 +483,44 @@ class State(rx.State):
             if new_uid not in self.platforms:
                 return new_uid
     
+    # checking functions
+    def check_instance_uncaught(self, working_platform: Instance) -> bool:
+        uncaught: bool = False
+        # check if host details are changed
+        # logger.debug(f"I am checking host now..")
+        if working_platform.host.to_dict() != working_platform.safe_host_entry:
+            # logger.debug(f"Host is uncaught")
+            uncaught = True
+
+        # check if platform details are changed
+        # logger.debug(f"I am checking platform now...")
+        if working_platform.platform.to_dict() != working_platform.platform.safe_platform:
+            # logger.debug(f"Platform is uncaught")
+            uncaught = True
+        
+        return uncaught
+
+    def check_instance_savable(self, working_platform: Instance) -> bool:
+        savable = True
+
+        # manually check the host... yuck.
+        host_dict = working_platform.host.to_dict()
+        if (
+            host_dict["id"] == "" or \
+            host_dict["ansible_user"] == "" or \
+            host_dict["ansible_host"] == ""
+        ):
+            logger.debug("Host is not valid...")
+            logger.debug(f"here is the host to prove: {host_dict}")
+            savable = False
+        
+        # check if platform details are valid 
+        platform_valid, platform_valid_map = self.platform_validity(working_platform)
+        if platform_valid == False:
+            savable = False
+
+        return savable
+
     def platform_validity(self, working_platform: Instance) -> tuple[bool, dict[str, bool]]:
         valid = True
         validity_map: dict[str, bool] = {
@@ -507,8 +561,9 @@ def platform_page() -> rx.Component:
         platform_tabs()
     )))
 
-# TODO: clean up these components to make it more readable and clean. 
+# TODO: clean up these components to make it more readable and separated. 
 # These components all work if they have the right setup which follows:
+# def function() -> rx.Component:
 #   working_platform: Instance = State.platforms[State.current_uid]
 #   return rx.cond(State.is_hydrated,
 #             rest of component...
@@ -809,7 +864,9 @@ def configuration_tab_content() -> rx.Component:
                         color_scheme="green",
                         on_click=lambda: State.handle_save(),
                         disabled=rx.cond(
-                                working_platform.uncaught,
+                                (State.instance_savable)
+                                & (State.instance_uncaught),
+                                # (working_platform.uncaught),
                                 False,
                                 True
                             )
@@ -834,7 +891,8 @@ def configuration_tab_content() -> rx.Component:
                             color_scheme="red",
                             on_click=lambda: State.handle_cancel(),
                             disabled=rx.cond(
-                                working_platform.uncaught == False,
+                                State.instance_uncaught == False,
+                                # working_platform.uncaught == False,
                                 True,
                                 False
                             )
