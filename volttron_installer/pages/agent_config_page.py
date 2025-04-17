@@ -12,7 +12,7 @@ from .platform_page import State as AppState
 from .platform_page import Instance
 from ..navigation.state import NavigationState
 from ..functions.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
-from ..functions.validate_content import check_json, check_csv, check_path, check_yaml
+from ..functions.validate_content import check_json, check_csv, check_path, check_yaml, check_regular_expression
 from ..functions.create_csv_string import create_csv_string
 import io, re, json, csv, yaml
 from loguru import logger
@@ -23,7 +23,6 @@ class AgentConfigState(rx.State):
     draft_visible: bool = False
     
 
-    _config_changes_map: rx.Field[dict[str, bool]] = rx.field({})
     # Vars
     # this being named agent details doesn't make sense to be honest
     @rx.var
@@ -34,6 +33,8 @@ class AgentConfigState(rx.State):
         return {"uid": uid, "agent_uid": agent_uid}
 
     # ========= state vars to streamline working checking the validity of working config =======
+    
+    # TODO: implement def config_uncaught var
     @rx.var
     def path_validity(self) -> bool:
         self.working_agent.selected_config_component_id
@@ -72,14 +73,10 @@ class AgentConfigState(rx.State):
         return False
 
     @rx.var
-    def config_changes_map(self) -> rx.Field[dict[str, bool]]:
-        """gathers all config stores in a working agent, and returns a dict with 
-        the config store component_id as the key and a bool for if it has been changed"""
-        self._config_changes_map = rx.field({
-                config.component_id: config.dict() == config.safe_entry 
-                for config in self.working_agent.config_store
-            })
-        return self._config_changes_map 
+    def changed_configs_list(self) -> list[str]:
+        """returns a list of component ids for the config store entries that have been changed"""
+        return list(config.component_id for config in self.working_agent.config_store if config.dict() != config.safe_entry)
+
     # ======== End of config validation vars =========
 
 
@@ -399,8 +396,11 @@ class AgentConfigState(rx.State):
             yield AgentConfigState.flip_draft_visibility
             yield rx.toast.error("Identity is already in use!")
             return
-        agent.uncaught = False
+        agent.is_new = False
         agent.safe_agent = agent.to_dict()
+
+        # Work with our safe agent just to be safe
+        # working_platform.platform.safe_platform["agents"][agent.safe_agent["identity"]] = agent.safe_agent
         logger.debug("oh yeah, we saved and here is our platform agents:")
         logger.debug(f"{working_platform.platform.agents}")
         yield AgentConfigState.flip_draft_visibility
@@ -453,7 +453,9 @@ class AgentConfigState(rx.State):
         # ...
         
         # implement Identity validity:
-        # ...
+        if check_regular_expression(self.working_agent.identity) == False:
+            valid = False
+            validity_map["identity_valid"] = False
 
         # config validity:
         # verify if the config is valid json or yaml
@@ -612,12 +614,17 @@ def agent_config_page() -> rx.Component:
                                         ),
                                         #TODO, i would like to create a system to check if the config is changed or not, apparently we cant index the 
                                         # dict which is annoying....
-                                        # class_name=rx.cond(
-                                        #     # True,
-                                        #     AgentConfigState.config_changes_map[config.component_id],
-                                        #     "agent_config_tile uncommitted",
-                                        #     "agent_config_tile"
-                                        # ),
+                                        class_name=rx.cond(
+                                            # True,
+                                            AgentConfigState.changed_configs_list.contains(config.component_id),
+                                            "agent_config_tile uncommitted",
+                                            "agent_config_tile"
+                                        ),
+                                        tooltip=rx.cond(
+                                            AgentConfigState.changed_configs_list.contains(config.component_id),
+                                            "Config store entry has been changed",
+                                            ""
+                                        ),
                                     )
                                 ),
                                 direction="column",
@@ -649,7 +656,12 @@ def agent_config_page() -> rx.Component:
                                                                 rx.input(
                                                                     size="3",
                                                                     value=config.path,
-                                                                    on_change=lambda v: AgentConfigState.update_config_detail("path", v)
+                                                                    on_change=lambda v: AgentConfigState.update_config_detail("path", v),
+                                                                    color_scheme=rx.cond(
+                                                                        AgentConfigState.path_validity == False,
+                                                                        "red",
+                                                                        "gray"
+                                                                    ),
                                                                 ),
                                                                 rx.cond(
                                                                     AgentConfigState.path_validity == False,
@@ -678,8 +690,8 @@ def agent_config_page() -> rx.Component:
                                                                     text_editor.text_editor(
                                                                         value=config.value,
                                                                         color_scheme=rx.cond(
-                                                                            config.valid,
-                                                                            "tomato",
+                                                                            AgentConfigState.config_json_validity == False,
+                                                                            "red",
                                                                             "gray"
                                                                         ),
                                                                         on_change=lambda v: AgentConfigState.update_config_detail("value", v)

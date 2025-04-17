@@ -176,7 +176,7 @@ styles: dict = {
         "width": "10.5rem",
         "min-height": "2rem",
         "border-radius": COMMON_BORDER_RADIUS,
-        "cursor": "pointer",
+        # "cursor": "pointer",
         "padding": ".25rem",
         "user-select": "none",
         "justify-content": "start",
@@ -190,12 +190,16 @@ styles: dict = {
     },
 
     ".agent_config_tile.uncommitted": {
-        "background-color" : "orange"
+        "background-color" : "#FFA726"
     },
 
-    ".agent_config_tile:hover" : {
-        "background-color" : "#333335"
+    ".agent_config_tile.new": {
+        "background-color" : "#FFA726",
     },
+
+    # ".agent_config_tile:hover" : {
+    #     "background-color" : "#333335"
+    # },
 
     ".agent_config_modal_container": {
         "padding-left" : "3rem",

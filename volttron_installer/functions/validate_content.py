@@ -69,3 +69,7 @@ def check_csv(csv_string: str) -> bool:
     except Exception as e:
         logger.debug(f"CSV verification error: {e}")
         return False
+    
+def check_regular_expression(regex_string: str) -> bool:
+    valid_field_name_for_config_pattern = re.compile(r"^[a-zA-Z_-][a-zA-Z0-9_.-]*$")
+    return valid_field_name_for_config_pattern.match(regex_string) is not None

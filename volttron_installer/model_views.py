@@ -87,7 +87,7 @@ class AgentModelView(rx.Base):
     config_store: list[ConfigStoreEntryModelView] = []
 
     contains_errors: bool = False
-    uncaught: bool = True
+    is_new: bool = False
     safe_agent: dict[str, Any] = {}
     config_store_allowed: bool = True
 

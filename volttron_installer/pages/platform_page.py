@@ -1,5 +1,6 @@
 import reflex as rx
 from ..layouts.app_layout import app_layout
+from ..components.tiles import config_tile
 from ..components.buttons import icon_button_wrapper
 from ..components.header.header import header
 from ..components.buttons.tile_icon import tile_icon
@@ -75,6 +76,7 @@ async def agents_off_catalog() -> List[AgentModelView]:
                         data_type=entry.data_type,
                         value=str(entry.value),
                         uncommitted=False,
+                        is_new=True,
                         safe_entry={
                             "path": path,
                             "data_type": entry.data_type,
@@ -192,6 +194,14 @@ class State(rx.State):
     def in_file_platforms(self) -> list[Instance]:
         return [instance for instance in self.platforms.values() if instance.platform.in_file]
     
+    @rx.var
+    def new_agents_list(self) -> list[str]:
+        if self.current_uid == "":
+            return []
+        working_platform: Instance = self.platforms[self.current_uid]
+        logger.debug(f"nah because new agents are : {[agent.identity for agent in working_platform.platform.agents.values() if not agent.is_new]}")
+        return [agent.identity for agent in working_platform.platform.agents.values() if not agent.is_new]
+
     # ==== vars for platform validation ===
     @rx.var
     def platform_validity(self) -> bool:
@@ -312,6 +322,21 @@ class State(rx.State):
         working_platform.host = HostEntryModelView(**working_platform.safe_host_entry)
         working_platform.uncaught = False
         working_platform.valid = working_platform.does_host_have_errors()
+
+        # Revert back to our previous platform
+        working_platform.platform.config.instance_name = working_platform.platform.safe_platform["config"].get("instance_name", "volttron1")
+        working_platform.platform.config.vip_address = working_platform.platform.safe_platform["config"].get("vip_address", "tcp://127.0.0.1:22916")
+        
+        # Revert our platform's agents
+        for agent in working_platform.platform.agents.values():
+            # We revert the addition of agents that haven't been saved/are default. if the user has 
+            # added an agent and has saved the agent previously, we have the agent's safe entry so we 
+            # don't need to do anything fancy. Basically if the agent has never been saved before, we can revert
+            # the addition of the agent. if it has, we dont do anything about it.
+            if agent.is_new:
+                del(working_platform.platform.agents[agent.identity])
+
+
         logger.debug("i pressed cancel,")
         yield rx.toast.info("Changes Reverted.")
 
@@ -492,11 +517,23 @@ class State(rx.State):
             # logger.debug(f"Host is uncaught")
             uncaught = True
 
-        # check if platform details are changed
-        # logger.debug(f"I am checking platform now...")
-        if working_platform.platform.to_dict() != working_platform.platform.safe_platform:
+        # check if platform details are changed but skip the agents field as we will handle that separately
+        if {k: v for k, v in working_platform.platform.to_dict().items() if k != 'agents'} != {k: v for k, v in working_platform.platform.safe_platform.items() if k != 'agents'}:
             # logger.debug(f"Platform is uncaught")
             uncaught = True
+
+        # check if we added some new uncaught agents
+        for agent in working_platform.platform.agents.values():
+            if agent.is_new:
+                logger.debug(f"we found an uncaught agent")
+                uncaught = True
+                # we can break out of this because we just needed to find at least one brand new uncaught agent
+                # to render the platform as uncaught
+                break
+
+        # if working_platform.platform.to_dict() != working_platform.platform.safe_platform:
+        #     # logger.debug(f"Platform is uncaught")
+        #     uncaught = True
         
         return uncaught
 
@@ -804,7 +841,7 @@ def configuration_tab_content() -> rx.Component:
                                                     rx.heading("Listed Agents", as_="h3"),
                                                     rx.foreach(
                                                         State.list_of_agents,
-                                                        lambda agent, index: agent_config_tile(
+                                                        lambda agent, index: config_tile.config_tile(
                                                             agent.identity,
                                                             right_component=tile_icon(
                                                                 "plus",
@@ -821,7 +858,7 @@ def configuration_tab_content() -> rx.Component:
                                                     rx.heading("Added Agents", as_="h3"),
                                                     rx.foreach(
                                                         working_platform.platform.agents,
-                                                        lambda identity_agent_pair: agent_config_tile(
+                                                        lambda identity_agent_pair: config_tile.config_tile(
                                                             identity_agent_pair[1].identity,
                                                             left_component=tile_icon(
                                                                 "trash-2",
@@ -829,14 +866,26 @@ def configuration_tab_content() -> rx.Component:
                                                                 # on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
                                                             ),
                                                             right_component=tile_icon(
-                                                                    "settings",
-                                                                    on_click=lambda: NavigationState.route_to_agent_config(
-                                                                        State.current_uid,
-                                                                        identity_agent_pair[1].routing_id,
-                                                                        identity_agent_pair[1]
-                                                                    )
+                                                                "settings",
+                                                                on_click=lambda: NavigationState.route_to_agent_config(
+                                                                    State.current_uid,
+                                                                    identity_agent_pair[1].routing_id,
+                                                                    identity_agent_pair[1]
                                                                 )
-                                                            )
+                                                            ),
+                                                            # This works but i dont want to implement it just yet, i want more info on how
+                                                            # this should ideally work
+                                                            # class_name=rx.cond(
+                                                            #     State.new_agents_list.contains(identity_agent_pair[1].routing_id),
+                                                            #     "agent_config_tile new",
+                                                            #     "agent_config_tile"
+                                                            # ),
+                                                            # tooltip=rx.cond(
+                                                            #     State.new_agents_list.contains(identity_agent_pair[1].routing_id),
+                                                            #     "This agent is loaded with default configs",
+                                                            #     ""
+                                                            # )
+                                                        )
                                                     ),
                                                     class_name="agent_config_view_content"
                                                 ),
