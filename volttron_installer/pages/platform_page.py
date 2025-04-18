@@ -21,6 +21,7 @@ from loguru import logger
 from ..model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
 from ..thin_endpoint_wrappers import *
 import string, random, json, csv, yaml, re
+from copy import deepcopy
 
 parts = Literal["connection", "instance_configuration"]
  
@@ -215,15 +216,21 @@ class State(rx.State):
     def new_agents_list(self) -> list[str]:
         if self.current_uid == "":
             return []
-        working_platform: Instance = self.platforms[self.current_uid]
-        logger.debug(f"nah because new agents are : {[agent.identity for agent in working_platform.platform.agents.values() if not agent.is_new]}")
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return []
+        # logger.debug(f"nah because new agents are : {[agent.identity for agent in working_platform.platform.agents.values() if not agent.is_new]}")
         return [agent.identity for agent in working_platform.platform.agents.values() if not agent.is_new]
 
     @rx.var
     def platform_title(self) -> str:
         if self.current_uid == "":
             return " "
-        return self.platforms[self.current_uid].platform.safe_platform['config']['instance_name']
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return " "
+        else:
+            return working_platform.platform.safe_platform['config']['instance_name']
 
     # === vars for platform details ===
     @rx.var
@@ -239,39 +246,59 @@ class State(rx.State):
     def platform_validity(self) -> bool:
         if self.current_uid == "":
             return True
-        return self.platform_validity(self.platforms[self.current_uid])[0]
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.platform_validity(working_platform)[0]
     
     @rx.var
     def platform_instance_name_validity(self)-> bool:
         if self.current_uid == "":
             return True
-        return self.platform_validity(self.platforms[self.current_uid])[1]["instance_name"]
-
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.platform_validity(working_platform)[1]["instance_name"]
+    
     @rx.var
     def platform_instance_name_not_in_use(self)-> bool:
         if self.current_uid == "":
             return True
-        return self.platform_validity(self.platforms[self.current_uid])[1]["instance_name_not_used"]
-
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.platform_validity(working_platform)[1]["instance_name_not_used"]
+    
     @rx.var
     def platform_vip_address_validity(self) -> bool:
         if self.current_uid == "":
             return True
-        return self.platform_validity(self.platforms[self.current_uid])[1]["vip_address"]
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.platform_validity(working_platform)[1]["vip_address"]
     # === end of platform validation vars ===
 
     # === vars for instance validation ===
     @rx.var
     def instance_savable(self) -> bool:
         if self.current_uid == "":
-            return True
-        return self.check_instance_savable(self.platforms[self.current_uid])
+            return False
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        else:
+            return self.check_instance_savable(working_platform)
     
     @rx.var 
     def instance_uncaught(self) -> bool:
         if self.current_uid == "":
             return False
-        return self.check_instance_uncaught(self.platforms[self.current_uid])
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        else:
+            return self.check_instance_uncaught(working_platform)
     
     @rx.var
     def instance_deployable(self) -> bool:
@@ -299,6 +326,14 @@ class State(rx.State):
             blank_agent
         )
         self.platforms.update(platforms_from_api)
+
+    @rx.event(background=True)
+    async def delete_temp_uid(self, uid_copy: str):
+        import asyncio
+        await asyncio.sleep(5)  # Wait for 5 seconds (adjust as needed)
+        async with self:
+            del self.platforms[uid_copy]
+        logger.debug(f"this is the list of param afters: {list(self.platforms.keys())}")
 
     @rx.event
     def handle_adding_agent(self, agent: AgentModelView):
@@ -463,11 +498,14 @@ class State(rx.State):
     @rx.event
     async def handle_save(self):
         working_platform: Instance = self.platforms[self.current_uid]
+        uid_copy = deepcopy(self.current_uid)
+
+        logger.debug(f"this is the uid copy: {uid_copy}")
         all_platforms: list[PlatformDefinition] = await get_all_platforms()
 
         working_platform.safe_host_entry = working_platform.host.to_dict()
         working_platform.uncaught = False
-        logger.debug(f"getting the host id: {working_platform.safe_host_entry['id']}")
+        # logger.debug(f"getting the host id: {working_platform.safe_host_entry['id']}")
         
         # Create base platform
         base_platform_request = CreatePlatformRequest(
@@ -492,9 +530,10 @@ class State(rx.State):
             }
         )
 
-        # Logging
-        logger.debug(f"Final base platform_request: {base_platform_request}")
-        logger.debug(f"this is my base platform_request: {base_platform_request}")
+        logger.debug(f"this is the uid copy: {uid_copy}")
+        # # Logging
+        # logger.debug(f"Final base platform_request: {base_platform_request}")
+        # logger.debug(f"this is my base platform_request: {base_platform_request}")
         if working_platform.platform.config.instance_name in [p.config.instance_name for p in all_platforms]:
             logger.debug("yes we have committed this already")
             update_platform(
@@ -505,8 +544,9 @@ class State(rx.State):
             return
                 
         request = CreateOrUpdateHostEntryRequest(**working_platform.host.to_dict())
-        logger.debug(f"this is the request: {request}")
+        # logger.debug(f"this is the request: {request}")
         
+        logger.debug(f"this is the uid copy: {uid_copy}")
         await add_host(request)
         inv_serv = await get_inventory_service()
         plat_serv = await get_platform_service()
@@ -515,8 +555,15 @@ class State(rx.State):
             inventory_service=inv_serv,
             platform_service=plat_serv
             )
-        working_platform.platform.in_file = True
+        
+        # Lets say changes saved successfully and redirect to the new url while deleting our old one
+        logger.debug(f"this is the uid copy: {uid_copy}")
         yield rx.toast.success("Changes saved successfully")
+        self.platforms[working_platform.platform.config.instance_name] = working_platform
+        logger.debug(f"this is the list of params: {list(self.platforms.keys())}")
+        yield NavigationState.route_to_platform(working_platform.platform.config.instance_name)
+        logger.debug(f"this is the uid about to deletee: {uid_copy}")
+        yield State.delete_temp_uid(uid_copy)
 
     # NOTE: i would like to offload the uncaught and valid vars into the state vars because it's easier for the UI to read off of 
     # state vars, for faster development, ive kept these here and i'll change it once it's time to refine the code.
@@ -598,7 +645,7 @@ class State(rx.State):
         
         new_name = working_platform.platform.config.instance_name
         existing_names=[p.platform.safe_platform["config"]["instance_name"] for p in self.in_file_platforms if p.new_instance == False and self.current_uid != p.platform.safe_platform["config"]["instance_name"]]
-        logger.debug(f"Checking if '{new_name}' exists in: {existing_names}")
+        # logger.debug(f"Checking if '{new_name}' exists in: {existing_names}")
 
         # Check to see if our instance is taken already:
         # Seeing if our instance name is inside a list of already registered instance names...
