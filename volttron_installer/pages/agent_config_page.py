@@ -450,7 +450,9 @@ class AgentConfigState(rx.State):
                 validity_map["identity_not_in_use"] = False
 
         # implement Source validity:
-        # ...
+        if check_path(self.working_agent.source) == False:
+            valid = False
+            validity_map["source"] = False
         
         # implement Identity validity:
         if check_regular_expression(self.working_agent.identity) == False:
@@ -460,7 +462,7 @@ class AgentConfigState(rx.State):
         # config validity:
         # verify if the config is valid json or yaml
         if check_json(self.working_agent.config) == False:
-            if check_yaml(self.working_agent.config) == False:
+            if check_yaml(self.working_agent.config) == False or self.working_agent.config == "":
                 validity_map["config"] = False
                 valid = False
         
@@ -495,6 +497,7 @@ class AgentConfigState(rx.State):
             "json" : True
         }
 
+        # Checking validity for each data type
         if config.data_type == "JSON":
             config_fields["json"] = check_json(config.value)
             if check_json(config.value) == False:
@@ -537,7 +540,14 @@ def agent_config_page() -> rx.Component:
                 )
             ),
             rx.hstack(
-                rx.heading(AgentConfigState.working_agent.safe_agent["identity"], as_="h3"),
+                rx.heading(
+                    rx.cond(
+                        AgentConfigState.working_agent.safe_agent["identity"] != "",
+                        AgentConfigState.working_agent.safe_agent["identity"],
+                        "New Agent"
+                    ), 
+                    as_="h3"
+                ),
                 rx.button(
                     "Save Agent",
                     variant="soft",
@@ -915,11 +925,16 @@ def agent_config_tab() -> rx.Component:
                     value=AgentConfigState.working_agent.identity,
                     on_change=lambda v: AgentConfigState.update_agent_detail("identity", v),
                     size="3",
+                    color_scheme = rx.cond(
+                        AgentConfigState.agent_identity_validity == False,
+                        "red",
+                        "gray"
+                    )
                 ),
                 rx.cond(
                     AgentConfigState.agent_identity_validity == False,
                     rx.text(
-                        "Identity is invalid",
+                        "Identity must start with a letter and can only contain letters, numbers, underscores, periods, or hyphens.",
                         color_scheme="red"
                     )
                 ),
@@ -934,10 +949,24 @@ def agent_config_tab() -> rx.Component:
         ),
         form_entry.form_entry(
             "Source", 
-            rx.input(
-                value=AgentConfigState.working_agent.source,
-                on_change=lambda v: AgentConfigState.update_agent_detail("source", v),
-                size="3",
+            rx.vstack(
+                rx.input(
+                    value=AgentConfigState.working_agent.source,
+                    on_change=lambda v: AgentConfigState.update_agent_detail("source", v),
+                    size="3",
+                    color_scheme = rx.cond(
+                        AgentConfigState.agent_source_validity == False,
+                        "red",
+                        "gray"
+                    )
+                ),
+                rx.cond(
+                    AgentConfigState.agent_source_validity == False,
+                    rx.text(
+                        "Source must be a valid path",
+                        color_scheme="red"
+                    )
+                )
             )
         ),
         form_entry.form_entry(
