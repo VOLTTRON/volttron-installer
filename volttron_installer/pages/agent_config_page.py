@@ -546,6 +546,7 @@ def agent_config_page() -> rx.Component:
                         AgentConfigState.working_agent.safe_agent["identity"],
                         "New Agent"
                     ), 
+                    trim="both",
                     as_="h3"
                 ),
                 rx.button(
@@ -786,7 +787,83 @@ def agent_config_page() -> rx.Component:
             padding="4"
         )
     ),
-    rx.spinner()
+    rx.vstack(
+        # Header
+        rx.hstack(
+            rx.skeleton(
+                rx.box(),
+                height="3rem",
+                width="5rem",
+                radius="5rem",
+                loading=True,
+            ),
+            rx.skeleton(
+                rx.box(),
+                height="3rem",
+                width="12rem",
+                radius="5rem",
+                loading=True,
+            ),
+            rx.skeleton(
+                rx.box(),
+                height="2.5rem",
+                width="5rem",
+                radius="5rem",
+                loading=True,
+            ),
+            spacing="4",
+            align="center",
+        ),
+        # Tabs divider
+        rx.skeleton(
+            rx.box(),
+            width="100%",
+            height="15px",
+            loading=True,
+        ),
+        # Fields
+        rx.vstack(
+            rx.skeleton(
+                rx.box(),
+                width="4.5rem",
+                height="1.5rem",
+            ),
+            rx.skeleton(
+                rx.box(),
+                width="14rem",
+                height="2rem",
+            ),
+            spacing="4"
+        ),
+        rx.vstack(
+            rx.skeleton(
+                rx.box(),
+                width="4.5rem",
+                height="1.5rem",
+            ),
+            rx.skeleton(
+                rx.box(),
+                width="14rem",
+                height="2rem",
+            ),
+            spacing="4"
+        ),
+        rx.vstack(
+            rx.skeleton(
+                rx.box(),
+                width="4.5rem",
+                height="1.5rem",
+            ),
+            rx.skeleton(
+                rx.box(),
+                width="40rem",
+                height="25rem",
+            ),
+            spacing="4"
+        ),
+        spacing="6",
+        padding="1rem",
+    )
 )
 
 def agent_draft() -> rx.Component:
