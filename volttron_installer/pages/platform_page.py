@@ -994,7 +994,7 @@ def configuration_tab_content() -> rx.Component:
                         )
                     ),
                     collapsible=True,
-                    default_value="connection",
+                    default_value=["connection"],
                     type="multiple",
                     variant="outline"
                 ),
