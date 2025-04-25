@@ -119,7 +119,8 @@ async def instances_from_api() -> dict[str, Instance]:
             id=p.host_id,
             ansible_user=working_host_entry.ansible_user,
             ansible_host=working_host_entry.ansible_host,
-            ansible_port=working_host_entry.ansible_port,
+            # For later type validation
+            ansible_port=str(working_host_entry.ansible_port),
             http_proxy=working_host_entry.http_proxy,
             https_proxy=working_host_entry.https_proxy,
             volttron_venv=working_host_entry.volttron_venv,
@@ -240,6 +241,53 @@ class State(rx.State):
         return False
 
     # === end of platform detail vars ===
+
+    # ==== vars for connection validation ===
+
+    @rx.var
+    def connection_validity(self) -> bool:
+        if self.current_uid == "":
+            return True
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.connection_validity(working_platform)[0]
+    
+    @rx.var
+    def connection_id_validity(self) -> bool:
+        if self.current_uid == "":
+            return True
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.connection_validity(working_platform)[1]["id"]
+    
+    @rx.var
+    def connection_ansible_user_validity(self) -> bool:
+        if self.current_uid == "":
+            return True
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.connection_validity(working_platform)[1]["ansible_user"]
+    
+    @rx.var
+    def connection_ansible_host_validity(self) -> bool:
+        if self.current_uid == "":
+            return True
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.connection_validity(working_platform)[1]["ansible_host"]
+    
+    @rx.var
+    def connection_ansible_port_validity(self) -> bool:
+        if self.current_uid == "":
+            return True
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.connection_validity(working_platform)[1]["ansible_port"]
 
     # ==== vars for platform validation ===
     @rx.var
@@ -464,9 +512,7 @@ class State(rx.State):
         working_platform_instance = self.platforms[self.current_uid]
         if field == "id":
             setattr(working_platform_instance.host, "ansible_host", value)
-            setattr(working_platform_instance.host, field, value)
-        else:
-            setattr(working_platform_instance.host, field, value)
+        setattr(working_platform_instance.host, field, value)
         working_platform_instance.uncaught = working_platform_instance.has_uncaught_changes()
 
     @rx.event
@@ -536,14 +582,16 @@ class State(rx.State):
         # logger.debug(f"this is my base platform_request: {base_platform_request}")
         if working_platform.platform.config.instance_name in [p.config.instance_name for p in all_platforms]:
             logger.debug("yes we have committed this already")
-            update_platform(
+            await update_platform(
                 working_platform.platform.config.instance_name,
                 base_platform_request
             )
             yield rx.toast.success("Changes saved successfully")
             return
-                
-        request = CreateOrUpdateHostEntryRequest(**working_platform.host.to_dict())
+        
+        host_request = working_platform.host.to_dict()
+        host_request["ansible_port"] = int(host_request["ansible_port"])
+        request = CreateOrUpdateHostEntryRequest(**host_request)
         # logger.debug(f"this is the request: {request}")
         
         logger.debug(f"this is the uid copy: {uid_copy}")
@@ -617,6 +665,7 @@ class State(rx.State):
         if (
             host_dict["id"] == "" or \
             host_dict["ansible_user"] == "" or \
+            host_dict["ansible_port"].isdigit() == False or \
             host_dict["ansible_host"] == ""
         ):
             logger.debug("Host is not valid...")
@@ -629,6 +678,41 @@ class State(rx.State):
             savable = False
 
         return savable
+
+    def connection_validity(self, working_platform: Instance) -> tuple[bool, dict[str, bool]]:
+        valid = True
+        validity_map: dict[str, bool] = {
+            "id" : True,
+            "ansible_user" : True,
+            "ansible_host" : True,
+            "ansible_port" : True,
+            "http_proxy" : True,
+            "https_proxy" : True,
+            "volttron_venv" : True,
+            "volttron_home" : True
+        }
+        # Validate the host id
+        if working_platform.host.id == "":
+            valid = False
+            validity_map["id"] = False
+
+        # Validate the ansible user
+        if working_platform.host.ansible_user == "":
+            valid = False
+            validity_map["ansible_user"] = False
+
+        # Validate the ansible host
+        if working_platform.host.ansible_host == "":
+            valid = False
+            validity_map["ansible_host"] = False
+
+        # Validate the ansible port
+        if not isinstance(working_platform.host.ansible_port, int):
+            if not working_platform.host.ansible_port.isnumeric():
+                valid = False
+                validity_map["ansible_port"] = False
+
+        return (valid, validity_map)
 
     def platform_validity(self, working_platform: Instance) -> tuple[bool, dict[str, bool]]:
         valid = True
@@ -673,11 +757,16 @@ def platform_page() -> rx.Component:
                 icon_key="arrow-left",
                 on_click=lambda: NavigationState.route_to_index()
             ),
-            rx.cond(
-                working_platform.new_instance,
-                rx.text(f"New Platform", size="6"),
-                rx.text(f"Platform: {State.platform_title}", size="6"),
-            )
+            rx.text(f"""{
+                    rx.cond(
+                        working_platform.new_instance,
+                        'New Platform',
+                        f'Platform: {State.platform_title}'
+                    )
+                }""",
+                trim="both",
+                size="6"
+            ),
         ),
         platform_tabs()
     )))
@@ -699,7 +788,7 @@ def platform_tabs() -> rx.Component:
             rx.tabs.root(
                 rx.tabs.list(
                     rx.tabs.trigger(
-                        "Data", value="data", disabled=rx.cond(
+                        "Status", value="status", disabled=rx.cond(
                             working_platform.platform.in_file,
                             False,
                             True
@@ -709,7 +798,7 @@ def platform_tabs() -> rx.Component:
                 ),
                 rx.tabs.content(
                     data_tab_content(),
-                    value="data"
+                    value="status"
                 ),
                 rx.tabs.content(
                     rx.box(
@@ -773,9 +862,15 @@ def configuration_tab_content() -> rx.Component:
                                         on_change=lambda v: State.update_detail("ansible_port", v),
                                         size="3",
                                         required=True,
-                                        type="number"
                                     ),
                                     required_entry=True,
+                                    below_component=rx.cond(
+                                        State.connection_ansible_port_validity == False,
+                                        rx.text(
+                                            "Port SSH must be a valid port number", 
+                                            color_scheme="red"
+                                        )
+                                    ),
                                 ),
                                 rx.box(
                                     rx.hstack(

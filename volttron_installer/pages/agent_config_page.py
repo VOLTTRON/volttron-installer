@@ -168,18 +168,22 @@ class AgentConfigState(rx.State):
                 logger.debug("updating details...")
                 
                 if field == "data_type":
-                    # method to convert if json to csv and vice versa
-                    format =  identify_string_format(config.value) 
-                    # Means we are switching from CSV -> JSON
-                    if format == "CSV":
-                        json_string =  csv_string_to_json_string(config.value)
+                    # if the config value is nothing, just let them change the data type mannn
+                    if config.value == "":
                         setattr(config, field, value)
-                        setattr(config, "value", json_string)
-                    elif format == "JSON":
-                        csv_string =  json_string_to_csv_string(config.value)
-                        usable_csv =  csv_string_to_usable_dict(csv_string)
-                        config.csv_variants["Custom"] = usable_csv
-                        setattr(config, field, value)
+                    else:
+                        # method to convert if json to csv and vice versa
+                        format =  identify_string_format(config.value) 
+                        # Means we are switching from CSV -> JSON
+                        if format == "CSV":
+                            json_string =  csv_string_to_json_string(config.value)
+                            setattr(config, field, value)
+                            setattr(config, "value", json_string)
+                        elif format == "JSON":
+                            csv_string =  json_string_to_csv_string(config.value)
+                            usable_csv =  csv_string_to_usable_dict(csv_string)
+                            config.csv_variants["Custom"] = usable_csv
+                            setattr(config, field, value)
                 else:
                     setattr(config, field, value)
                 valid, valid_map = self.check_config_validity(config)
@@ -787,6 +791,7 @@ def agent_config_page() -> rx.Component:
             padding="4"
         )
     ),
+    # Skeleton stuff
     rx.vstack(
         # Header
         rx.hstack(
@@ -1050,9 +1055,14 @@ def agent_config_tab() -> rx.Component:
             "Agent Config",
             rx.vstack(
                 text_editor.text_editor(
-                placeholder="Type out JSON, YAML, or upload a file!",
-                value=AgentConfigState.working_agent.config,
+                    placeholder="Type out JSON, YAML, or upload a file!",
+                    value=AgentConfigState.working_agent.config,
                     on_change=lambda v: AgentConfigState.update_agent_detail("config", v),
+                    color_scheme = rx.cond(
+                        AgentConfigState.agent_config_validity == False,
+                        "red",
+                        "gray"
+                    ),
                 ),
                 rx.cond(
                     AgentConfigState.agent_config_validity == False,

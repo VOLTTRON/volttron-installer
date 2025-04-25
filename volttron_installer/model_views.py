@@ -116,7 +116,7 @@ class HostEntryModelView(rx.Base):
     id: str = ""
     ansible_user: str = ""
     ansible_host: str = ""
-    ansible_port: int = 22
+    ansible_port: str = "22"
     ansible_connection: Literal["ssh", "local"] = "ssh"
     http_proxy: str = ""
     https_proxy: str = ""
@@ -129,7 +129,7 @@ class HostEntryModelView(rx.Base):
             "id": self.id,
             "ansible_user": self.ansible_user,
             "ansible_host": self.ansible_host,
-            "ansible_port": int(self.ansible_port),
+            "ansible_port": self.ansible_port,
             "ansible_connection": self.ansible_connection,
             "http_proxy": "" if self.http_proxy is None else self.http_proxy,
             "https_proxy": "" if self.https_proxy is None else self.https_proxy,

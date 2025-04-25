@@ -244,7 +244,7 @@ async def update_agent(platform_id: str, agent_id: str, agent: CreateAgentReques
     """Updates an existing agent for a platform"""
     try:
         platform_service = await get_platform_service()
-        agent_definition = AgentDefinition(**agent.dict())
+        agent_definition = AgentDefinition(**agent.model_dump())
         await platform_service.update_agent(platform_id, agent_id, agent_definition)
         return SuccessResponse()
     except Exception as e:
@@ -260,6 +260,12 @@ async def delete_agent(platform_id: str, agent_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@task_router.post("/{host}")
+async def ping_host(host: str):
+    """Pings a specific host; determines if the host is resolvable"""
+
+    return {"status": ""}
+
 @task_router.get("/")
 async def get_tasks():
     """Retrieves the list of tasks"""
@@ -272,19 +278,20 @@ async def task_status(id: str):
     # Get the status of the task
     return {"status": "ok"}
 
-@platform_router.post("/deploy")
-async def deploy_platform(spec: DeployPlatformRequest, 
+@platform_router.post("/deploy/{platform_id}")
+async def deploy_platform(platform_id: str,
                           ansible: AnsibleService = Depends(get_ansible_service),
                           platform_service: PlatformService = Depends(get_platform_service)):
     """Deploys a platform using Ansible"""
     try:
         platform_service = await get_platform_service()
-        platform = await platform_service.get_platform(spec.platform_id)
+        platform = await platform_service.get_platform(platform_id)
         if platform is None:
             raise HTTPException(status_code=404, detail="Platform not found")
 
         return_code, stdout, stderr = await ansible.run_playbook(
             "install-platform",
+            hosts=platform.host_id,
             extra_vars=platform.config.model_dump()
         )
 
@@ -300,26 +307,27 @@ async def deploy_platform(spec: DeployPlatformRequest,
             status_code=500,
             detail=str(e)
         )
-async def deploy_platform(config: PlatformConfig, ansible: AnsibleService = Depends(get_ansible_service)):
-    """Deploys a platform using Ansible"""
-    try:
-        return_code, stdout, stderr = await ansible.run_playbook(
-            "install-platform",  # Updated playbook name
-            extra_vars=config.model_dump()
-        )
+    
+# async def deploy_platform(config: PlatformConfig, ansible: AnsibleService = Depends(get_ansible_service)):
+#     """Deploys a platform using Ansible"""
+#     try:
+#         return_code, stdout, stderr = await ansible.run_playbook(
+#             "install-platform",  # Updated playbook name
+#             extra_vars=config.model_dump()
+#         )
 
-        if return_code != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Ansible deployment failed: {stderr or stdout}"
-            )
-        return {"status": "success", "output": stdout}
+#         if return_code != 0:
+#             raise HTTPException(
+#                 status_code=500,
+#                 detail=f"Ansible deployment failed: {stderr or stdout}"
+#             )
+#         return {"status": "success", "output": stdout}
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=500,
+#             detail=str(e)
+#         )
 
 @ansible_router.post("/ansible/start_platform")
 async def start_platform(platform_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
