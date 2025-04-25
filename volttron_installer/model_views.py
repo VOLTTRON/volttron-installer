@@ -107,7 +107,8 @@ class AgentModelView(rx.Base):
                     "data_type": config["data_type"],
                     "value": config["value"]
                 }
-                for config in (i.dict() for i in self.config_store if i.path != "")
+                # Consider only the valid safe entries in the config store 
+                for config in (i.safe_entry for i in self.config_store if i.safe_entry["path"] != "")
             }
         }
 

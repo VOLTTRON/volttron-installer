@@ -1,24 +1,39 @@
 import json, re, csv, io, yaml, os
 from loguru import logger
+from pathlib import Path
 
-def check_path(path):
-    # Check if path contains invalid characters for the current OS
+def check_path(path_str: str) -> bool:
+    if not isinstance(path_str, str) or not path_str:
+        return False
+    
+    # Try to normalize the path (handles ~, ., .. etc.)
     try:
-        # Normalize path to catch issues
-        normalized_path = os.path.normpath(path)
-        
-        # Check for common invalid path characters
-        # This handles most OS restrictions
-        invalid_chars_pattern = re.compile(r'[:*?"<>|]')  # Common invalid chars in Windows
-        if invalid_chars_pattern.search(normalized_path):
-            return False
+        # Expand user directory if present (~/...)
+        if '~' in path_str:
+            path_str = os.path.expanduser(path_str)
             
-        # Check path isn't empty after normalization
-        if not normalized_path or normalized_path.isspace():
+        # Try to get the absolute path - this will fail for many invalid paths
+        path_str = os.path.normpath(path_str)
+        
+        # On Windows, additional validation for reserved names like COM1, LPT1, etc.
+        if os.name == 'nt':
+            drive, path = os.path.splitdrive(path_str)
+            if drive and path and re.match(r'^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$', 
+                                          path.lstrip('\\').split('\\')[0], 
+                                          re.IGNORECASE):
+                return False
+        
+        # Additional check: try creating a Path object
+        Path(path_str)
+        
+        # Check for invalid characters based on OS
+        invalid_chars = ['<', '>', ':', '"', '|', '?', '*'] if os.name == 'nt' else ['\0']
+        if any(char in path_str for char in invalid_chars):
             return False
             
         return True
-    except:
+        
+    except (ValueError, TypeError, AttributeError):
         return False
 
 def check_json(json_string: str) -> bool:

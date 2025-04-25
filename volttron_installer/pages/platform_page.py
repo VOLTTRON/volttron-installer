@@ -21,6 +21,7 @@ from loguru import logger
 from ..model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
 from ..thin_endpoint_wrappers import *
 import string, random, json, csv, yaml, re
+from copy import deepcopy
 
 parts = Literal["connection", "instance_configuration"]
  
@@ -69,6 +70,19 @@ async def agents_off_catalog() -> List[AgentModelView]:
             AgentModelView(
                 identity=str(identity),
                 source=agent.source,
+                safe_agent={
+                    "identity" : identity,
+                    "source" : agent.source,
+                    "config" : json.dumps(agent.default_config, indent=4),
+                    "config_store" : {
+                        path : {
+                            "path" : path,
+                            "data_type" : config.data_type,
+                            "value" : config.value
+                        }
+                        for path, config in agent.default_config_store.items()
+                    }
+                },
                 config_store_allowed = agent.config_store_allowed,
                 config_store=[
                     ConfigStoreEntryModelView(
@@ -132,7 +146,7 @@ async def instances_from_api() -> dict[str, Instance]:
                             safe_agent={
                                 "identity" : identity,
                                 "source" : agent.source,
-                                "config": agent.config
+                                "config": agent.config,
                             },
                             config_store_allowed=agent.config_store_allowed,
                             config_store=[
@@ -155,6 +169,7 @@ async def instances_from_api() -> dict[str, Instance]:
                     }
                 ),
                 new_instance = False,
+                safe_host_entry=host.to_dict(),
             )
         }
         
@@ -163,14 +178,17 @@ async def instances_from_api() -> dict[str, Instance]:
         instance.platform.safe_platform = instance.platform.to_dict()
         for agent in instance.platform.agents.values():
             for config in agent.config_store:
+                # Assign the config's safe_entry
                 config.safe_entry = config.dict()
                 if config.data_type == "CSV":
                     usable_csv = csv_string_to_usable_dict(config.value)
                     config.csv_variants["Custom"] = usable_csv
                     # logger.debug(f"Loaded usable CSV for config {config.path} inside agent {agent.identity}: {usable_csv}")
+            # After going through the agent's config store and assigning the safe entries,
+            # we can now assign the agent's safe_agent
+            agent.safe_agent = agent.to_dict()
+
     return instances
-
-
 
 class State(rx.State):
     #TODO once we save a platform, we create a routing id 
@@ -198,42 +216,89 @@ class State(rx.State):
     def new_agents_list(self) -> list[str]:
         if self.current_uid == "":
             return []
-        working_platform: Instance = self.platforms[self.current_uid]
-        logger.debug(f"nah because new agents are : {[agent.identity for agent in working_platform.platform.agents.values() if not agent.is_new]}")
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return []
+        # logger.debug(f"nah because new agents are : {[agent.identity for agent in working_platform.platform.agents.values() if not agent.is_new]}")
         return [agent.identity for agent in working_platform.platform.agents.values() if not agent.is_new]
+
+    @rx.var
+    def platform_title(self) -> str:
+        if self.current_uid == "":
+            return " "
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return " "
+        else:
+            return working_platform.platform.safe_platform['config']['instance_name']
+
+    # === vars for platform details ===
+    @rx.var
+    def platform_deployed(self) -> bool:
+        if self.current_uid == "":
+            return False
+        return False
+
+    # === end of platform detail vars ===
 
     # ==== vars for platform validation ===
     @rx.var
     def platform_validity(self) -> bool:
         if self.current_uid == "":
             return True
-        return self.platform_validity(self.platforms[self.current_uid])[0]
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.platform_validity(working_platform)[0]
     
     @rx.var
     def platform_instance_name_validity(self)-> bool:
         if self.current_uid == "":
             return True
-        return self.platform_validity(self.platforms[self.current_uid])[1]["instance_name"]
-
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.platform_validity(working_platform)[1]["instance_name"]
+    
+    @rx.var
+    def platform_instance_name_not_in_use(self)-> bool:
+        if self.current_uid == "":
+            return True
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.platform_validity(working_platform)[1]["instance_name_not_used"]
+    
     @rx.var
     def platform_vip_address_validity(self) -> bool:
         if self.current_uid == "":
             return True
-        return self.platform_validity(self.platforms[self.current_uid])[1]["vip_address"]
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.platform_validity(working_platform)[1]["vip_address"]
     # === end of platform validation vars ===
 
     # === vars for instance validation ===
     @rx.var
     def instance_savable(self) -> bool:
         if self.current_uid == "":
-            return True
-        return self.check_instance_savable(self.platforms[self.current_uid])
+            return False
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        else:
+            return self.check_instance_savable(working_platform)
     
     @rx.var 
     def instance_uncaught(self) -> bool:
         if self.current_uid == "":
             return False
-        return self.check_instance_uncaught(self.platforms[self.current_uid])
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        else:
+            return self.check_instance_uncaught(working_platform)
     
     @rx.var
     def instance_deployable(self) -> bool:
@@ -243,19 +308,44 @@ class State(rx.State):
     # Events
     @rx.event
     async def hydrate_state(self):
+        # Make sure we have a valid 'blank' agent
+        blank_agent = AgentModelView(
+                safe_agent={
+                    "identity" : "",
+                    "source" : "",
+                    "config" : "",
+                    "config_store": {}
+                },
+            )
+        
         self.list_of_agents = await agents_off_catalog()
         platforms_from_api = await instances_from_api()
+        
+        # Ensure we have a blank agent that the user can edit as they so choose
+        self.list_of_agents.append(
+            blank_agent
+        )
         self.platforms.update(platforms_from_api)
+
+    @rx.event(background=True)
+    async def delete_temp_uid(self, uid_copy: str):
+        import asyncio
+        await asyncio.sleep(5)  # Wait for 5 seconds (adjust as needed)
+        async with self:
+            del self.platforms[uid_copy]
+        logger.debug(f"this is the list of param afters: {list(self.platforms.keys())}")
 
     @rx.event
     def handle_adding_agent(self, agent: AgentModelView):
         working_platform = self.platforms[self.current_uid]
-        # if agent_name in self.list_of_agents:
-        #     self.added_agents.append(agent_name)
+
+        # Take a copy of the agent we are adding and make sure we dont have an already existing agent of the same identity
         new_agent: AgentModelView = agent.copy()
         if new_agent.identity in working_platform.platform.agents:
             new_agent.identity = f"{new_agent.identity}_{len(list(working_platform.platform.agents.values()))}"
-        new_agent.routing_id = new_agent.identity
+        
+        # Set routing id
+        new_agent.routing_id = new_agent.identity if new_agent.identity != "" else generate_unique_uid()
 
         logger.debug("im going to add new component ids for config store...")
         # go through the config store, create new component ids for each config entry
@@ -267,9 +357,11 @@ class State(rx.State):
         new_agent.safe_agent={
                     "identity": new_agent.identity,
                     "source": new_agent.source,
-                    "config": new_agent.config
+                    "config": new_agent.config,
+                    "config_store" : agent.safe_agent["config_store"]
                 }
-        
+        logger.debug(f"we added: {new_agent.identity}")
+        logger.debug(f" and that safe config store is : {new_agent.safe_agent['config_store']}")
         # Prettify its config and config store contents:
         # loop through our agents one more time, and their config store. make if we 
         # encounter a csv file, then we adjust the "Custom" CSV variant
@@ -293,7 +385,6 @@ class State(rx.State):
         pretty_json, success = prettify_json(new_agent.config)
         if success:
             new_agent.config = pretty_json
-        a = []
         for config in new_agent.config_store:
             # im kind of sick of all of this copy and pasting of block of code:
             # TODO find a better and safer way of doing this 
@@ -303,10 +394,8 @@ class State(rx.State):
             # ==============================================================
             config.safe_entry = config.dict()
             config.uncommitted = False
-            a.append(config.safe_entry)
-        logger.debug(f"safe entries all around: {a}")
         working_platform.platform.agents[new_agent.identity] = new_agent
-        yield rx.toast.info(f"Agent '{new_agent.identity}' has been added")
+        yield rx.toast.info(f"{'A new agent' if new_agent.identity == '' else f'Agent {new_agent.identity}'} has been added")
         
     @rx.event
     def handle_removing_agent(self, identity: str):
@@ -409,67 +498,42 @@ class State(rx.State):
     @rx.event
     async def handle_save(self):
         working_platform: Instance = self.platforms[self.current_uid]
-        all_platforms: list[PlatformDefinition] = await get_all_platforms()
-        # if working_platform.uncaught and working_platform.valid:
-        # Should just save anyway, we wont be able to deploy as long as its
-        # not valid.
-        # actually, this sort of complicates things, like what if we are saving the same
-        # platform? does that change stuff
+        uid_copy = deepcopy(self.current_uid)
 
-        # if workking_platform not in await endpoints.get_platforms()
-        # then we one time do this, every other time we save we would go
-        # into the api and save from there directly 
+        logger.debug(f"this is the uid copy: {uid_copy}")
+        all_platforms: list[PlatformDefinition] = await get_all_platforms()
 
         working_platform.safe_host_entry = working_platform.host.to_dict()
         working_platform.uncaught = False
-        logger.debug(f"getting the host id: {working_platform.safe_host_entry['id']}")
-
-
-        for identity, agent in working_platform.platform.agents.items():
-            if agent.identity != "":
-                logger.debug(f"Debug: Checking {identity}")
-                for config in agent.config_store:
-                    if config.safe_entry["path"] != "":
-                        logger.debug(f"Debug: Valid Config Path: {config.path}")
-                        logger.debug(f"Data Type: {config.data_type}, Value: {config.value}")
-                    else:
-                        logger.debug(f"Debug: Ignored Config Path: {config.path}")
-
-        # Construct platform elements
-        platform_agents: dict[str, AgentDefinition] = {}
-        config_store: dict[str, ConfigStoreEntry] = {}
-        for identity, agent in working_platform.platform.agents.items():
-            if agent.safe_agent["identity"] != "":
-                # we iterate through the agent's safe entry
-                logger.debug(f"we are in the safe_agent")
-                logger.debug(f"here is the safe_agent: {agent.safe_agent}")
-                for path, config_dict in agent.safe_agent["config_store"].items():
-                    logger.debug(f"we in this, here is the config_dict: {config_dict} ")
-                    config_store[path] = ConfigStoreEntry(
-                        path = path,
-                        data_type = config_dict["data_type"],
-                        value = config_dict["value"]
-                    )
-
-                platform_agents[identity] = AgentDefinition(
-                    identity=agent.safe_agent["identity"],
-                    source=agent.safe_agent["source"],
-                    config=agent.safe_agent["config"],
-                    config_store=config_store
-                )
-
-        # Finally, create the base platform request
+        # logger.debug(f"getting the host id: {working_platform.safe_host_entry['id']}")
+        
+        # Create base platform
         base_platform_request = CreatePlatformRequest(
-            host_id=working_platform.safe_host_entry["id"],
+            host_id = working_platform.safe_host_entry["id"],
             config=PlatformConfig(
                 instance_name=working_platform.platform.config.instance_name,
                 vip_address=working_platform.platform.config.vip_address
             ),
-            agents=platform_agents
+            agents = {
+                identity: AgentDefinition(
+                    identity=identity,
+                    source=agent["source"],
+                    config=agent["config"],
+                    config_store={
+                        path: ConfigStoreEntry(
+                            path=path,
+                            data_type=config["data_type"],
+                            value=config["value"]
+                        ) for path, config in agent["config_store"].items()
+                    }
+                ) for identity, agent in working_platform.platform.to_dict()["agents"].items()
+            }
         )
 
-        logger.debug(f"Final base platform_request: {base_platform_request}")
-        logger.debug(f"this is my base platform_request: {base_platform_request}")
+        logger.debug(f"this is the uid copy: {uid_copy}")
+        # # Logging
+        # logger.debug(f"Final base platform_request: {base_platform_request}")
+        # logger.debug(f"this is my base platform_request: {base_platform_request}")
         if working_platform.platform.config.instance_name in [p.config.instance_name for p in all_platforms]:
             logger.debug("yes we have committed this already")
             update_platform(
@@ -480,8 +544,9 @@ class State(rx.State):
             return
                 
         request = CreateOrUpdateHostEntryRequest(**working_platform.host.to_dict())
-        logger.debug(f"this is the request: {request}")
+        # logger.debug(f"this is the request: {request}")
         
+        logger.debug(f"this is the uid copy: {uid_copy}")
         await add_host(request)
         inv_serv = await get_inventory_service()
         plat_serv = await get_platform_service()
@@ -490,8 +555,15 @@ class State(rx.State):
             inventory_service=inv_serv,
             platform_service=plat_serv
             )
-        working_platform.platform.in_file = True
+        
+        # Lets say changes saved successfully and redirect to the new url while deleting our old one
+        logger.debug(f"this is the uid copy: {uid_copy}")
         yield rx.toast.success("Changes saved successfully")
+        self.platforms[working_platform.platform.config.instance_name] = working_platform
+        logger.debug(f"this is the list of params: {list(self.platforms.keys())}")
+        yield NavigationState.route_to_platform(working_platform.platform.config.instance_name)
+        logger.debug(f"this is the uid about to deletee: {uid_copy}")
+        yield State.delete_temp_uid(uid_copy)
 
     # NOTE: i would like to offload the uncaught and valid vars into the state vars because it's easier for the UI to read off of 
     # state vars, for faster development, ive kept these here and i'll change it once it's time to refine the code.
@@ -562,6 +634,7 @@ class State(rx.State):
         valid = True
         validity_map: dict[str, bool] = {
             "instance_name" : True,
+            "instance_name_not_used" : True,
             "vip_address" : True
         }
         # Validate the instance name
@@ -570,6 +643,17 @@ class State(rx.State):
             valid = False
             validity_map["instance_name"] = False
         
+        new_name = working_platform.platform.config.instance_name
+        existing_names=[p.platform.safe_platform["config"]["instance_name"] for p in self.in_file_platforms if p.new_instance == False and self.current_uid != p.platform.safe_platform["config"]["instance_name"]]
+        # logger.debug(f"Checking if '{new_name}' exists in: {existing_names}")
+
+        # Check to see if our instance is taken already:
+        # Seeing if our instance name is inside a list of already registered instance names...
+        if working_platform.platform.config.instance_name in [p.platform.safe_platform["config"]["instance_name"] for p in self.in_file_platforms if p.new_instance == False and self.current_uid != p.platform.safe_platform["config"]["instance_name"]]:
+            valid = False
+            validity_map["instance_name_not_used"] = False
+            
+
         # Validate the tcp address
         if not re.match(r'^tcp://[\d.]+:\d+$', working_platform.platform.config.vip_address):
             valid = False
@@ -592,7 +676,7 @@ def platform_page() -> rx.Component:
             rx.cond(
                 working_platform.new_instance,
                 rx.text(f"New Platform", size="6"),
-                rx.text(f"Platform: {working_platform.platform.config.instance_name}", size="6"),
+                rx.text(f"Platform: {State.platform_title}", size="6"),
             )
         ),
         platform_tabs()
@@ -761,11 +845,20 @@ def configuration_tab_content() -> rx.Component:
                                         ),
                                         align="center"
                                     ),
-                                    below_component=rx.cond(
-                                        State.platform_instance_name_validity == False,
-                                        rx.text(
-                                            "Instance Name must contain only letters, numbers, hyphens, and underscores", 
-                                            color_scheme="red"
+                                    below_component=rx.fragment(
+                                        rx.cond(
+                                            State.platform_instance_name_validity == False,
+                                            rx.text(
+                                                "Instance Name must contain only letters, numbers, hyphens, and underscores", 
+                                                color_scheme="red"
+                                            )
+                                        ),
+                                        rx.cond(
+                                            State.platform_instance_name_not_in_use == False,
+                                            rx.text(
+                                                "Instance Name already in use", 
+                                                color_scheme="red"
+                                            )
                                         )
                                     ),
                                     required_entry=True,
@@ -901,7 +994,7 @@ def configuration_tab_content() -> rx.Component:
                         )
                     ),
                     collapsible=True,
-                    default_value="connection",
+                    default_value=["connection"],
                     type="multiple",
                     variant="outline"
                 ),
@@ -921,7 +1014,11 @@ def configuration_tab_content() -> rx.Component:
                             )
                         ),
                     rx.button(
-                        "Deploy", 
+                        rx.cond(
+                            State.platform_deployed,
+                            "Re-Deploy",
+                            "Deploy"
+                        ), 
                         size="4", 
                         variant="surface", 
                         color_scheme="blue",
