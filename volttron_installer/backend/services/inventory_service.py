@@ -14,14 +14,15 @@ class InventoryService:
         self._inventory_path = inventory_path or Path(get_settings().data_dir) / "inventory.yml"
         
         self._lock = threading.Lock()  # Use threading.Lock instead of asyncio.Lock
-                 
-        self._internal_state = yaml.safe_load(self._inventory_path.open())
-        if not self._internal_state:
-            self._internal_state = {'all': {'hosts': {}}}
-            yaml.dump(self._internal_state, self._inventory_path.open('w'))
+
+        # self.inventory_path will create the file if it doesn't exist and populate
+        # it with the default inventory structure if necessary.
+        self._internal_state = yaml.safe_load(self.inventory_path.open())
+        
 
     @property
     def inventory_path(self) -> Path:
+        """Get the inventory path, creating the file if it doesn't exist"""
         self._inventory_path.parent.mkdir(parents=True, exist_ok=True)
         if not self._inventory_path.exists():
             yaml.dump({'all': {'hosts': {}}}, self._inventory_path.open('w'))
