@@ -59,6 +59,21 @@ class AnsibleService:
         # cmd.append(str(self.playbook_dir / playbook_file))
         cmd.append(playbook_name)
 
+        # ==========================================
+        # # Store the collection reference for potential future use
+        # collection_reference = playbook_name
+        # if not collection_reference.startswith('volttron.deployment.'):
+        #     collection_reference = f'volttron.deployment.{playbook_name}'
+
+        # # For the file path, just use the base name without collection prefix
+        # playbook_file = playbook_name
+        # if not playbook_file.endswith(".yml"):
+        #     playbook_file = f"{playbook_file}.yml"
+        
+        # # Use the actual file path
+        # cmd.append(str(self.playbook_dir / playbook_file))
+        # ==========================================
+
         # Set environment variables
         env = os.environ.copy()
         #env['ANSIBLE_HOST_KEY_CHECKING'] = 'False'

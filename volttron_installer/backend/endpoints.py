@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 import json
 from pathlib import Path
-import os
+import os, asyncio
 
 from volttron_installer.backend.services.ansible_service import AnsibleService, get_ansible_service
 from volttron_installer.backend.services.inventory_service import InventoryService, get_inventory_service
@@ -21,7 +21,8 @@ from .models import (
     CreateAgentRequest,
     AgentDefinition,
     DeployPlatformRequest,
-    PlatformDeplymentStatusRequest
+    PlatformDeplymentStatusRequest,
+    ReachableResponse
 )
 
 
@@ -260,11 +261,30 @@ async def delete_agent(platform_id: str, agent_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@task_router.post("/{host}")
-async def ping_host(host: str):
-    """Pings a specific host; determines if the host is resolvable"""
-
-    return {"status": ""}
+@task_router.get("/ping/{host_id}", response_model=ReachableResponse)
+async def ping_resolvable_host(host_id: str):
+    """
+    Pings a specific host and returns if it's reachable
+    
+    Returns:
+        ReachableResponse: Object containing a boolean 'reachable' field
+    """
+    try:
+        # Run ping with a short timeout for faster response
+        process = await asyncio.create_subprocess_exec(
+            "ping", "-c", "1", "-W", "2", host_id,  # -W 2 sets timeout to 2 seconds
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        await process.communicate()
+        
+        # If returncode is 0, the host is reachable
+        return {"reachable": process.returncode == 0}
+        
+    except Exception:
+        # Any error means the host is not reachable
+        return {"reachable": False}
 
 @task_router.get("/")
 async def get_tasks():

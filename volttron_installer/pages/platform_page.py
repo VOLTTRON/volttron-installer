@@ -20,6 +20,7 @@ from ..functions.prettify import prettify_json
 from loguru import logger
 from ..model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
 from ..thin_endpoint_wrappers import *
+# from ...rxconfig import config
 import string, random, json, csv, yaml, re
 from copy import deepcopy
 
@@ -104,7 +105,12 @@ async def agents_off_catalog() -> List[AgentModelView]:
     return agent_list
 
 async def instances_from_api() -> dict[str, Instance]:
-    platforms: list[PlatformDefinition] = await get_all_platforms()
+    # logger.debug(f"backend url: {rx.config}")
+    # platforms: list[PlatformDefinition] = await get_all_platforms()
+    # Trying to test out the wrapper
+    response = await get_request("http://localhost:8000/api/platforms/")
+    data = response.json()
+    platforms: list[PlatformDefinition] = [PlatformDefinition(**item) for item in data]
     hosts: list[HostEntry] = await get_hosts()
     host_by_id: dict[str, HostEntry] = {}
     for h in hosts:
@@ -204,6 +210,10 @@ class State(rx.State):
     }
     list_of_agents: list[AgentModelView] = []
 
+    _host_resolvable: bool = True
+    _host_pinging: bool = False
+
+
     # Vars
     @rx.var(cache=True)
     def current_uid(self) -> str:
@@ -253,6 +263,21 @@ class State(rx.State):
             return False
         return self.connection_validity(working_platform)[0]
     
+    @rx.var
+    async def host_pinging(self) -> bool:
+        return self._host_pinging
+
+    @rx.var
+    async def is_host_resolvable(self) -> bool:
+        return self._host_resolvable
+        if self.current_uid == "":
+            return True
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        result = await self.check_host_reachable(working_platform)
+        return result 
+
     @rx.var
     def connection_id_validity(self) -> bool:
         if self.current_uid == "":
@@ -613,6 +638,13 @@ class State(rx.State):
         logger.debug(f"this is the uid about to deletee: {uid_copy}")
         yield State.delete_temp_uid(uid_copy)
 
+    @rx.event
+    async def determine_host_reachability(self, working_platform: Instance):
+        self._host_pinging = True
+        self._host_resolvable = await self.check_host_reachable(working_platform)
+        self._host_pinging = False
+
+
     # NOTE: i would like to offload the uncaught and valid vars into the state vars because it's easier for the UI to read off of 
     # state vars, for faster development, ive kept these here and i'll change it once it's time to refine the code.
     def handle_uncaught(self, working_platform: Instance):
@@ -629,6 +661,37 @@ class State(rx.State):
                 return new_uid
     
     # checking functions
+    async def check_host_reachable(self, working_platform: Instance) -> bool:
+        host_id = working_platform.host.id
+        
+        try:
+            # Ensure URL paths match what the router expects
+            url = f"http://localhost:8000/api/task/ping/{host_id}"  # Make sure this path is correct
+            
+            # Use POST since your endpoint is defined as POST
+            response = await get_request(url)
+            data = response.json()
+            
+            logger.debug(f"Host reachability response for {host_id}: {data}")
+            
+            # Check if 'reachable' key exists
+            if "reachable" not in data:
+                logger.error(f"Missing 'reachable' key in API response. Got keys: {list(data.keys())}")
+                logger.error(f"Full response: {data}")
+                
+                # You may want to diagnose the server response more thoroughly
+                if "status" in data:
+                    logger.info(f"Found 'status' key instead: {data['status']}")
+                    # Maybe the API returns {"status": true/false} instead?
+                    return data["status"]
+                    
+                return False
+                
+            return data["reachable"]
+        except Exception as e:
+            logger.error(f"Error checking host reachability: {str(e)}")
+            return False
+        
     def check_instance_uncaught(self, working_platform: Instance) -> bool:
         uncaught: bool = False
         # check if host details are changed
@@ -809,7 +872,7 @@ def platform_tabs() -> rx.Component:
                 ),
                 default_value=rx.cond(
                     working_platform.platform.in_file,
-                    "data",
+                    "status",
                     "configuration"
                 )
             )
@@ -838,8 +901,23 @@ def configuration_tab_content() -> rx.Component:
                                         on_change=lambda v: State.update_detail("id", v),
                                         size="3",
                                         required=True,
+                                        on_blur=lambda: State.determine_host_reachability(working_platform),
                                     ),
                                     required_entry=True,
+                                    upload=rx.cond(
+                                            State.host_pinging,
+                                            rx.tooltip(
+                                                "Resolving host...",
+                                                rx.spinner()
+                                            )
+                                    ),
+                                    below_component=rx.cond(
+                                        State.is_host_resolvable == False,
+                                        rx.text(
+                                            "Host must be a valid domain or ip address", 
+                                            color_scheme="red"
+                                        )
+                                    ),
                                 ),
                                 form_entry.form_entry(
                                     "Username",

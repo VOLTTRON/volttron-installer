@@ -39,6 +39,8 @@ class HostEntry(BaseModel):
             "host_configs_dir": "" if self.host_configs_dir is None else self.host_configs_dir
         }
 
+class ReachableResponse(BaseModel):
+    reachable: bool = True
 
 class CreateOrUpdateHostEntryRequest(HostEntry):
     """Request model for creating or updating a host entry"""
