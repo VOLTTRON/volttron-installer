@@ -268,15 +268,9 @@ class State(rx.State):
         return self._host_pinging
 
     @rx.var
-    async def is_host_resolvable(self) -> bool:
+    def is_host_resolvable(self) -> bool:
         return self._host_resolvable
-        if self.current_uid == "":
-            return True
-        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
-        if working_platform is None:
-            return False
-        result = await self.check_host_reachable(working_platform)
-        return result 
+
 
     @rx.var
     def connection_id_validity(self) -> bool:
@@ -640,10 +634,13 @@ class State(rx.State):
 
     @rx.event
     async def determine_host_reachability(self, working_platform: Instance):
+        """On blur of host field, check if the host is reachable"""
         self._host_pinging = True
+        yield
         self._host_resolvable = await self.check_host_reachable(working_platform)
         self._host_pinging = False
-
+        yield
+        return
 
     # NOTE: i would like to offload the uncaught and valid vars into the state vars because it's easier for the UI to read off of 
     # state vars, for faster development, ive kept these here and i'll change it once it's time to refine the code.
@@ -729,7 +726,8 @@ class State(rx.State):
             host_dict["id"] == "" or \
             host_dict["ansible_user"] == "" or \
             host_dict["ansible_port"].isdigit() == False or \
-            host_dict["ansible_host"] == ""
+            host_dict["ansible_host"] == "" or \
+            self.is_host_resolvable == False
         ):
             logger.debug("Host is not valid...")
             logger.debug(f"here is the host to prove: {host_dict}")
@@ -902,14 +900,29 @@ def configuration_tab_content() -> rx.Component:
                                         size="3",
                                         required=True,
                                         on_blur=lambda: State.determine_host_reachability(working_platform),
+                                        color_scheme = rx.cond(
+                                            State.is_host_resolvable,
+                                            "gray",
+                                            "red"
+                                        )
                                     ),
                                     required_entry=True,
                                     upload=rx.cond(
-                                            State.host_pinging,
-                                            rx.tooltip(
-                                                "Resolving host...",
-                                                rx.spinner()
+                                        State.host_pinging,
+                                        rx.spinner(),
+                                        # rx.tooltip(
+                                        #     "Resolving host...",    
+                                        #     rx.spinner()
+                                        # ),
+                                        rx.cond(
+                                            State.is_host_resolvable,
+                                            tile_icon(
+                                                "check"
+                                            ),
+                                            tile_icon(
+                                                "triangle-alert"
                                             )
+                                        )
                                     ),
                                     below_component=rx.cond(
                                         State.is_host_resolvable == False,
