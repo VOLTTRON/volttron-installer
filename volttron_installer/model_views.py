@@ -21,6 +21,7 @@ class ConfigStoreEntryModelView(rx.Base):
     csv_variants: dict[str, dict[str, list[str]]] = {
         "Default 1" : {
             "Reference Point Name": [""]*10,
+            "Reference Point Name": [""]*10,
             "Volttron Point Name": [""]*10,
             "Units": [""]*10,
             "Units Details": [""]*10,
@@ -37,6 +38,7 @@ class ConfigStoreEntryModelView(rx.Base):
             "Unit Details": [""]*10,
             "BACnet Object Type": [""]*10,
             "Property": [""]*10,
+            "Writable": [""]*10,
             "Writable": [""]*10,
             "Index": [""]*10,
             "Notes" : [""]*10,
