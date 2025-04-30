@@ -213,6 +213,12 @@ class State(rx.State):
 
     _host_resolvable: bool = True
     _host_pinging: bool = False
+    
+    # this var tracks if the host_id that the user is inputting is resolved.
+    # as the user inputs a host, we make sure this is false inside of self.update_detail,
+    # so we cant save the instance until the host text box has been blurred. once it has, 
+    # we can check if the host is reachable or not. if it is, we set this to true.
+    _host_resolved: bool = False
 
 
     # Vars
@@ -254,6 +260,8 @@ class State(rx.State):
     # === end of platform detail vars ===
 
     # ==== vars for connection validation ===
+    @rx.var
+    def host_resolved(self) -> bool: return self._host_resolved
 
     @rx.var
     def connection_validity(self) -> bool:
@@ -265,7 +273,7 @@ class State(rx.State):
         return self.connection_validity(working_platform)[0]
     
     @rx.var
-    async def host_pinging(self) -> bool:
+    def host_pinging(self) -> bool:
         return self._host_pinging
 
     @rx.var
@@ -532,6 +540,7 @@ class State(rx.State):
     def update_detail(self, field: str, value):
         working_platform_instance = self.platforms[self.current_uid]
         if field == "id":
+            self._host_resolved = False
             setattr(working_platform_instance.host, "ansible_host", value)
         setattr(working_platform_instance.host, field, value)
         working_platform_instance.uncaught = working_platform_instance.has_uncaught_changes()
@@ -637,15 +646,22 @@ class State(rx.State):
     @rx.event
     async def determine_host_reachability(self, working_platform: Instance):
         """On blur of host field, check if the host is reachable"""
+        # we have these yield statements scattered because we need make sure when a state var
+        # is updated, the app can see it in real time as the function executes. if we dont have it
+        # our UI handling the real time spinner will not work as the UI wont be able to read the changed
+        # var in real time 
         self._host_pinging = True
         yield
         self._host_resolvable = await self.check_host_reachable(working_platform)
         self._host_pinging = False
         yield
+        self._host_resolved = self._host_resolvable
+        yield
         return
 
     # NOTE: i would like to offload the uncaught and valid vars into the state vars because it's easier for the UI to read off of 
     # state vars, for faster development, ive kept these here and i'll change it once it's time to refine the code.
+    #   Secondary NOTE: not sure if i've already made changes.
     def handle_uncaught(self, working_platform: Instance):
         working_platform.uncaught = working_platform.has_uncaught_changes()
 
@@ -659,26 +675,26 @@ class State(rx.State):
             if new_uid not in self.platforms:
                 return new_uid
     
-    # checking functions
+    # functions to check if things are savable, reachable, valid, uncaught.
     async def check_host_reachable(self, working_platform: Instance) -> bool:
         host_id = working_platform.host.id
-        
+        if host_id =="":
+            return False
+
         try:
-            # Ensure URL paths match what the router expects
-            url = f"http://localhost:8000/api/task/ping/{host_id}"  # Make sure this path is correct
+            url = f"http://localhost:8000/api/task/ping/{host_id}"
             
-            # Use POST since your endpoint is defined as POST
-            response = await get_request(url)
+            response = await get_request(url, {"host_id": host_id})
             data = response.json()
             
             logger.debug(f"Host reachability response for {host_id}: {data}")
             
-            # Check if 'reachable' key exists
+            # Check if 'reachable' key exists, in case of api errors
             if "reachable" not in data:
                 logger.error(f"Missing 'reachable' key in API response. Got keys: {list(data.keys())}")
                 logger.error(f"Full response: {data}")
                 
-                # You may want to diagnose the server response more thoroughly
+                # Just to let us know if we got something unexpected
                 if "status" in data:
                     logger.info(f"Found 'status' key instead: {data['status']}")
                     # Maybe the API returns {"status": true/false} instead?
@@ -722,19 +738,28 @@ class State(rx.State):
     def check_instance_savable(self, working_platform: Instance) -> bool:
         savable = True
 
-        # manually check the host... yuck.
+        # manually check the host and all of its stuff...
         host_dict = working_platform.host.to_dict()
         if (
             host_dict["id"] == "" or \
             host_dict["ansible_user"] == "" or \
             host_dict["ansible_port"].isdigit() == False or \
             host_dict["ansible_host"] == "" or \
-            self.is_host_resolvable == False
+            self.is_host_resolvable == False or \
+            self.host_pinging or \
+            self.host_resolved == False
         ):
             logger.debug("Host is not valid...")
-            logger.debug(f"here is the host to prove: {host_dict}")
+            logger.debug(f"Host ID is empty: {host_dict['id'] == ''}")
+            logger.debug(f"Ansible user is empty: {host_dict['ansible_user'] == ''}")
+            logger.debug(f"Ansible port is not numeric: {host_dict['ansible_port'].isdigit() == False}")
+            logger.debug(f"Ansible host is empty: {host_dict['ansible_host'] == ''}")
+            logger.debug(f"Host is not resolvable: {self.is_host_resolvable == False}")
+            logger.debug(f"Host is currently pinging: {self.host_pinging}")
+            logger.debug(f"Host is not resolved: {self.host_resolved == False}")
+            logger.debug(f"Here is the host to prove: {host_dict}")
             savable = False
-        
+
         # check if platform details are valid 
         platform_valid, platform_valid_map = self.platform_validity(working_platform)
         if platform_valid == False:

@@ -272,7 +272,7 @@ async def ping_resolvable_host(host_id: str):
     try:
         # Run ping with a short timeout for faster response
         process = await asyncio.create_subprocess_exec(
-            "ping", "-c", "1", "-W", "2", host_id,  # -W 2 sets timeout to 2 seconds
+            "ping", "-c", "1", host_id,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
