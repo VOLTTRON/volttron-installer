@@ -2,6 +2,13 @@ import httpx, asyncio
 from typing import Any, Optional
 
 API_BASE_URL = "http://localhost:8000"
+API_PREFIX = "/api"
+ANSIBLE_PREFIX = f"{API_PREFIX}/ansible"
+PLATFORMS_PREFIX = f"{API_PREFIX}/platforms"
+HOSTS_PREFIX = f"{ANSIBLE_PREFIX}/hosts"
+CATALOG_PREFIX = f"{API_PREFIX}/catalog"
+TASKS_PREFIX = f"{API_PREFIX}/tasks"
+
 DEFAULT_TIMEOUT = 5.0  # 5 seconds timeout
 
 class ApiError(Exception):
@@ -11,6 +18,11 @@ class ApiError(Exception):
         super().__init__(f"API Error ({status_code}): {detail}")
 
 # Async HTTP functions
+# NOTE: I hate these get request wrappers because they do not return the response we are 
+# looking for. When wrapping an endpoint that returns lets say a list of HostEntry objects,
+# we get a response that decompiles it to a list of the dictionary representation of the objects.
+# This is not ideal because that means we would have to create the object by scratch from our json
+# representations. 
 async def get_request(url: str, params: Optional[dict[str, Any]] = None, 
                       timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
     """Send an async GET request to the specified URL with optional parameters."""
