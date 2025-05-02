@@ -82,14 +82,27 @@ class CSVDataState(AgentConfigState):
                 config.csv_variants = self.working_config.csv_variants
                 break
         yield CSVDataState.force_rerender
+        return
 
     @rx.event
     def add_column(self, form_data: dict):
         """Add a new column."""
         column_name = form_data["column_name"]
-        self.working_config.csv_variants[self.selected_variant][column_name] = [""] * self.num_rows
+        working_variant_copy = self.working_config.csv_variants[self.selected_variant]
+        working_variant_copy[column_name] = [""] * self.num_rows
+        # Ensure that the selected variant change is pushed through into working_config_store
+        self.working_config.csv_variants[self.selected_variant] = working_variant_copy
+        
+        # Update the config_store entry (add this part)
+        for config in self.working_agent.config_store:
+            if config.component_id == self.working_agent.selected_config_component_id:
+                logger.debug(f"Updating config store entry after adding column: {config.component_id}")
+                config.csv_variants = self.working_config.csv_variants
+                break
+        
         yield rx.toast.info(f"Added column: {column_name}", position="bottom-right")
         yield CSVDataState.force_rerender
+        return
 
     @rx.event
     def force_rerender(self):
@@ -109,11 +122,22 @@ class CSVDataState(AgentConfigState):
     def remove_column(self, form_data: dict):
         """Remove a column."""
         column_name = form_data["column_name"]
-        del self.working_config.csv_variants[self.selected_variant][column_name]
+        working_variant_copy = self.working_config.csv_variants[self.selected_variant]
+        del working_variant_copy[column_name]
+        # Ensure that the selected variant change is pushed through into working_config_store
+        self.working_config.csv_variants[self.selected_variant] = working_variant_copy
+        
+        # Update the config_store entry (add this part)
+        for config in self.working_agent.config_store:
+            if config.component_id == self.working_agent.selected_config_component_id:
+                logger.debug(f"Updating config store entry after removing column: {config.component_id}")
+                config.csv_variants = self.working_config.csv_variants
+                break
+        
         yield rx.toast.info(f"Removed column: {column_name}", position="bottom-right")
         yield CSVDataState.force_rerender
-
-
+        return
+    
 # Components
 def base_component_wrapper(func_or_disabled=False):
     # If we're called directly with the function

@@ -1,5 +1,6 @@
 import csv
-import io 
+import io
+from .validate_content import check_csv
 
 def create_string_from_dict(data: dict[str: list[str]]) -> str:
     headers = list(data.keys())
@@ -29,3 +30,89 @@ def create_csv_string(headers: list[str], rows: list[list[str]]) -> str:
     output.close()
 
     return csv_string
+
+
+
+
+def create_and_validate_csv_string(
+    headers=None, 
+    rows=None, 
+    data_dict=None
+) -> tuple[bool, str]:
+    """
+    Creates and validates a CSV string from either headers/rows or a dictionary.
+    Ensures:
+    1. All columns have the same number of filled entries
+    2. No column is completely empty
+    
+    Args:
+        headers: List of column headers (used if rows is provided)
+        rows: List of rows where each row is a list of string values
+        data_dict: Dictionary mapping column names to lists of values
+        
+    Returns:
+        A tuple containing:
+        - Boolean indicating if the CSV is valid
+        - The CSV string (empty string if invalid when using data_dict)
+    """
+    # Handle input from dictionary if provided
+    if data_dict is not None:
+        headers = list(data_dict.keys())
+        
+        # First, determine how many non-empty entries are in each column
+        non_empty_counts = {}
+        for key, values in data_dict.items():
+            # Count non-empty strings in this column
+            count = sum(1 for v in values if v.strip() != "")
+            non_empty_counts[key] = count
+            
+            # Check for completely empty columns
+            if count == 0:
+                # Found a completely empty column
+                return False, ""
+        
+        # Check if all columns have the same number of filled entries
+        counts = list(non_empty_counts.values())
+        if len(counts) > 1 and len(set(counts)) > 1:
+            # Columns have different numbers of filled entries
+            return False, ""
+        
+        # Proceed with creating rows if all columns have the same number of filled entries
+        max_length = max(len(lst) for lst in data_dict.values())
+        rows = []
+        for i in range(max_length):
+            row = [data_dict[key][i] if i < len(data_dict[key]) else "" for key in headers]
+            rows.append(row)
+    
+    # Check for empty columns in row format
+    elif rows is not None and headers is not None:
+        # Transpose rows to get columns
+        columns = list(zip(*rows)) if rows else []
+        
+        # Check if any column is completely empty
+        for i, column in enumerate(columns):
+            if all(cell.strip() == "" for cell in column):
+                return False, ""
+        
+        # Check if all columns have the same number of non-empty entries
+        non_empty_counts = []
+        for column in columns:
+            count = sum(1 for cell in column if cell.strip() != "")
+            non_empty_counts.append(count)
+        
+        if len(non_empty_counts) > 1 and len(set(non_empty_counts)) > 1:
+            return False, ""
+    
+    # Create CSV string
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(headers)
+    writer.writerows(rows) if rows else None
+    
+    csv_string = output.getvalue()
+    output.close()
+    
+    # Check if the CSV is valid
+    is_valid = check_csv(csv_string)
+    
+    return is_valid, csv_string

@@ -7,7 +7,7 @@ ANSIBLE_PREFIX = f"{API_PREFIX}/ansible"
 PLATFORMS_PREFIX = f"{API_PREFIX}/platforms"
 HOSTS_PREFIX = f"{ANSIBLE_PREFIX}/hosts"
 CATALOG_PREFIX = f"{API_PREFIX}/catalog"
-TASKS_PREFIX = f"{API_PREFIX}/tasks"
+TASK_PREFIX = f"{API_PREFIX}/task"
 
 DEFAULT_TIMEOUT = 5.0  # 5 seconds timeout
 

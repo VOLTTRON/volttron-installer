@@ -55,7 +55,10 @@ class ConfigStoreEntryModelView(rx.Base):
             "9" : [""]*10,
         }
     }
-    
+    # this field just holds the invalid csv data, so we can have a quick check
+    # and stuff like that.
+    malformed_csv_data: str = ""
+
     # these fields are for when we save the config store entry, we can put data into these
     # fields to make it easier to display the data in the agent draft, will also be really
     # easy to make csv_strings out of these fields

@@ -524,8 +524,6 @@ class State(rx.State):
                 platform=new_platform,
                 safe_host_entry=new_host.to_dict()
             )
-        logger.debug(f"This is new instance_name: {self.platforms[new_uid].platform.config.instance_name}")
-        logger.debug(f"This is new instance_name: {self.platforms[new_uid].platform.config.instance_name}")
 
         yield NavigationState.route_to_platform(new_uid)
 
