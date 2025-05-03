@@ -32,7 +32,7 @@ class CSVDataState(AgentConfigState):
 
     @rx.var(cache=True)
     def working_headers(self) -> List[str]:
-        logger.debug(f"variant: {self.selected_variant}\nkeys: {list(self.working_config.csv_variants[self.selected_variant].keys())}")
+        # logger.debug(f"variant: {self.selected_variant}\nkeys: {list(self.working_config.csv_variants[self.selected_variant].keys())}")
         return list(self.working_config.csv_variants[self.selected_variant].keys())
 
     @rx.var(cache=True)
@@ -96,7 +96,7 @@ class CSVDataState(AgentConfigState):
         # Update the config_store entry (add this part)
         for config in self.working_agent.config_store:
             if config.component_id == self.working_agent.selected_config_component_id:
-                logger.debug(f"Updating config store entry after adding column: {config.component_id}")
+                # logger.debug(f"Updating config store entry after adding column: {config.component_id}")
                 config.csv_variants = self.working_config.csv_variants
                 break
         
@@ -106,7 +106,6 @@ class CSVDataState(AgentConfigState):
 
     @rx.event
     def force_rerender(self):
-        logger.debug("bro is not going back home x3")
         yield
         if self.selected_variant == "Custom":
             self.selected_variant = "Default 1"
@@ -130,7 +129,7 @@ class CSVDataState(AgentConfigState):
         # Update the config_store entry (add this part)
         for config in self.working_agent.config_store:
             if config.component_id == self.working_agent.selected_config_component_id:
-                logger.debug(f"Updating config store entry after removing column: {config.component_id}")
+                # logger.debug(f"Updating config store entry after removing column: {config.component_id}")
                 config.csv_variants = self.working_config.csv_variants
                 break
         

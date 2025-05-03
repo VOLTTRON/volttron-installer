@@ -33,7 +33,6 @@ def create_csv_string(headers: list[str], rows: list[list[str]]) -> str:
 
 
 
-
 def create_and_validate_csv_string(
     headers=None, 
     rows=None, 
@@ -44,6 +43,7 @@ def create_and_validate_csv_string(
     Ensures:
     1. All columns have the same number of filled entries
     2. No column is completely empty
+    3. Empty rows at the end are omitted
     
     Args:
         headers: List of column headers (used if rows is provided)
@@ -77,16 +77,31 @@ def create_and_validate_csv_string(
             # Columns have different numbers of filled entries
             return False, ""
         
-        # Proceed with creating rows if all columns have the same number of filled entries
-        max_length = max(len(lst) for lst in data_dict.values())
+        # Find the maximum row with content
+        max_non_empty_row = -1
+        for key, values in data_dict.items():
+            for i, v in enumerate(values):
+                if v.strip():
+                    max_non_empty_row = max(max_non_empty_row, i)
+        
+        # Only include rows up to the last non-empty row
         rows = []
-        for i in range(max_length):
+        for i in range(max_non_empty_row + 1):
             row = [data_dict[key][i] if i < len(data_dict[key]) else "" for key in headers]
             rows.append(row)
     
     # Check for empty columns in row format
     elif rows is not None and headers is not None:
-        # Transpose rows to get columns
+        # First, trim empty rows at the end
+        last_non_empty_idx = -1
+        for i, row in enumerate(rows):
+            if any(cell.strip() for cell in row):
+                last_non_empty_idx = i
+        
+        # Only keep rows up to the last non-empty one
+        rows = rows[:last_non_empty_idx + 1]
+        
+        # Now check for empty columns
         columns = list(zip(*rows)) if rows else []
         
         # Check if any column is completely empty

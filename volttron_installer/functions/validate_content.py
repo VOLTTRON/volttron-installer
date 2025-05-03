@@ -76,13 +76,13 @@ def check_csv(csv_string: str) -> bool:
         # Check each row for the correct number of columns
         for row in reader:
             if len(row) != num_columns:
-                logger.debug(f"Row length mismatch: expected {num_columns}, got {len(row)}")
+                # logger.debug(f"Row length mismatch: expected {num_columns}, got {len(row)}")
                 return False
 
         return True
 
     except Exception as e:
-        logger.debug(f"CSV verification error: {e}")
+        # logger.debug(f"CSV verification error: {e}")
         return False
     
 def check_regular_expression(regex_string: str) -> bool:
