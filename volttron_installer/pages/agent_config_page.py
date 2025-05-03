@@ -70,14 +70,15 @@ class AgentConfigState(rx.State):
                     return True
                 # What we want to do here is to check if 
                 valid, csv_string = create_and_validate_csv_string(data_dict=i.csv_variants[i.selected_variant])
-                logger.debug(f"is our cworking csv valid?: {valid}")
-                logger.debug(f"this is our variant: {i.csv_variants[i.selected_variant]}")
-                logger.debug(f"this is our csv string: {csv_string}")
+                # logger.debug(f"is our cworking csv valid?: {valid}")
+                # logger.debug(f"this is our variant: {i.csv_variants[i.selected_variant]}")
+                # logger.debug(f"this is our csv string: {csv_string}")
                 if valid:
                     i.value = csv_string
                     return True
                 return False
             return True
+        return True
 
     @rx.var
     def entry_config_validity(self) -> bool:

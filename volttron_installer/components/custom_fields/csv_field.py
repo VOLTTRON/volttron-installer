@@ -67,9 +67,15 @@ class CSVDataState(AgentConfigState):
         else:
             # Update header name
             new_dict = {}
+
+            # Accessing the selected variant horizontally
             for key in self.working_headers:
                 v = list(self.working_config.csv_variants[self.selected_variant][key])
                 if key == header:
+                    logger.debug(f"New header is empty? {changes.strip()==''}")
+                    if changes.strip() == "":
+                        # If the new header is empty, change it to a real value to avoid errors
+                        changes = f"Header {len(self.working_config.csv_variants[self.selected_variant])}"
                     new_dict[changes] = v
                 else:
                     new_dict[key] = v
