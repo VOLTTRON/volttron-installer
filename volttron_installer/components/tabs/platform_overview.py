@@ -1,11 +1,15 @@
 import typing
 import reflex as rx 
-from .state import PlatformOverviewState 
-from ...pages.platform_page import State as PlatformState, Instance
+from ...pages.platform_page import State as PlatformState
 from ..tiles.platform_tile import platform_tile
 from ...navigation.state import NavigationState
+from typing import TYPE_CHECKING
+ 
+if TYPE_CHECKING:
+    from ...pages.platform_page import Instance
 
-def craft_new_platform_tile(platform_entry: Instance) -> rx.Component:
+
+def craft_new_platform_tile(platform_entry: "Instance") -> rx.Component:
     return rx.context_menu.root(
         rx.context_menu.trigger(
             platform_tile(
