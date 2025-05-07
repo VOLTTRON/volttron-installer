@@ -6,9 +6,7 @@ from ...model_views import ConfigStoreEntryModelView
 from loguru import logger
 #version 1
 from ..form_components import form_entry
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from ...pages.agent_config_page import AgentConfigState
+from ...state import AgentConfigState
 
 class CSVDataState(AgentConfigState):
     """State management for CSV data editing."""
