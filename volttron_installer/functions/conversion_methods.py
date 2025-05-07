@@ -4,7 +4,6 @@ from loguru import logger
 def json_string_to_csv_string(json_string: str) -> str:
     # Clean JSON string
     json_string = json_string.replace("\n", "").replace(" ", "").replace("\r", "").replace("\ ", "")
-
     """Convert a JSON string back to a CSV string"""
     # Parse JSON string to Python data
     json_data = json.loads(json_string)
@@ -12,12 +11,16 @@ def json_string_to_csv_string(json_string: str) -> str:
     if not json_data:
         return ""
     
-    logger.debug(f"this is the json data: {json_data}")
-    # Get field names from the first object
-    fieldnames = json_data[0].keys()
-    
     # Create a string buffer to write CSV data
     output = io.StringIO()
+    
+    # Handle both single objects and arrays of objects
+    if isinstance(json_data, dict):
+        # Convert single object to a list with one item
+        json_data = [json_data]
+    
+    # Get field names from the first object
+    fieldnames = json_data[0].keys()
     
     # Create CSV writer
     writer = csv.DictWriter(output, fieldnames=fieldnames)
