@@ -302,6 +302,7 @@ async def task_status(id: str):
 async def deploy_platform(platform_id: str,
                           ansible: AnsibleService = Depends(get_ansible_service),
                           platform_service: PlatformService = Depends(get_platform_service)):
+
     """Deploys a platform using Ansible"""
     try:
         platform_service = await get_platform_service()
