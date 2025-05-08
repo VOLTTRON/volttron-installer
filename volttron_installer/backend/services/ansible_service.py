@@ -59,6 +59,7 @@ class AnsibleService:
         # cmd.append(str(self.playbook_dir / playbook_file))
         cmd.append(playbook_name)
 
+        
         # Set environment variables
         env = os.environ.copy()
         #env['ANSIBLE_HOST_KEY_CHECKING'] = 'False'

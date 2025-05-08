@@ -1,12 +1,13 @@
 import reflex as rx
-from ..tabs.state import PlatformOverviewState
-from ...navigation.state import NavigationState
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from ...pages.platform_page import Instance
 
-def platform_tile(**props) -> rx.Component:
+def platform_tile(platform_uid: str, platform_item: "Instance", **props) -> rx.Component:
     return rx.flex(
         rx.hstack(
-            rx.text("bro"),
-            rx.text("OFF"),
+            rx.text(platform_uid),
+            rx.text(""),
             justify="between"
         ),
         direction="column",

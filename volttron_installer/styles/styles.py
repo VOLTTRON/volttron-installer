@@ -57,7 +57,7 @@ styles: dict = {
         "width" : "9rem",
         "height" : "9rem",
         "padding" : CUSTOM_BUTTON_PADDING,
-        "background-color" : "blue",
+        "background-color" : "rgba(145, 145, 145, 0.29)",
         "cursor" : "pointer",
         "user-select" : "none"
     },
@@ -72,8 +72,14 @@ styles: dict = {
         "padding" : ".25rem",
         "transition": HOVER_TRANSITION
     },
+    "icon_button.delete:hover": {
+        "background-color": "red"
+    },
     ".icon_button:hover" : {
         "background-color" : "#2A2A2C"
+    },
+    ".icon_button.active": {
+        "background-color": "#389fff"
     },
 
     ".csv_data_cell" : {
@@ -165,23 +171,35 @@ styles: dict = {
         "column-gap" : "2rem"
     },
 
-    ".agent_config_tile" : {
-        "display" : "flex",
-        "min-width" : "7rem",
-        "min-height" : "2rem",
-        "border-radius" : COMMON_BORDER_RADIUS,
-        "cursor" : "pointer",
-        "padding" : ".25rem",
-        "user-select" : "none",
-        "justify-content" : "start",
-        "align-items" : "start",
-        "transition" : HOVER_TRANSITION,
-        "background-color": "#2A2A2C"
+    ".agent_config_tile": {
+        "display": "flex",
+        "width": "10.5rem",
+        "min-height": "2rem",
+        "border-radius": COMMON_BORDER_RADIUS,
+        # "cursor": "pointer",
+        "padding": ".25rem",
+        "user-select": "none",
+        "justify-content": "start",
+        "align-items": "start",
+        "transition": HOVER_TRANSITION,
+        "background-color": "#2A2A2C",
+        "flex-wrap": "wrap",
+        "overflow-wrap": "break-word",
+        "word-break": "break-word",
+        "white-space": "normal"
     },
 
-    ".agent_config_tile:hover" : {
-        "background-color" : "#333335"
+    ".agent_config_tile.uncommitted": {
+        "background-color" : "#FFA726"
     },
+
+    ".agent_config_tile.new": {
+        "background-color" : "#FFA726",
+    },
+
+    # ".agent_config_tile:hover" : {
+    #     "background-color" : "#333335"
+    # },
 
     ".agent_config_modal_container": {
         "padding-left" : "3rem",

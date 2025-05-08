@@ -4,8 +4,8 @@ def header(*children, **props) -> rx.Component:
     return rx.flex( 
         *children,
         **props,
-        align="start",
         spacing="6",
         direction="row",
-        padding="1rem"
+        padding="1rem",
+        align="center",
     )

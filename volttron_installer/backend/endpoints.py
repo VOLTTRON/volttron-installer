@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 import json
 from pathlib import Path
-import os
+import os, asyncio
 
 from volttron_installer.backend.services.ansible_service import AnsibleService, get_ansible_service
 from volttron_installer.backend.services.inventory_service import InventoryService, get_inventory_service
@@ -21,7 +21,8 @@ from .models import (
     CreateAgentRequest,
     AgentDefinition,
     DeployPlatformRequest,
-    PlatformDeplymentStatusRequest
+    PlatformDeplymentStatusRequest,
+    ReachableResponse
 )
 
 
@@ -244,7 +245,7 @@ async def update_agent(platform_id: str, agent_id: str, agent: CreateAgentReques
     """Updates an existing agent for a platform"""
     try:
         platform_service = await get_platform_service()
-        agent_definition = AgentDefinition(**agent.dict())
+        agent_definition = AgentDefinition(**agent.model_dump())
         await platform_service.update_agent(platform_id, agent_id, agent_definition)
         return SuccessResponse()
     except Exception as e:
@@ -260,6 +261,31 @@ async def delete_agent(platform_id: str, agent_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@task_router.get("/ping/{host_id}", response_model=ReachableResponse)
+async def ping_resolvable_host(host_id: str):
+    """
+    Pings a specific host and returns if it's reachable
+    
+    Returns:
+        ReachableResponse: Object containing a boolean 'reachable' field
+    """
+    try:
+        # Run ping with a short timeout for faster response
+        process = await asyncio.create_subprocess_exec(
+            "ping", "-c", "1", host_id,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        await process.communicate()
+        
+        # If returncode is 0, the host is reachable
+        return {"reachable": process.returncode == 0}
+        
+    except Exception:
+        # Any error means the host is not reachable
+        return {"reachable": False}
+
 @task_router.get("/")
 async def get_tasks():
     """Retrieves the list of tasks"""
@@ -272,19 +298,21 @@ async def task_status(id: str):
     # Get the status of the task
     return {"status": "ok"}
 
-@platform_router.post("/deploy")
-async def deploy_platform(spec: DeployPlatformRequest, 
+@platform_router.post("/deploy/{platform_id}")
+async def deploy_platform(platform_id: str,
                           ansible: AnsibleService = Depends(get_ansible_service),
                           platform_service: PlatformService = Depends(get_platform_service)):
+
     """Deploys a platform using Ansible"""
     try:
         platform_service = await get_platform_service()
-        platform = await platform_service.get_platform(spec.platform_id)
+        platform = await platform_service.get_platform(platform_id)
         if platform is None:
             raise HTTPException(status_code=404, detail="Platform not found")
 
         return_code, stdout, stderr = await ansible.run_playbook(
             "install-platform",
+            hosts=platform.host_id,
             extra_vars=platform.config.model_dump()
         )
 
@@ -300,26 +328,27 @@ async def deploy_platform(spec: DeployPlatformRequest,
             status_code=500,
             detail=str(e)
         )
-async def deploy_platform(config: PlatformConfig, ansible: AnsibleService = Depends(get_ansible_service)):
-    """Deploys a platform using Ansible"""
-    try:
-        return_code, stdout, stderr = await ansible.run_playbook(
-            "install-platform",  # Updated playbook name
-            extra_vars=config.model_dump()
-        )
+    
+# async def deploy_platform(config: PlatformConfig, ansible: AnsibleService = Depends(get_ansible_service)):
+#     """Deploys a platform using Ansible"""
+#     try:
+#         return_code, stdout, stderr = await ansible.run_playbook(
+#             "install-platform",  # Updated playbook name
+#             extra_vars=config.model_dump()
+#         )
 
-        if return_code != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Ansible deployment failed: {stderr or stdout}"
-            )
-        return {"status": "success", "output": stdout}
+#         if return_code != 0:
+#             raise HTTPException(
+#                 status_code=500,
+#                 detail=f"Ansible deployment failed: {stderr or stdout}"
+#             )
+#         return {"status": "success", "output": stdout}
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=500,
+#             detail=str(e)
+#         )
 
 @ansible_router.post("/ansible/start_platform")
 async def start_platform(platform_id: str, ansible: AnsibleService = Depends(get_ansible_service)):

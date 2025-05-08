@@ -4,12 +4,9 @@ import reflex as rx
 
 from rxconfig import config
 from ..components.buttons import add_icon_button
-# from ..components.form_components import form_tab ,form_tile_column , form_view, form_entry
-from ..components import configuring_components, header
-# from ..components.tabs.host_tab import hosts_tab
+from ..components import header
 
-from ..components.tabs import config_store_templates, agent_setupa, platform_overview
-# from ..components.tabs.state import PlatformOverviewState
+from ..components.tabs import platform_overview
 from .platform_page import State as PlatformState 
 
 class IndexTabState(rx.State):
@@ -24,6 +21,7 @@ def index() -> rx.Component:
                 rx.text("Overview", size="7"),
                 add_icon_button.add_icon_button(
                     tool_tip_content="Create a Platform",
+                    # on_click=rx.redirect("/platform/new")
                     on_click=lambda: PlatformState.generate_new_platform
                 ),
                 justify="between"

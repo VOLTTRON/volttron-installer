@@ -22,6 +22,7 @@ class InventoryService:
 
     @property
     def inventory_path(self) -> Path:
+        """Get the inventory path, creating the file if it doesn't exist"""
         self._inventory_path.parent.mkdir(parents=True, exist_ok=True)
         if not self._inventory_path.exists():
             yaml.dump({'all': {'hosts': {}}}, self._inventory_path.open('w'))

@@ -30,7 +30,7 @@ class HostEntry(BaseModel):
             "id": self.id,
             "ansible_user": self.ansible_user,
             "ansible_host": self.ansible_host,
-            "ansible_port": self.ansible_port,
+            "ansible_port": int(self.ansible_port),
             "ansible_connection": self.ansible_connection,
             "http_proxy": "" if self.http_proxy is None else self.http_proxy,
             "https_proxy": "" if self.https_proxy is None else self.https_proxy,
@@ -39,6 +39,8 @@ class HostEntry(BaseModel):
             "host_configs_dir": "" if self.host_configs_dir is None else self.host_configs_dir
         }
 
+class ReachableResponse(BaseModel):
+    reachable: bool = True
 
 class CreateOrUpdateHostEntryRequest(HostEntry):
     """Request model for creating or updating a host entry"""
@@ -50,7 +52,8 @@ class RemoveHostEntryRequest(BaseModel):
     
 class ConfigStoreEntry(BaseModel):
     """Represents an entry in the configuration store"""
-    path: Annotated[str, AfterValidator(is_valid_field_name_for_config)]
+    # path: Annotated[str, AfterValidator(is_valid_field_name_for_config)]
+    path: str
     data_type: Literal["CSV", "JSON"] = "JSON"
     value: str = ""
 
@@ -75,7 +78,9 @@ class AgentDefinition(BaseModel):
     tag: str | None = None
     pypi_package: str | None = None
     source: str | None = None
+    config: str | None = None
     config_store: dict[str, ConfigStoreEntry] = {}
+    config_store_allowed: bool = True
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -115,6 +120,7 @@ class AgentType(BaseModel):
     default_config_store: dict[str, ConfigStoreEntry]
     source: str | None = None
     pypi_package: str | None = None
+    config_store_allowed: bool = True
 
 class AgentCatalog(BaseModel):
     """Catalog of default agents available with default configurations"""
@@ -127,6 +133,7 @@ class AgentCatalog(BaseModel):
                 "log-level": "INFO"
             },
             default_config_store={},
+            config_store_allowed=False,
             source="examples/ListenerAgent"
         ),
         "platform.driver": AgentType(

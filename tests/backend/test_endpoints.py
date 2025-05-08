@@ -12,6 +12,7 @@ ANSIBLE_PREFIX = f"{API_PREFIX}/ansible"
 PLATFORMS_PREFIX = f"{API_PREFIX}/platforms"
 HOSTS_PREFIX = f"{ANSIBLE_PREFIX}/hosts"
 CATALOG_PREFIX = f"{API_PREFIX}/catalog"
+TASKS_PREFIX = f"{API_PREFIX}/tasks"
 
 @pytest.fixture
 def create_host_entry():
@@ -365,3 +366,55 @@ def test_create_agent_from_catalog(create_host_entry):
     assert response.status_code == 200
     platform = response.json()
     assert "listener" in platform["agents"]
+
+# def test_ping_resolvable_host_success():
+#     """Test successful ping to a resolvable host."""
+#     # Mock the subprocess to simulate a successful ping
+#     with patch('asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_subprocess:
+#         # Set up the mock to return a process with returncode 0 (success)
+#         mock_process = AsyncMock()
+#         mock_process.communicate = AsyncMock(return_value=(b"", b""))
+#         mock_process.returncode = 0
+#         mock_subprocess.return_value = mock_process
+        
+#         # Call the endpoint
+#         response = client.get(f"{TASKS_PREFIX}/ping/localhost")
+        
+#         # Check the response
+#         assert response.status_code == 200
+#         assert response.json() == {"reachable": True}
+        
+#         # Verify the subprocess was called correctly
+#         mock_subprocess.assert_called_once_with(
+#             "ping", "-c", "1", "localhost",
+#             stdout=asyncio.subprocess.PIPE,
+#             stderr=asyncio.subprocess.PIPE
+#         )
+
+# def test_ping_unreachable_host():
+#     """Test ping to an unreachable host."""
+#     # Mock the subprocess to simulate a failed ping
+#     with patch('asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_subprocess:
+#         # Set up the mock to return a process with returncode 1 (failure)
+#         mock_process = AsyncMock()
+#         mock_process.communicate = AsyncMock(return_value=(b"", b""))
+#         mock_process.returncode = 1
+#         mock_subprocess.return_value = mock_process
+        
+#         # Call the endpoint
+#         response = client.get(f"{TASKS_PREFIX}/ping/unreachable-host")
+        
+#         # Check the response
+#         assert response.status_code == 200
+#         assert response.json() == {"reachable": False}
+
+# def test_ping_with_exception():
+#     """Test ping when subprocess throws an exception."""
+#     # Mock the subprocess to raise an exception
+#     with patch('asyncio.create_subprocess_exec', side_effect=Exception("Command failed")) as mock_subprocess:
+#         # Call the endpoint
+#         response = client.get(f"{TASKS_PREFIX}/ping/exception-host")
+        
+#         # Check the response - should return unreachable
+#         assert response.status_code == 200
+#         assert response.json() == {"reachable": False}
