@@ -6,13 +6,13 @@ from ..components.buttons import icon_button_wrapper, icon_upload, tile_icon
 from ..components.form_components import *
 from ..components.custom_fields import text_editor, csv_field
 from ..components.tiles.config_tile import config_tile
-from ..functions.create_component_uid import generate_unique_uid
+from ..utils.create_component_uid import generate_unique_uid
 from .platform_page import State as AppState
 from .platform_page import Instance
 from ..navigation.state import NavigationState
-from ..functions.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
-from ..functions.validate_content import check_json, check_csv, check_path, check_yaml, check_regular_expression
-from ..functions.create_csv_string import create_csv_string, create_and_validate_csv_string
+from ..utils.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
+from ..utils.validate_content import check_json, check_csv, check_path, check_yaml, check_regular_expression
+from ..utils.create_csv_string import create_csv_string, create_and_validate_csv_string
 from ..state import AgentConfigState
 import io, re, json, csv, yaml
 from loguru import logger
