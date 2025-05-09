@@ -193,6 +193,7 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             },
             source="services/core/PlatformDriverAgent"
         ),
+        # Services/core agents
         # From this agent onward, im not entirely sure that any of these agents have 
         # a config store/default config store agent
         "platform.actuator": AgentType(
@@ -494,6 +495,142 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             default_config_store={},
             config_store_allowed=True,
             source="services/core/WeatherDotGov"
+        ),
+        # services/ops agents
+        "watcheragent": AgentType(
+            identity="watcheragent",
+            default_config={
+                "watchlist": [
+                    "platform.driver",
+                    "platform.actuator"
+                ],
+                "check-period": 10
+            },
+            default_config_store={},
+            config_store_allowed=False,
+            source="services/ops/AgentWatcher"
+        ),
+        "emaileragent": AgentType(
+            identity="emaileragent",
+            default_config={
+                "smtp-address": "<smtp-address>",
+                "smtp-username":"<smtp-username>",
+                "smtp-password":"<smtp-password>",
+                "smtp-port":"<smtp-port>",
+                "smtp-tls":"<true/false>",
+                "from-address": "foo@foo.com",
+                "to-addresses": [
+                    "foo1@foo.com",
+                    "foo2@foo.com"
+                ],
+
+                # Only send a certain alert-key message every 120 minutes.
+                "allow-frequency-minutes": 120
+            },
+            default_config_store={},
+            config_store_allowed=False,
+            source="services/ops/EmailerAgent"
+        ),
+        "platform.filewatchpublisher": AgentType(
+            identity="platform.filewatchpublisher",
+            default_config={
+                "files": [
+                    {
+                        "file": "/opt/myservice/logs/myservice.log",
+                        "topic": "record/myservice/logs"
+                    },
+                    {
+                        "file": "/home/volttron/tempfile.txt",
+                        "topic": "temp/filepublisher"
+                    }
+                ]
+            },
+            default_config_store={},
+            config_store_allowed=False,
+            source="services/ops/FileWatchPublisher"
+        ),
+        "platform.logstatisticsagent": AgentType(
+            identity="platform.logstatisticsagent",
+            default_config={
+                "file_path" : "~/volttron/volttron.log",
+                "analysis_interval_sec" : 60,
+                "publish_topic" : "platform/log_statistics",
+                "historian_topic" : "analysis/log_statistics"
+            },
+            default_config_store={},
+            config_store_allowed=False,
+            source="services/ops/LogStatisticsAgent"
+        ),
+        "platform.sysmon": AgentType(
+            identity="platform.sysmon",
+            default_config={
+                "base_topic": "datalogger/log/platform",
+                "cpu_check_interval": 5,
+                "memory_check_interval": 5,
+                "disk_check_interval": 5,
+                "disk_path": "/"
+            },
+            default_config_store={},
+            config_store_allowed=False,
+            source="services/ops/SysMonAgent"
+        ),
+        "platform.thresholddetection": AgentType(
+            identity="platform.thresholddetection",
+            default_config={
+                "datalogger/log/platform/cpu_percent": {
+                "threshold_max": 99
+                },
+
+                "datalogger/log/platform/memory_percent": {
+                "threshold_max": 99
+                },
+
+                "datalogger/log/platform/disk_percent": {
+                "threshold_max": 97
+                },
+
+                "devices/some/device/all": {
+                    "point0": {
+                        "threshold_max": 10,
+                        "threshold_min": 0
+                    },
+                    "point1": {
+                        "threshold_max": 42
+                    }
+                }
+            },
+            default_config_store={},
+            config_store_allowed=False,
+            source="services/ops/ThresholdDetectionAgent"
+        ),
+        "platform.thresholddetection": AgentType(
+            identity="platform.thresholddetection",
+            default_config={
+                "publish-settings":
+                {
+                    "publish-local": False,
+                    "publish-remote": True,
+                    "remote":
+                    {
+                        "serverkey": "Olx7Y7XZvSGmHDppsQKvG7BucOH8vgkRlQGZzzh5nHs",
+                        "vip-address": "tcp://127.0.0.1:23916",
+                        "identity": "remote.topic_watcher"
+                    }
+                },
+                "group1": {
+                    "devices/fakedriver0/all": 10
+                },
+
+                "device_group": {
+                    "devices/fakedriver1/all": {
+                        "seconds": 10,
+                        "points": ["temperature", "PowerState"]
+                    }
+                }
+            },
+            default_config_store={},
+            config_store_allowed=False,
+            source="services/ops/TopicWatcher"
         ),
     }
 
