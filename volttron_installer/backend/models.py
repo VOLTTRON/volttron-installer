@@ -192,7 +192,309 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
                     }""")
             },
             source="services/core/PlatformDriverAgent"
-        )
+        ),
+        # From this agent onward, im not entirely sure that any of these agents have 
+        # a config store/default config store agent
+        "platform.actuator": AgentType(
+            identity="platform.actuator",
+            default_config={
+                "schedule_publish_interval": 30,
+                "heartbeat_interval": 20,
+                "preempt_grace_time": 30
+            },
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/PlatformActuator"
+        ),
+        "platform.bacnet_proxy": AgentType(
+            identity="platform.bacnet_proxy",
+            default_config={
+                "device_address": "10.0.2.15",
+                "max_apdu_length": 1024,
+                "object_id": 599,
+                "object_name": "Volttron BACnet driver",
+                "vendor_id": 5,
+                "segmentation_supported": "segmentedBoth"
+            },
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/BACnetProxyAgent"
+        ),
+        "data.mover": AgentType(
+            identity="data.mover",
+            default_config={
+                "destination-vip": "tcp://127.0.0.1:22916",
+                "destination-serverkey": "<valid server key>",
+                "destination-historian-identity": "platform.historian"
+            },
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/DataMover"
+        ),
+        "dnp3_outstation_agent": AgentType(
+            identity="dnp3_outstation_agent",
+            default_config={
+                "outstation_ip": "0.0.0.0",
+                "port": 20000,
+                "master_id": 2,
+                "outstation_id": 1
+            },
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/DNP3OutstationAgent"
+        ),
+        "forward.historian": AgentType(
+            # NOTE: I believe this is incomplete
+            identity="forward.historian",
+            default_config={
+                # destination-serverkey
+                #   The destination instance's publickey. Required if the
+                #   destination-vip-address has not been added to the known-host file.
+                #   See vctl auth --help for all instance security options.
+                #
+                #   This can be retrieved either through the command:
+                #       vctl auth serverkey
+                #   Or if the web is enabled on the destination through the browser at:
+                #       http(s)://hostaddress:port/discovery/
+                # NOTE: Usually a none type
+                "destination-serverkey": "",
+
+                # destination-vip-address - REQUIRED
+                #   Address of the target platform.
+                #   Examples:
+                #       "destination-vip": "ipc://@/home/volttron/.volttron/run/vip.socket"
+                #       "destination-vip": "tcp://127.0.0.1:22916"
+                "destination-vip": "tcp://<ip address>:<port>",
+
+                # required_target_agents
+                #   Allows checking on the remote instance to verify peer identtites
+                #   are connected before publishing.
+                #
+                #   Example:
+                #       Require the platform.historian agent to be present on the
+                #       destination instance before publishing.
+                #       "required_target_agent" ["platform.historian"]
+                "required_target_agents": [],
+
+                # capture_device_data
+                #   This is True by default and allows the Forwarder to forward
+                #   data published from the device topic
+                "capture_device_data": True,
+
+                # capture_analysis_data
+                #   This is True by default and allows the Forwarder to forward
+                #   data published from the device topic
+                "capture_analysis_data": True,
+
+                # capture_log_data
+                #   This is True by default and allows the Forwarder to forward
+                #   data published from the datalogger topic
+                "capture_log_data": False,
+
+                # capture_record_data
+                #   This is True by default and allows the Forwarder to forward
+                #   data published from the record topic
+                "capture_record_data": False,
+
+                # custom_topic_list
+                #   Unlike other historians, the forward historian can re-publish from
+                #   any topic.  The custom_topic_list is prefixes to subscribe to on
+                #   the local bus and forward to the destination instance.
+                "custom_topic_list": ["actuator", "alert"],
+
+                # cache_only
+                #   Allows one to put the forward historian in a cache only mode so that
+                #   data is backed up while doing operations on the destination
+                #   instance.
+                #
+                #   Setting this to true will start cache to backup and not attempt
+                #   to publish to the destination instance.
+                "cache_only": False,
+
+                # topic_replace_list - Deprecated in favor of retrieving the list of
+                #   replacements from the VCP on the current instance.
+                "topic_replace_list": [
+                    #{"from": "FromString", "to": "ToString"}
+                ],
+
+                # Publish a message to the log after a certain number of "successful"
+                # publishes.  To disable the message to not print anything set the
+                # count to 0.
+                #
+                # Note "successful" means that it was removed from the backup cache.
+                "message_publish_count": 10000
+
+            },
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/ForwardHistorian"
+        ),
+        "IEEE_2030_5": AgentType(
+            identity="IEEE_2030_5",
+            default_config={
+                "destination-vip": "tcp://127.0.0.1:22916",
+                "destination-serverkey": "<valid server key>",
+                "destination-historian-identity": "platform.historian"
+            },
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/IEEE_2030_5"
+        ),
+        "MQTT_Historian": AgentType(
+            identity="MQTT_Historian",
+            default_config={
+                "connection": {
+                    "mqtt_hostname": "localhost",
+                    "mqtt_port": 1883
+                }
+            },
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/MQTTHistorian"
+        ),
+        "MongodbTaggingService": AgentType(
+            identity="MongodbTaggingService",
+            default_config={
+                "connection": {
+                    "type": "mongodb",
+                    "params": {
+                        "host": "localhost",
+                        "port": 27017,
+                        "database": "mongo_test",
+                        "user": "test",
+                        "passwd": "test"
+                    }
+                },
+                "table_prefix":"volttron",
+                "historian_vip_identity":"platform.historian"
+            },
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/MongodbTaggingService"
+        ),
+        "platform.openadr.ven": AgentType(
+            identity="platform.openadr.ven",
+            default_config={
+                "ven_name": "PNNLVEN",
+                "vtn_url": "https://eiss2demo.ipkeys.com/oadr2/OpenADR2/Simple/2.0b",
+                "debug": True,
+                "disable_signature": True,
+                "cert_path": "~/.ssh/secret/TEST_RSA_VEN_221206215541_cert.pem",
+                "key_path": "~/.ssh/secret/TEST_RSA_VEN_221206215541_privkey.pem"
+            },
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/OpenADRVenAgent"
+        ),
+        "SQLAggregateHistorian": AgentType(
+            identity="SQLAggregateHistorian",
+            default_config={
+                "connection": {
+                    "type": "sqlite",
+                    "params": {
+                        "database": "test.sqlite",
+                        "timeout": 15
+                    }
+                },
+                "aggregations":[
+                    {
+                    "aggregation_period": "1m",
+                    "use_calendar_time_periods": "true",
+                    "points": [
+                            {
+                            "topic_names": ["device1/out_temp"],
+                            "aggregation_type": "sum",
+                            "min_count": 2
+                            },
+                            {
+                            "topic_names": ["device1/in_temp"],
+                            "aggregation_type": "sum",
+                            "min_count": 2
+                            }
+                        ]
+                    },
+                    {
+                        "aggregation_period": "2m",
+                        "use_calendar_time_periods": "false",
+                        "points": [
+                            {"topic_names": ["device1/out_temp"],
+                            "aggregation_type": "sum", "min_count": 2},
+                            {"topic_names": ["device1/in_temp"],
+                            "aggregation_type": "sum", "min_count": 2}
+                        ]
+                    }
+                ]
+            },
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/SQLAggregateHistorian"
+        ),
+        "SQLHistorian": AgentType(
+            identity="SQLHistorian",
+            default_config={
+                "connection": {
+                    "type": "mysql",
+                    "params": {
+                        "host": "localhost",
+                        "port": 3306,
+                        "database": "test_historian",
+                        "user": "historian",
+                        "passwd": "historian"
+                    }
+                }
+            },
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/SQLHistorian"
+        ),
+        "SQLiteTaggingService": AgentType(
+            identity="SQLiteTaggingService",
+            default_config={
+                # sqlite connection parameters
+                "connection": {
+                    "type": "sqlite",
+                    "params": {
+                        "database": "~/.volttron/data/volttron.tags.sqlite"
+                    }
+                },
+                # optional. Specify if collections created for tagging should have names
+                # starting with a specific prefix <given prefix>_<collection_name>
+                "table_prefix":"volttron",
+
+                # optional. Specify if you want tagging service to query the historian
+                # with this vip identity. defaults to platform.historian
+                "historian_vip_identity": "crate.historian"
+            },
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/SQLiteTaggingService"
+        ),
+        "volttron.central": AgentType(
+            identity="volttron.central",
+            default_config={},
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/VolttronCentral"
+        ),
+        "platform.agent": AgentType(
+            identity="volttron.central",
+            default_config={},
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/VolttronCentralPlatform"
+        ),
+        "WeatherDotGov": AgentType(
+            identity="WeatherDotGov",
+            default_config={
+                "database_file": "weather.sqlite",
+                "max_size_gb": 1,
+                "poll_locations": [{"station": "KLAX"}, {"station": "KPHX"}],
+                "poll_interval": 60
+            },
+            default_config_store={},
+            config_store_allowed=True,
+            source="services/core/WeatherDotGov"
+        ),
     }
 
     def get_agent(self, identity: str) -> Optional[AgentType]:
