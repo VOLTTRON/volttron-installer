@@ -232,7 +232,7 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             config_store_allowed=True,
             source="services/core/DataMover"
         ),
-        "dnp3_outstation_agent": AgentType(
+        "dnp3-outstation-agent": AgentType(
             identity="dnp3_outstation_agent",
             default_config={
                 "outstation_ip": "0.0.0.0",
