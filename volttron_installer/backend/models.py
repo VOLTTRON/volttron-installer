@@ -116,7 +116,7 @@ class CreateAgentRequest(BaseModel):
 class AgentType(BaseModel):
     """Represents a type of agent with default configurations"""
     identity: str
-    default_config: dict
+    default_config: dict | str
     default_config_store: dict[str, ConfigStoreEntry]
     source: str | None = None
     pypi_package: str | None = None
@@ -245,104 +245,151 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             source="services/core/DNP3OutstationAgent"
         ),
         "forward.historian": AgentType(
-            # NOTE: I believe this is incomplete
             identity="forward.historian",
             default_config={
-                # destination-serverkey
-                #   The destination instance's publickey. Required if the
-                #   destination-vip-address has not been added to the known-host file.
-                #   See vctl auth --help for all instance security options.
-                #
-                #   This can be retrieved either through the command:
-                #       vctl auth serverkey
-                #   Or if the web is enabled on the destination through the browser at:
-                #       http(s)://hostaddress:port/discovery/
-                # NOTE: Usually a none type
-                "destination-serverkey": "",
-
-                # destination-vip-address - REQUIRED
-                #   Address of the target platform.
-                #   Examples:
-                #       "destination-vip": "ipc://@/home/volttron/.volttron/run/vip.socket"
-                #       "destination-vip": "tcp://127.0.0.1:22916"
-                "destination-vip": "tcp://<ip address>:<port>",
-
-                # required_target_agents
-                #   Allows checking on the remote instance to verify peer identtites
-                #   are connected before publishing.
-                #
-                #   Example:
-                #       Require the platform.historian agent to be present on the
-                #       destination instance before publishing.
-                #       "required_target_agent" ["platform.historian"]
-                "required_target_agents": [],
-
-                # capture_device_data
-                #   This is True by default and allows the Forwarder to forward
-                #   data published from the device topic
-                "capture_device_data": True,
-
-                # capture_analysis_data
-                #   This is True by default and allows the Forwarder to forward
-                #   data published from the device topic
-                "capture_analysis_data": True,
-
-                # capture_log_data
-                #   This is True by default and allows the Forwarder to forward
-                #   data published from the datalogger topic
-                "capture_log_data": False,
-
-                # capture_record_data
-                #   This is True by default and allows the Forwarder to forward
-                #   data published from the record topic
-                "capture_record_data": False,
-
-                # custom_topic_list
-                #   Unlike other historians, the forward historian can re-publish from
-                #   any topic.  The custom_topic_list is prefixes to subscribe to on
-                #   the local bus and forward to the destination instance.
-                "custom_topic_list": ["actuator", "alert"],
-
-                # cache_only
-                #   Allows one to put the forward historian in a cache only mode so that
-                #   data is backed up while doing operations on the destination
-                #   instance.
-                #
-                #   Setting this to true will start cache to backup and not attempt
-                #   to publish to the destination instance.
-                "cache_only": False,
-
-                # topic_replace_list - Deprecated in favor of retrieving the list of
-                #   replacements from the VCP on the current instance.
-                "topic_replace_list": [
-                    #{"from": "FromString", "to": "ToString"}
-                ],
-
-                # Publish a message to the log after a certain number of "successful"
-                # publishes.  To disable the message to not print anything set the
-                # count to 0.
-                #
-                # Note "successful" means that it was removed from the backup cache.
-                "message_publish_count": 10000
-
+                "destination-vip": "tcp://127.0.0.1:22916",
+                "destination-serverkey": None
             },
             default_config_store={},
             config_store_allowed=True,
             source="services/core/ForwardHistorian"
         ),
-        "IEEE_2030_5": AgentType(
-            identity="IEEE_2030_5",
-            default_config={
-                "destination-vip": "tcp://127.0.0.1:22916",
-                "destination-serverkey": "<valid server key>",
-                "destination-historian-identity": "platform.historian"
-            },
-            default_config_store={},
-            config_store_allowed=True,
-            source="services/core/IEEE_2030_5"
-        ),
-        "MQTT_Historian": AgentType(
-            identity="MQTT_Historian",
+        # TODO: Agent type doesn't yet have the functionality to accept yaml configs as default configs. CSV Data table cant quite yet parse
+        # these big csv fields; we need to create a "special field" within config store entry so we can check if we need every single field filled out. 
+        # "2030_5.agent": AgentType(
+        #     identity="2030_5.agent",
+        #     default_config={
+        #         "destination-vip": "tcp://127.0.0.1:22916",
+        #         "destination-serverkey": "<valid server key>",
+        #         "destination-historian-identity": "platform.historian"
+        #     },
+        #     default_config_store={
+        #         "inverter1" : ConfigStoreEntry(
+        #             path="inverter1",
+        #             data_type="JSON",
+        #             value=""""
+        #             {
+        #                 "driver_config": {},
+        #                 "registry_config":"config://inverter1.points.csv",
+        #                 "interval": 5,
+        #                 "timezone": "US/Pacific",
+        #                 "heart_beat_point": "Heartbeat",
+        #                 "driver_type": "fakedriver",
+        #                 "publish_breadth_first_all": false,
+        #                 "publish_depth_first": false,
+        #                 "publish_breadth_first": false,
+        #                 "campus": "devices",
+        #                 "building": "inverter1"
+        #             }
+        #             """
+        #         ),
+        #         "invert1.points.csv" : ConfigStoreEntry(
+        #             path="inverter1.points.csv",
+        #             data_type="CSV",
+        #             value="""
+        #                 Point Name,Volttron Point Name,Units,Units Details,Writable,Starting Value,Type,Notes
+        #                 Heartbeat,Heartbeat,On/Off,On/Off,TRUE,0,boolean,Point for heartbeat toggle
+        #                 EKG1,BAT_SOC,waveform,waveform,TRUE,sin,float,Sine wave for baseline output
+        #                 EKG2,INV_REAL_PWR,waveform,waveform,TRUE,cos,float,Sine wave
+        #                 EKG3,INV_REACT_PWR,waveform,waveform,TRUE,tan,float,Cosine wave
+        #                 SampleBool3,energized,On / Off,on/off,FALSE,TRUE,boolean,Status indidcator of cooling stage 1
+        #                 SampleWritableBool3,connected,On / Off,on/off,TRUE,TRUE,boolean,Status indicator
+        #                 SampleLong3,INV_OP_STATUS_MODE,Enumeration,1-4,FALSE,3,int,Mode of Inverter
+        #                 ctrl_freq_max,ctrl_freq_max,,,TRUE,,int,
+        #                 ctrl_volt_max,ctrl_volt_max,,,TRUE,,int,
+        #                 ctrl_freq_min,ctrl_freq_min,,,TRUE,,int,
+        #                 ctrl_volt_min,ctrl_volt_min,,,TRUE,,int,
+        #                 ctrl_ramp_tms,ctrl_ramp_tms,,,TRUE,,int,
+        #                 ctrl_rand_delay,ctrl_rand_delay,,,TRUE,,int,
+        #                 ctrl_grad_w,ctrl_grad_w,,,TRUE,,int,
+        #                 ctrl_soft_grad_w,ctrl_soft_grad_w,,,TRUE,,int,
+        #                 ctrl_connected,ctrl_connected,,,TRUE,,boolean,
+        #                 ctrl_energized,ctrl_energized,,,TRUE,,boolean,
+        #                 ctrl_fixed_pf_absorb_w,ctrl_fixed_pf_absorb_w,,,TRUE,,int,
+        #                 ctrl_fixed_pf_ingect_w,ctrl_fixed_pf_ingect_w,,,TRUE,,int,
+        #                 ctrl_fixed_var,ctrl_fixed_var,,,TRUE,,int,
+        #                 ctrl_fixed_w,ctrl_fixed_w,,,TRUE,,int,
+        #                 ctrl_es_delay,ctrl_es_delay,,,TRUE,,int,
+        #             """
+        #         ),
+        #         "inverter_sample.csv" : ConfigStoreEntry(
+        #             path="inverter_sample.csv",
+        #             data_type="CSV",
+        #             value="""
+        #                 Point Name,Description,Multiplier,MRID,Offset,Parameter Type,Notes
+        #                 ,,,,,DERCapability::rtgMaxW,DERCapabilities are not generally writable but the corresponding setting is.
+        #                 ,,,,,DERCapability::rtgOverExcitedW,
+        #                 ,,,,,DERCapability::rtgOverExcitedPF,
+        #                 ,,,,,DERCapability::rtgUnderExcitedW,
+        #                 ,,,,,DERCapability::rtgUnderExcitedPF,
+        #                 ,,,,,DERCapability::rtgMaxVA,
+        #                 ,,,,,DERCapability::rtgNormalCategory,
+        #                 ,,,,,DERCapability::rtgAbnormalCategory,
+        #                 ,,,,,DERCapability::rtgMaxVar,
+        #                 ,,,,,DERCapability::rtgMaxVarNeg,
+        #                 ,,,,,DERCapability::rtgMaxChargeRateW,
+        #                 ,,,,,DERCapability::rtgMaxChargeRateVA,
+        #                 ,,,,,DERCapability::rtgVNom,
+        #                 ,,,,,DERCapability::rtgMaxV,
+        #                 ,,,,,DERCapability::rtgMinV,
+        #                 ,,,,,DERCapability::modesSupported,
+        #                 ,,,,,DERCapability::rtgReactiveSusceptance,
+        #                 ,,,,,DERStatus::alarmStatus,"Bitmap Position (0 = over current, 1 over voltage, 2 under voltage, 3 over frequency, 4 under frequency, 5 voltage imbalance, 6 current imbalance, 7 emergency local, 8 emergency remote, 9 low power input, 10 phase rotation)"
+        #                 ,,,,,DERStatus::genConnectStatus,"DER Generator Status (0 = Connected, 1 = Available, 2 = Operating, 3 = Test, 4 = Fault/Error)"
+        #                 ,,,,,DERStatus::inverterStatus,"DER Inverter Status (0 = Connected, 1 = Available, 2 = Operating, 3 = Test, 4 = Fault/Error)"
+        #                 ,,,,,DERStatus::localControlModeStatus,0 = local control 1 = remote control
+        #                 ,,,,,DERStatus::manufacturerStatus,A manufacturer status code string
+        #                 ,,,,,DERStatus::operationalModeStatus,"DER OperationalModeStatus (0 = Not applicable, 1 = Off, 2 = Operational, 3 = Test)"
+        #                 BAT_SOC,,,,,DERStatus::stateOfChargeStatus,DER StateOfChargeStatus % of charge
+        #                 ,,,,,DERStatus::storageModeStatus,"DER StorageModeStatus (0 = Charging, 1 = Discharging, 2 = Holding)"
+        #                 ,,,,,DERStatus::storConnectStatus,"DER Storage Status (0 = Connected, 1 = Available, 2 = Operating, 3 = Test, 4 = Fault/Error)"
+        #                 ,,,,,DERSettings::setESHighVolt,
+        #                 ,,,,,DERSettings::setESLowVolt,
+        #                 ,,,,,DERSettings::setESHighFreq,
+        #                 ,,,,,DERSettings::setESLowFreq,
+        #                 ,,,,,DERSettings::setESDelay,
+        #                 ,,,,,DERSettings::setESRandomDelay,
+        #                 ,,,,,DERSettings::setESRampTms,
+        #                 ctrl_es_delay,,,,,DefaultDERControl::setESDelay,
+        #                 ctrl_freq_max,,,,,DefaultDERControl::setESHighFreq,
+        #                 ctrl_volt_max,,,,,DefaultDERControl::setESHighVolt,
+        #                 ctrl_freq_min,,,,,DefaultDERControl::setESLowFreq,
+        #                 ctrl_volt_min,,,,,DefaultDERControl::setESLowVolt,
+        #                 ctrl_ramp_tms,,,,,DefaultDERControl::setESRampTms,
+        #                 ctrl_rand_delay,,,,,DefaultDERControl::setESRandomDelay,
+        #                 ctrl_grad_w,,,,,DefaultDERControl::setGradW,
+        #                 ctrl_soft_grad_w,,,,,DefaultDERControl::setSoftGradW,
+        #                 ctrl_connected,,,,,DERControlBase::opModConnect,"True/False Connected = True, Disconnected = False"
+        #                 ctrl_energized,,,,,DERControlBase::opModEnergize,"True/False Energized = True, De-Energized = False"
+        #                 ctrl_fixed_pf_absorb_w,,,,,DERControlBase::opModFixedPFAbsorbW,
+        #                 ctrl_fixed_pf_ingect_w,,,,,DERControlBase::opModFixedPFInjectW,
+        #                 ctrl_fixed_var,,,,,DERControlBase::opModFixedVar,
+        #                 ctrl_fixed_w,,,,,DERControlBase::opModFixedW,
+        #                 ctrl_freq_droop,,,,,DERControlBase::opModFreqDroop,
+        #                 ctrl_freq_w,,,,,DERControlBase::opModFreqWatt,
+        #                 ,,,,,DERControlBase::opModHFRTMayTrip,
+        #                 ,,,,,DERControlBase::opModHFRTMustTrip,
+        #                 ,,,,,DERControlBase::opModHVRTMomentaryCessation,
+        #                 ,,,,,DERControlBase::opModHVRTMustTrip,
+        #                 ,,,,,DERControlBase::opModLFRTMayTrip,
+        #                 ,,,,,DERControlBase::opModLVRTMomentaryCessation,
+        #                 ,,,,,DERControlBase::opModLVRTMustTrip,
+        #                 ctrl_max_w,,,,,DERControlBase::opModMaxLimW,
+        #                 ctrl_target_var,,,,,DERControlBase::opModTargetVar,
+        #                 ctrl_target_w,Target Real Power,,,,DERControlBase::opModTargetW,
+        #                 ,,,,,DERControlBase::opModVoltVar,
+        #                 ,,,,,DERControlBase:opModVoltWatt,
+        #                 ,,,,,DERControlBase::opModWattPF,
+        #                 ,,,,,DERControlBase::opModWattVar,
+        #                 ,,,,,DERControlBase::rampTms,
+        #             """
+        #         )
+        #     },
+        #     config_store_allowed=True,
+        #     source="services/core/IEEE_2030_5"
+        # ),
+        "mqtt.historian": AgentType(
+            identity="mqtt.historian",
             default_config={
                 "connection": {
                     "mqtt_hostname": "localhost",
@@ -353,8 +400,8 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             config_store_allowed=True,
             source="services/core/MQTTHistorian"
         ),
-        "MongodbTaggingService": AgentType(
-            identity="MongodbTaggingService",
+        "platform.tagging_service": AgentType(
+            identity="platform.tagging_service",
             default_config={
                 "connection": {
                     "type": "mongodb",
@@ -387,8 +434,8 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             config_store_allowed=True,
             source="services/core/OpenADRVenAgent"
         ),
-        "SQLAggregateHistorian": AgentType(
-            identity="SQLAggregateHistorian",
+        "platform.aggregate_historian": AgentType(
+            identity="platform.aggregate_historian",
             default_config={
                 "connection": {
                     "type": "sqlite",
@@ -400,7 +447,7 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
                 "aggregations":[
                     {
                     "aggregation_period": "1m",
-                    "use_calendar_time_periods": "true",
+                    "use_calendar_time_periods": True,
                     "points": [
                             {
                             "topic_names": ["device1/out_temp"],
@@ -416,7 +463,7 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
                     },
                     {
                         "aggregation_period": "2m",
-                        "use_calendar_time_periods": "false",
+                        "use_calendar_time_periods": False,
                         "points": [
                             {"topic_names": ["device1/out_temp"],
                             "aggregation_type": "sum", "min_count": 2},
@@ -430,8 +477,8 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             config_store_allowed=True,
             source="services/core/SQLAggregateHistorian"
         ),
-        "SQLHistorian": AgentType(
-            identity="SQLHistorian",
+        "platform.historian": AgentType(
+            identity="platform.historian",
             default_config={
                 "connection": {
                     "type": "mysql",
@@ -448,8 +495,8 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             config_store_allowed=True,
             source="services/core/SQLHistorian"
         ),
-        "SQLiteTaggingService": AgentType(
-            identity="SQLiteTaggingService",
+        "sqlite.tagging_service": AgentType(
+            identity="sqlite.tagging_service",
             default_config={
                 # sqlite connection parameters
                 "connection": {
@@ -484,8 +531,8 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             config_store_allowed=True,
             source="services/core/VolttronCentralPlatform"
         ),
-        "WeatherDotGov": AgentType(
-            identity="WeatherDotGov",
+        "weatheragent": AgentType(
+            identity="weatheragent",
             default_config={
                 "database_file": "weather.sqlite",
                 "max_size_gb": 1,

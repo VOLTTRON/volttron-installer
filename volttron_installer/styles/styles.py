@@ -177,7 +177,7 @@ styles: dict = {
 
     ".agent_config_tile": {
         "display": "flex",
-        "width": "10.5rem",
+        "width": "14.5rem",
         "min-height": "2rem",
         "border-radius": COMMON_BORDER_RADIUS,
         # "cursor": "pointer",
