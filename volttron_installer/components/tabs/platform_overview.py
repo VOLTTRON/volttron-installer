@@ -21,6 +21,10 @@ def craft_new_platform_tile(platform_entry: "Instance") -> rx.Component:
         # TODO: Implement the deletion functionality, perhaps a confirmation modal for running platforms and such.
         rx.context_menu.content(
             rx.context_menu.item(
+                "Copy",
+                on_click=PlatformState.copy_platform(platform_entry.platform.config.instance_name)
+            ),
+            rx.context_menu.item(
                 "Delete",
                 color_scheme="red",
                 # disabled=True

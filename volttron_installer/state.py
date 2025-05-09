@@ -1,23 +1,17 @@
 import reflex as rx
-from pathlib import Path
 from .settings import get_settings
-from . import backend as bk
-import reflex as rx
 from .model_views import AgentModelView, ConfigStoreEntryModelView
 from .utils.create_component_uid import generate_unique_uid
-# from platform_page import State as PlatformPageState
-# from platform_page import Instance
 from .models import Instance
 from .utils.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
 from .utils.validate_content import check_json, check_csv, check_path, check_yaml, check_regular_expression
 from .utils.create_csv_string import create_csv_string, create_and_validate_csv_string
-import io, re, json, csv, yaml
 from .navigation.state import NavigationState
 from .backend.models import AgentType, HostEntry, PlatformConfig, PlatformDefinition, ConfigStoreEntry, AgentDefinition
 from .backend.endpoints import get_all_platforms, create_platform, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host, \
     get_agent_catalog, get_hosts, update_platform, get_inventory_service, \
-    get_platform_service, get_platform_status, deploy_platform, \
+    get_platform_service, deploy_platform, \
     get_ansible_service
 from .utils.create_component_uid import generate_unique_uid
 from .utils.conversion_methods import csv_string_to_usable_dict
@@ -26,8 +20,7 @@ from .utils.prettify import prettify_json
 from loguru import logger
 from .model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
 from .thin_endpoint_wrappers import *
-# from ...rxconfig import config
-import string, random, json, csv, yaml, re
+import string, random, json, csv, yaml, re, io
 from copy import deepcopy
 
 
@@ -527,6 +520,23 @@ class PlatformPageState(rx.State):
 
         yield NavigationState.route_to_platform(new_uid)
 
+    @rx.event
+    def copy_platform(self, instance_name: str):
+        uid = self.generate_unique_uid()
+        copy_instance = deepcopy(self.platforms[instance_name])
+        copy_instance.platform.config.instance_name = uid
+        copy_instance.new_instance = True
+        copy_instance.platform.in_file = False
+        self.platforms[uid] = copy_instance
+        yield NavigationState.route_to_platform(self.platforms[uid].platform.config.instance_name)
+        yield rx.toast.info(f"Platform: {instance_name} has been copied")
+        # This is a weird way of doing it but we are doing this because 
+        # the UI routes to the instance name of a platform. and when we change
+        # the instance name after we route to the uid it solves some headaches,
+        # but probably should fix the headaches that it would cause.
+        copy_instance.platform.config.instance_name = instance_name
+        # yield self.update_platform_config_detail("instance_name", instance_name)
+        
     @rx.event
     def toggle_advanced(self):
         working_platform: Instance = self.platforms[self.current_uid]

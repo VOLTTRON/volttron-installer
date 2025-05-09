@@ -42,9 +42,19 @@ def platform_page() -> rx.Component:
                     spacing="6",
                     align="center",
                 ),
-                icon_button_wrapper.icon_button_wrapper(
-                    tool_tip_content="Delete platform",
-                    icon_key="trash-2",
+                rx.hstack(
+                    rx.cond(
+                        working_platform.new_instance==False,
+                        icon_button_wrapper.icon_button_wrapper(
+                            tool_tip_content="Copy Platform",
+                            icon_key="copy",
+                            on_click=lambda: State.copy_platform(State.current_uid)
+                        )
+                    ),
+                    icon_button_wrapper.icon_button_wrapper(
+                        tool_tip_content="Delete platform",
+                        icon_key="trash-2",
+                    ),
                 ),
                 justify="between"
             ),
