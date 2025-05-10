@@ -526,48 +526,18 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
         ),
         "platform.agent": AgentType(
             identity="platform.agent",
-            default_config={},
-            default_config_store={
-                # The volttron-central-address, volttron-central-serverkey and
-                # instance-name may be set in the VCP instance configuration file or
-                # or as command line parameters to the VOLTTRON instance.
-                #
-                # The volttron-central-address is either an http address or a tcp
-                # address.  If it is an http address vc must be running at the resolution
-                # of http://ip:port/discovery/.  VCP will use the tcp address and
-                # serverkey in the response payload to connect to the VC agent instance.
-                #
-                # If the specified address is a tcp address then the configuration
-                # must also contain a volttron-central-serverkey.
+            default_config={
                 "volttron-central-address": "http://ip<host>:port `or` tcp://ip:port",
-
-                # The serverkey of the VC agent's instance.
                 "volttron-central-serverkey": "VC agent's instance serverkey",
-
-                # interval at which VCP will attempt to connect to the VC agent's
-                # instance when a disconnection occurs.
                 "volttron-central-reconnect-interval": 5,
-
-                # The name of instance to be sent to volttron central for displaying
-                # on the interface.
                 "instance-name": "name of instances (VC agent's instance ip address as default)",
-
-                # VCP will publish health statistics of the instance at a specified
-                # interval.
                 "stats-publish-interval": 30,
-
-                # The VCP provides a topic/replace mapping for the platform.  It is
-                # available via rpc function so that sensitive information won't be
-                # published through forwarding.
-                #
-                # The topic-replace-map is used to search/replace all of the topics
-                # published from ForwardHistorians and other agents that connect with
-                # external instances.
                 "topic-replace-map": {
                     "from": "to",
                     "from1": "to1"
                 }
             },
+            default_config_store={},
             config_store_allowed=True,
             source="services/core/VolttronCentralPlatform"
         ),
