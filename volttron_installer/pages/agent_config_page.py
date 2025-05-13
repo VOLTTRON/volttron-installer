@@ -1034,7 +1034,21 @@ def agent_draft() -> rx.Component:
                     ),
                     rx.fragment(
                         rx.divider(),
-                        rx.text("No Valid Config Store Entries Detected...")
+                        rx.text("No Valid Config Store Entries Detected..."),
+                        rx.cond(
+                            AgentConfigState.uncaught_configs.length() != 0,
+                            rx.container(
+                                rx.hstack(
+                                    rx.icon(
+                                        "triangle-alert"
+                                    ),
+                                    rx.text("At least one invalid config not yet considered"),
+                                    spacing="3"
+                                ),
+                                background_color="#FFA726",
+                                border_radius=".75rem"
+                            )
+                        )
                     )
                 ),
                 justify="center",
