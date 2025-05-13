@@ -959,6 +959,22 @@ def agent_draft() -> rx.Component:
                             AgentConfigState.committed_configs,
                             lambda config: rx.vstack(
                                 rx.divider(),
+                                # Checking if our config is uncaught
+                                rx.cond(
+                                    AgentConfigState.uncaught_configs.contains(config.path),
+                                    rx.container(
+                                        rx.hstack(
+                                            rx.icon(
+                                                "triangle-alert"
+                                            ),
+                                            rx.text("This config has uncaught changes"),
+                                            spacing="3"
+                                        ),
+                                        background_color="#FFA726",
+                                        border_radius=".75rem"
+                                    )
+                                ),
+                                # rest of the component
                                 form_entry.form_entry(
                                     "Path",
                                     rx.code_block(

@@ -847,7 +847,6 @@ class AgentConfigState(rx.State):
     selected_component_id: str = ""
     draft_visible: bool = False
     
-
     # Vars
     # this being named agent details doesn't make sense to be honest
     @rx.var
@@ -979,6 +978,13 @@ class AgentConfigState(rx.State):
         return (len(self.working_agent.config_store) > 0 and 
                 any(not config.uncommitted for config in self.working_agent.config_store))
 
+    @rx.var
+    def uncaught_configs(self) -> list[str]:
+        return [
+                config.safe_entry["path"] for config in self.working_agent.config_store if config.changed
+            ]
+
+    # Events
     @rx.event
     async def hydrate_working_agent(self):
         """Initialize working agent from platform state"""
@@ -991,7 +997,6 @@ class AgentConfigState(rx.State):
                 self.working_agent = agent
                 break
 
-    # Events
     @rx.event
     def flip_draft_visibility(self):
         self.draft_visible = not self.draft_visible
