@@ -13,10 +13,10 @@ from ..backend.endpoints import get_all_platforms, create_platform, \
     get_agent_catalog, get_hosts, update_platform, get_inventory_service, \
     get_platform_service, get_platform_status, deploy_platform, \
     get_ansible_service
-from ..functions.create_component_uid import generate_unique_uid
-from ..functions.conversion_methods import csv_string_to_usable_dict
-from ..functions.validate_content import check_json
-from ..functions.prettify import prettify_json
+from ..utils.create_component_uid import generate_unique_uid
+from ..utils.conversion_methods import csv_string_to_usable_dict
+from ..utils.validate_content import check_json
+from ..utils.prettify import prettify_json
 from loguru import logger
 from ..model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
 from ..thin_endpoint_wrappers import *
