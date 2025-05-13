@@ -12,7 +12,10 @@ class InventoryService:
 
     def __init__(self, inventory_path: Optional[Path] = None):
         self._inventory_path = inventory_path or Path(get_settings().data_dir) / "inventory.yml"
-        
+        self._inventory_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._inventory_path.exists():
+            yaml.dump({'all': {'hosts': {}}}, self._inventory_path.open('w'))
+       
         self._lock = threading.Lock()  # Use threading.Lock instead of asyncio.Lock
                  
         self._internal_state = yaml.safe_load(self._inventory_path.open())
