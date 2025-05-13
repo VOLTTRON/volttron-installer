@@ -159,6 +159,10 @@ styles: dict = {
         "flex-direction": "column",
         "row-gap": "1rem",
         "align-items": "center",
+        "scroll":"auto",
+        "overflow-y": "auto",
+        "height" : "max-height",
+        "max-height": "100%",
         "flex": "1"  # Take up all the available space within the column
     },
 
@@ -173,7 +177,7 @@ styles: dict = {
 
     ".agent_config_tile": {
         "display": "flex",
-        "width": "10.5rem",
+        "width": "14.5rem",
         "min-height": "2rem",
         "border-radius": COMMON_BORDER_RADIUS,
         # "cursor": "pointer",

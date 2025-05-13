@@ -850,32 +850,32 @@ def platform_page() -> rx.Component:
         State.is_hydrated, 
         rx.fragment(
             app_layout(
-            header(
-            rx.hstack(
+                header(
+                rx.hstack(
+                    icon_button_wrapper.icon_button_wrapper(
+                        tool_tip_content="Go back to overview",
+                        icon_key="arrow-left",
+                        on_click=lambda: NavigationState.route_to_index()
+                    ),
+                    rx.text(f"""{
+                            rx.cond(
+                                working_platform.new_instance,
+                                'New Platform',
+                                f'Platform: {State.platform_title}'
+                            )
+                        }""",
+                        trim="both",
+                        size="6"
+                    ),
+                    spacing="6",
+                    align="center",
+                ),
                 icon_button_wrapper.icon_button_wrapper(
-                    tool_tip_content="Go back to overview",
-                    icon_key="arrow-left",
-                    on_click=lambda: NavigationState.route_to_index()
+                    tool_tip_content="Delete platform",
+                    icon_key="trash-2",
                 ),
-                rx.text(f"""{
-                        rx.cond(
-                            working_platform.new_instance,
-                            'New Platform',
-                            f'Platform: {State.platform_title}'
-                        )
-                    }""",
-                    trim="both",
-                    size="6"
-                ),
-                spacing="6",
-                align="center",
+                justify="between"
             ),
-            icon_button_wrapper.icon_button_wrapper(
-                tool_tip_content="Delete platform",
-                icon_key="trash-2",
-            ),
-            justify="between"
-        ),
             platform_tabs()
             )
         ),
