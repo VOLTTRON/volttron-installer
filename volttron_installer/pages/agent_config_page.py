@@ -679,7 +679,7 @@ def agent_config_page() -> rx.Component:
                                             ),
                                             tooltip=rx.cond(
                                                 AgentConfigState.changed_configs_list.contains(config.component_id),
-                                                "Config store entry has been changed",
+                                                "Config store entry is uncaught",
                                                 ""
                                             ),
                                         )
