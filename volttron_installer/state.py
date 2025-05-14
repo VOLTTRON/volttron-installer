@@ -925,7 +925,7 @@ class AgentConfigState(rx.State):
     @rx.var
     def changed_configs_list(self) -> list[str]:
         """returns a list of component ids for the config store entries that have been changed"""
-        return list(config.component_id for config in self.working_agent.config_store if config.dict() != config.safe_entry)
+        return list(config.component_id for config in self.working_agent.config_store if config.dict() != config.safe_entry or config.safe_entry["path"] == "")
 
     # ======== End of config validation vars =========
 
