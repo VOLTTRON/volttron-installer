@@ -80,7 +80,7 @@ class ConfigStoreEntryModelView(rx.Base):
         return {
             "path": self.path,
             "data_type": self.data_type,
-            "value": self.value,
+            "value": str(self.value),
             "component_id": self.component_id,
             "csv_variants": self.csv_variants 
         }

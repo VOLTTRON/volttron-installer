@@ -961,7 +961,7 @@ def agent_draft() -> rx.Component:
                                 rx.divider(),
                                 # Checking if our config is uncaught
                                 rx.cond(
-                                    AgentConfigState.uncaught_configs.contains(config.path),
+                                    AgentConfigState.changed_configs_list.contains(config.component_id),
                                     rx.container(
                                         rx.hstack(
                                             rx.icon(

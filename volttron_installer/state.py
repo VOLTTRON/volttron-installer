@@ -926,7 +926,29 @@ class AgentConfigState(rx.State):
     def changed_configs_list(self) -> list[str]:
         """returns a list of component ids for the config store entries that have been changed"""
         return list(config.component_id for config in self.working_agent.config_store if config.dict() != config.safe_entry or config.safe_entry["path"] == "")
+    
+    @rx.var
+    def committed_configs(self) -> list[ConfigStoreEntryModelView]:
+        return [
+            ConfigStoreEntryModelView(
+                    path=config.safe_entry["path"], 
+                    data_type=config.safe_entry["data_type"],
+                    value=config.safe_entry["value"],
+                    csv_variants=config.csv_variants,
+                    component_id=config.component_id,
+                    selected_variant=config.selected_variant,
+                ) for config in self.working_agent.config_store if not config.uncommitted]
+    
+    @rx.var
+    def has_valid_configs(self) -> bool:
+        return (len(self.working_agent.config_store) > 0 and 
+                any(not config.uncommitted for config in self.working_agent.config_store))
 
+    @rx.var
+    def uncaught_configs(self) -> list[str]:
+        return [
+                config.safe_entry["path"] for config in self.working_agent.config_store if config.changed
+            ]
     # ======== End of config validation vars =========
 
 
@@ -962,27 +984,6 @@ class AgentConfigState(rx.State):
         return validity_map["config"]
 
     # ======== End of agent validation vars========
-    
-    @rx.var
-    def committed_configs(self) -> list[ConfigStoreEntryModelView]:
-        return [
-            ConfigStoreEntryModelView(
-                    path=config.safe_entry["path"], 
-                    data_type=config.safe_entry["data_type"],
-                    value=config.safe_entry["value"],
-                    csv_variants=config.csv_variants,
-                ) for config in self.working_agent.config_store if not config.uncommitted]
-    
-    @rx.var
-    def has_valid_configs(self) -> bool:
-        return (len(self.working_agent.config_store) > 0 and 
-                any(not config.uncommitted for config in self.working_agent.config_store))
-
-    @rx.var
-    def uncaught_configs(self) -> list[str]:
-        return [
-                config.safe_entry["path"] for config in self.working_agent.config_store if config.changed
-            ]
 
     # Events
     @rx.event
@@ -1047,11 +1048,13 @@ class AgentConfigState(rx.State):
                 config.valid = valid
                 config.changed = config.dict() != config.safe_entry
                 # this shows the "changed" field as we update the config entry
-                # logger.debug(f"this is the changed value: {config.changed}")
+                # logger.debug(f"we are checking the {field} field")
+                # logger.debug(f"is changed?: {config.changed}")
                 # logger.debug(f"manually checking dict: {config.dict()}")
                 # logger.debug(f"manually checking safe_entry: {config.safe_entry}")
                 if id is not None:
                     yield rx.set_value(id, value)
+                break
     
     @rx.event
     async def handle_config_store_entry_upload(self, files: list[rx.UploadFile]):
