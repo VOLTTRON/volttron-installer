@@ -106,6 +106,7 @@ class AgentModelView(rx.Base):
             "identity": self.identity,
             "source": self.source,
             "config": self.config,
+            "config_store_allowed": self.config_store_allowed,
             "config_store": {
                 config["path"]: {
                     "path": config["path"],

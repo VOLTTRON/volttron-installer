@@ -611,6 +611,7 @@ class PlatformPageState(rx.State):
                     identity=identity,
                     source=agent["source"],
                     config=agent["config"],
+                    config_store_allowed=agent["config_store_allowed"],
                     config_store={
                         path: ConfigStoreEntry(
                             path=path,
