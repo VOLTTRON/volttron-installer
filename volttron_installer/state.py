@@ -945,10 +945,8 @@ class AgentConfigState(rx.State):
                 any(not config.uncommitted for config in self.working_agent.config_store))
 
     @rx.var
-    def uncaught_configs(self) -> list[str]:
-        return [
-                config.safe_entry["path"] for config in self.working_agent.config_store if config.changed
-            ]
+    def num_of_new_invalid_configs(self) -> int:
+        return len([config.path for config in self.working_agent.config_store if config.uncommitted]) 
     # ======== End of config validation vars =========
 
 

@@ -1035,20 +1035,26 @@ def agent_draft() -> rx.Component:
                     rx.fragment(
                         rx.divider(),
                         rx.text("No Valid Config Store Entries Detected..."),
-                        rx.cond(
-                            AgentConfigState.uncaught_configs.length() != 0,
-                            rx.container(
-                                rx.hstack(
-                                    rx.icon(
-                                        "triangle-alert"
-                                    ),
-                                    rx.text("At least one invalid config not yet considered"),
-                                    spacing="3"
-                                ),
-                                background_color="#FFA726",
-                                border_radius=".75rem"
-                            )
-                        )
+                    )
+                ),
+                rx.divider(),
+                rx.cond(
+                    AgentConfigState.num_of_new_invalid_configs > 0,
+                    rx.container(
+                        rx.hstack(
+                            rx.icon(
+                                "triangle-alert"
+                            ),
+                            # Proper grammar
+                            rx.cond(
+                                AgentConfigState.num_of_new_invalid_configs==1,
+                                rx.text(f"1 new and unsaved config not yet considered"),
+                                rx.text(f"{AgentConfigState.num_of_new_invalid_configs} new and unsaved configs not yet considered")
+                            ),
+                            spacing="3"
+                        ),
+                        background_color="#FFA726",
+                        border_radius=".75rem"
                     )
                 ),
                 justify="center",
