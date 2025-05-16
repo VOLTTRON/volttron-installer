@@ -1045,11 +1045,6 @@ class AgentConfigState(rx.State):
                 logger.debug(f"this is the validity map: {valid_map}")
                 config.valid = valid
                 config.changed = config.dict() != config.safe_entry
-                # this shows the "changed" field as we update the config entry
-                # logger.debug(f"we are checking the {field} field")
-                # logger.debug(f"is changed?: {config.changed}")
-                # logger.debug(f"manually checking dict: {config.dict()}")
-                # logger.debug(f"manually checking safe_entry: {config.safe_entry}")
                 if id is not None:
                     yield rx.set_value(id, value)
                 break
