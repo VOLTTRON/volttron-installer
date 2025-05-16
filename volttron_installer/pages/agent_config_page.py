@@ -679,7 +679,7 @@ def agent_config_page() -> rx.Component:
                                             ),
                                             tooltip=rx.cond(
                                                 AgentConfigState.changed_configs_list.contains(config.component_id),
-                                                "Config store entry is uncaught",
+                                                "Config store entry has unsaved changes",
                                                 ""
                                             ),
                                         )
@@ -967,7 +967,7 @@ def agent_draft() -> rx.Component:
                                             rx.icon(
                                                 "triangle-alert"
                                             ),
-                                            rx.text("This config has uncaught changes"),
+                                            rx.text("This config has unsaved changes"),
                                             spacing="3"
                                         ),
                                         background_color="#FFA726",
@@ -1034,7 +1034,7 @@ def agent_draft() -> rx.Component:
                     ),
                     rx.fragment(
                         rx.divider(),
-                        rx.text("No Valid Config Store Entries Detected..."),
+                        rx.text("No Valid Config Store Entries."),
                     )
                 ),
                 rx.divider(),
