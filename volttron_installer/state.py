@@ -17,6 +17,7 @@ from .utils.create_component_uid import generate_unique_uid
 from .utils.conversion_methods import csv_string_to_usable_dict
 from .utils.validate_content import check_json
 from .utils.prettify import prettify_json
+from .utils import delete_file
 from loguru import logger
 from .model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
 from .thin_endpoint_wrappers import *
@@ -1115,6 +1116,7 @@ class AgentConfigState(rx.State):
         logger.debug("agent config store entry was uploaded")
         yield AgentConfigState.set_component_id(new_config_entry.component_id)
         yield rx.toast.success("Config store entry uploaded successfully")
+        delete_file.delete_file(current_file.filename)
 
     @rx.event
     async def handle_agent_config_upload(self, files: list[rx.UploadFile]):
@@ -1142,6 +1144,7 @@ class AgentConfigState(rx.State):
         agent = self.working_agent
         agent.config = result
         yield rx.set_value("agent_config_field", result)
+        delete_file.delete_file(file.filename)
     
     @rx.event
     def create_blank_config_entry(self):
