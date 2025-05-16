@@ -858,7 +858,6 @@ class AgentConfigState(rx.State):
     selected_component_id: str = ""
     draft_visible: bool = False
     
-
     # Vars
     # this being named agent details doesn't make sense to be honest
     @rx.var
@@ -937,8 +936,28 @@ class AgentConfigState(rx.State):
     @rx.var
     def changed_configs_list(self) -> list[str]:
         """returns a list of component ids for the config store entries that have been changed"""
-        return list(config.component_id for config in self.working_agent.config_store if config.dict() != config.safe_entry)
+        return list(config.component_id for config in self.working_agent.config_store if config.dict() != config.safe_entry or config.safe_entry["path"] == "")
+    
+    @rx.var
+    def committed_configs(self) -> list[ConfigStoreEntryModelView]:
+        return [
+            ConfigStoreEntryModelView(
+                    path=config.safe_entry["path"], 
+                    data_type=config.safe_entry["data_type"],
+                    value=config.safe_entry["value"],
+                    csv_variants=config.csv_variants,
+                    component_id=config.component_id,
+                    selected_variant=config.selected_variant,
+                ) for config in self.working_agent.config_store if not config.uncommitted]
+    
+    @rx.var
+    def has_valid_configs(self) -> bool:
+        return (len(self.working_agent.config_store) > 0 and 
+                any(not config.uncommitted for config in self.working_agent.config_store))
 
+    @rx.var
+    def num_of_new_invalid_configs(self) -> int:
+        return len([config.path for config in self.working_agent.config_store if config.uncommitted]) 
     # ======== End of config validation vars =========
 
 
@@ -974,22 +993,8 @@ class AgentConfigState(rx.State):
         return validity_map["config"]
 
     # ======== End of agent validation vars========
-    
-    @rx.var
-    def committed_configs(self) -> list[ConfigStoreEntryModelView]:
-        return [
-            ConfigStoreEntryModelView(
-                    path=config.safe_entry["path"], 
-                    data_type=config.safe_entry["data_type"],
-                    value=config.safe_entry["value"],
-                    csv_variants=config.csv_variants,
-                ) for config in self.working_agent.config_store if not config.uncommitted]
-    
-    @rx.var
-    def has_valid_configs(self) -> bool:
-        return (len(self.working_agent.config_store) > 0 and 
-                any(not config.uncommitted for config in self.working_agent.config_store))
 
+    # Events
     @rx.event
     async def hydrate_working_agent(self):
         """Initialize working agent from platform state"""
@@ -1002,7 +1007,6 @@ class AgentConfigState(rx.State):
                 self.working_agent = agent
                 break
 
-    # Events
     @rx.event
     def flip_draft_visibility(self):
         self.draft_visible = not self.draft_visible
@@ -1052,12 +1056,9 @@ class AgentConfigState(rx.State):
                 logger.debug(f"this is the validity map: {valid_map}")
                 config.valid = valid
                 config.changed = config.dict() != config.safe_entry
-                # this shows the "changed" field as we update the config entry
-                # logger.debug(f"this is the changed value: {config.changed}")
-                # logger.debug(f"manually checking dict: {config.dict()}")
-                # logger.debug(f"manually checking safe_entry: {config.safe_entry}")
                 if id is not None:
                     yield rx.set_value(id, value)
+                break
     
     @rx.event
     async def handle_config_store_entry_upload(self, files: list[rx.UploadFile]):

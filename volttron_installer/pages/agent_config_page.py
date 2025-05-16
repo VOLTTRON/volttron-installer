@@ -679,7 +679,7 @@ def agent_config_page() -> rx.Component:
                                             ),
                                             tooltip=rx.cond(
                                                 AgentConfigState.changed_configs_list.contains(config.component_id),
-                                                "Config store entry has been changed",
+                                                "Config store entry has unsaved changes",
                                                 ""
                                             ),
                                         )
@@ -959,6 +959,22 @@ def agent_draft() -> rx.Component:
                             AgentConfigState.committed_configs,
                             lambda config: rx.vstack(
                                 rx.divider(),
+                                # Checking if our config is uncaught
+                                rx.cond(
+                                    AgentConfigState.changed_configs_list.contains(config.component_id),
+                                    rx.container(
+                                        rx.hstack(
+                                            rx.icon(
+                                                "triangle-alert"
+                                            ),
+                                            rx.text("This config has unsaved changes"),
+                                            spacing="3"
+                                        ),
+                                        background_color="#FFA726",
+                                        border_radius=".75rem"
+                                    )
+                                ),
+                                # rest of the component
                                 form_entry.form_entry(
                                     "Path",
                                     rx.code_block(
@@ -1018,7 +1034,27 @@ def agent_draft() -> rx.Component:
                     ),
                     rx.fragment(
                         rx.divider(),
-                        rx.text("No Valid Config Store Entries Detected...")
+                        rx.text("No Valid Config Store Entries."),
+                    )
+                ),
+                rx.divider(),
+                rx.cond(
+                    AgentConfigState.num_of_new_invalid_configs > 0,
+                    rx.container(
+                        rx.hstack(
+                            rx.icon(
+                                "triangle-alert"
+                            ),
+                            # Proper grammar
+                            rx.cond(
+                                AgentConfigState.num_of_new_invalid_configs==1,
+                                rx.text(f"1 new and unsaved config not yet considered"),
+                                rx.text(f"{AgentConfigState.num_of_new_invalid_configs} new and unsaved configs not yet considered")
+                            ),
+                            spacing="3"
+                        ),
+                        background_color="#FFA726",
+                        border_radius=".75rem"
                     )
                 ),
                 justify="center",
