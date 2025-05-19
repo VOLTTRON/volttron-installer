@@ -17,6 +17,7 @@ from .utils.create_component_uid import generate_unique_uid
 from .utils.conversion_methods import csv_string_to_usable_dict
 from .utils.validate_content import check_json
 from .utils.prettify import prettify_json
+from .utils import delete_file
 from loguru import logger
 from .model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
 from .thin_endpoint_wrappers import *
@@ -1065,7 +1066,7 @@ class AgentConfigState(rx.State):
         # dealing with file uploads
         current_file = files[0]
         upload_data = await current_file.read()
-        outfile = (rx.get_upload_dir() / current_file.filename)
+        outfile = (rx.get_upload_dir() / current_file.name)
         
         with outfile.open("wb") as file_object:
             file_object.write(upload_data)
@@ -1073,13 +1074,13 @@ class AgentConfigState(rx.State):
         result: str = ""
         file_type: str = ""
 
-        if current_file.filename.endswith('.json'):
+        if current_file.name.endswith('.json'):
             with open(outfile, 'r') as file_object:
                 data = json.load(file_object)
                 file_type = "JSON"
                 result = json.dumps(data, indent=4)
 
-        elif current_file.filename.endswith('.csv'):
+        elif current_file.name.endswith('.csv'):
             with open(outfile, 'r') as file_object:
                 reader = csv.reader(file_object)
                 output = io.StringIO()
@@ -1116,23 +1117,24 @@ class AgentConfigState(rx.State):
         logger.debug("agent config store entry was uploaded")
         yield AgentConfigState.set_component_id(new_config_entry.component_id)
         yield rx.toast.success("Config store entry uploaded successfully")
+        delete_file.delete_file(current_file.name)
 
     @rx.event
     async def handle_agent_config_upload(self, files: list[rx.UploadFile]):
         file = files[0]
         upload_data = await file.read()
-        outfile = (rx.get_upload_dir() / file.filename)
+        outfile = (rx.get_upload_dir() / file.name)
         
         with outfile.open("wb") as file_object:
             file_object.write(upload_data)
 
         result: str = ""
 
-        if file.filename.endswith('.json'):
+        if file.name.endswith('.json'):
             with open(outfile, 'r') as file_object:
                 data = json.load(file_object)
                 result = json.dumps(data, indent=4)
-        elif file.filename.endswith('.yaml') or file.filename.endswith('.yml'):
+        elif file.name.endswith('.yaml') or file.name.endswith('.yml'):
             with open(outfile, 'r') as file_object:
                 data = yaml.safe_load(file_object)
                 result = yaml.dump(data, sort_keys=False, default_flow_style=False)
@@ -1143,6 +1145,7 @@ class AgentConfigState(rx.State):
         agent = self.working_agent
         agent.config = result
         yield rx.set_value("agent_config_field", result)
+        delete_file.delete_file(file.name)
     
     @rx.event
     def create_blank_config_entry(self):
