@@ -1,5 +1,6 @@
 import httpx, asyncio
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar, Generic, Type, Union, List, Dict
+from ..backend.models import AgentType, HostEntry, PlatformDefinition
 
 API_BASE_URL = "http://localhost:8000"
 API_PREFIX = "/api"
@@ -10,6 +11,34 @@ CATALOG_PREFIX = f"{API_PREFIX}/catalog"
 TASK_PREFIX = f"{API_PREFIX}/task"
 
 DEFAULT_TIMEOUT = 5.0  # 5 seconds timeout
+
+T = TypeVar('T')
+
+def with_model(model_class: Type[T], response_type: str = "single"):
+    """
+    Decorator to transform HTTP responses into model objects.
+    
+    Args:
+        model_class: The model class to transform the response into (the return model of the original backend endpoint)
+        response_type: One of "single", "list", or "dict"
+    """
+    def decorator(func):
+        async def wrapper(*args, **kwargs) -> Union[T, List[T], Dict[str, T]]:
+            response = await func(*args, **kwargs)
+            data = response.json()
+            
+            if response_type == "single":
+                return model_class(**data)
+            elif response_type == "list":
+                return [model_class(**item) for item in data]
+            elif response_type == "dict":
+                return {key: model_class(**value) for key, value in data.items()}
+            else:
+                raise ValueError(f"Invalid response type: {response_type}")
+                
+        return wrapper
+    return decorator
+
 
 class ApiError(Exception):
     def __init__(self, status_code: int, detail: str):
