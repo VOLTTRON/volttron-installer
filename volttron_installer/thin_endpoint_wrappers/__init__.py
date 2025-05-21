@@ -1,6 +1,10 @@
 import httpx, asyncio
-from typing import Any, Optional, TypeVar, Generic, Type, Union, List, Dict
-from ..backend.models import AgentType, HostEntry, PlatformDefinition
+from typing import Any, Optional, TypeVar, Type, Union, List, Dict
+
+from volttron_installer.backend.endpoints import ping_resolvable_host
+from ..backend.models import AgentType, HostEntry, PlatformDefinition, \
+    CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ReachableResponse, \
+    PlatformDeploymentStatus, CreateAgentRequest
 
 API_BASE_URL = "http://localhost:8000"
 API_PREFIX = "/api"
@@ -46,12 +50,6 @@ class ApiError(Exception):
         self.detail = detail
         super().__init__(f"API Error ({status_code}): {detail}")
 
-# Async HTTP functions
-# NOTE: I hate these get request wrappers because they do not return the response we are 
-# looking for. When wrapping an endpoint that returns lets say a list of HostEntry objects,
-# we get a response that decompiles it to a list of the dictionary representation of the objects.
-# This is not ideal because that means we would have to create the object by scratch from our json
-# representations. 
 async def get_request(url: str, params: Optional[dict[str, Any]] = None, 
                       timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
     """Send an async GET request to the specified URL with optional parameters."""
@@ -111,3 +109,78 @@ async def delete_request(url: str, params: Optional[dict[str, Any]] = None,
             raise ApiError(e.response.status_code, e.response.text)
         except Exception as e:
             raise ApiError(500, str(e))
+
+# Endpoints.
+# GET requests
+@with_model(HostEntry)
+async def get_host(host_id: str) -> HostEntry:
+    return await get_request(f"{API_BASE_URL}{HOSTS_PREFIX}/{host_id}")
+
+@with_model(HostEntry, response_type="list")
+async def get_hosts() -> list[HostEntry]:
+    return await get_request(f"{API_BASE_URL}{HOSTS_PREFIX}")
+
+@with_model(AgentType, response_type="dict")
+async def get_agent_catalog() -> dict[str, AgentType]:
+    return await get_request(f"{API_BASE_URL}{CATALOG_PREFIX}/agents")
+
+@with_model(AgentType)
+async def get_agent_from_catalog(agent_id: str) -> AgentType:
+    return await get_request(f"{API_BASE_URL}{CATALOG_PREFIX}/agents/{agent_id}")
+
+@with_model(PlatformDefinition, response_type="list")
+async def get_all_platforms() -> list[PlatformDefinition]:
+    return await get_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/")
+
+@with_model(AgentType, response_type="dict")
+async def get_agent_catalog() -> dict[str, AgentType]:
+    return await get_request(f"{API_BASE_URL}{CATALOG_PREFIX}/agents")
+
+@with_model(PlatformDefinition)
+async def get_platform_by_id(platform_id: str) -> PlatformDefinition:
+    return await get_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}")
+
+@with_model(PlatformDeploymentStatus)
+async def get_platform_status(platform_id: str) -> PlatformDeploymentStatus:
+    return await get_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/status/{platform_id}")
+
+@with_model(ReachableResponse)
+async def ping_resolvable_host(host_id: str) -> ReachableResponse:
+    """Ping a host to check if it is reachable."""
+    return await get_request(f"{API_BASE_URL}{TASK_PREFIX}/ping/{host_id}")
+
+# PUT requests
+async def update_platform(platform_id: str, platform: CreatePlatformRequest):
+    await put_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}", data=dict(id=platform_id, platform=platform))
+
+async def update_agent(platform_id: str, agent_id: str, agent: CreateAgentRequest):
+    await put_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents/{agent_id}", data=dict(agent=agent))
+
+# POST requests
+async def create_platform(platform: CreatePlatformRequest):
+    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/", data=dict(platform=platform))
+
+async def deploy_platform(platform_id: str):
+    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/deploy/{platform_id}")
+
+async def add_host(host: CreateOrUpdateHostEntryRequest):
+    await post_request(f"{API_BASE_URL}{HOSTS_PREFIX}/", data=dict(host_entry=host))
+
+async def start_platform(platform_id: str):
+    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/start_platform", data=dict(platform_id=platform_id))
+
+async def stop_platform(platform_id: str):
+    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/stop_platform", data=dict(platform_id=platform_id))
+
+async def create_agent(platform_id: str, agent: CreateAgentRequest):
+    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents", data=dict(agent=agent))
+
+# DELETE requests
+async def delete_platform(platform_id: str):
+    await delete_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}")
+
+async def remove_from_inventory(host_id: str):
+    await delete_request(f"{API_BASE_URL}{HOSTS_PREFIX}/{host_id}")
+
+async def delete_agent(platform_id: str, agent_id: str):
+    await delete_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents/{agent_id}")
