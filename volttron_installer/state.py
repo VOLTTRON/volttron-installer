@@ -20,6 +20,16 @@ from .utils.prettify import prettify_json
 from .utils import delete_file
 from loguru import logger
 from .model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
+from .thin_endpoint_wrappers import ( 
+    get_agent_catalog, 
+    get_hosts, 
+    get_all_platforms, 
+    ping_resolvable_host, 
+    add_host, 
+    update_platform, 
+    create_platform, 
+    deploy_platform
+)
 from .thin_endpoint_wrappers import *
 import string, random, json, csv, yaml, re, io
 from copy import deepcopy
@@ -105,11 +115,7 @@ async def __agents_off_catalog__() -> list[AgentModelView]:
 
 async def __instances_from_api__() -> dict[str, Instance]:
     # logger.debug(f"backend url: {rx.config}")
-    # platforms: list[PlatformDefinition] = await get_all_platforms()
-    # Trying to test out the wrapper
-    response = await get_request("http://localhost:8000/api/platforms/")
-    data = response.json()
-    platforms: list[PlatformDefinition] = [PlatformDefinition(**item) for item in data]
+    platforms: list[PlatformDefinition] = await get_all_platforms()
     hosts: list[HostEntry] = await get_hosts()
     host_by_id: dict[str, HostEntry] = {}
     for h in hosts:
@@ -577,15 +583,7 @@ class PlatformPageState(rx.State):
         if working_platform.uncaught != False and working_platform.valid:
             working_platform.safe_host_entry = working_platform.host.to_dict()
             working_platform.uncaught = False
-
-            depends = await get_ansible_service()
-            deploy_platform(
-                PlatformConfig(
-                    instance_name=working_platform.platform.config.instance_name,
-                    vip_address=working_platform.platform.config.vip_address
-                ),
-                ansible=depends
-            )
+            await deploy_platform(working_platform.platform.config.instance_name)
             yield rx.toast.success("Deployed Successfully!")
      
     @rx.event
@@ -644,13 +642,7 @@ class PlatformPageState(rx.State):
         
         logger.debug(f"this is the uid copy: {uid_copy}")
         await add_host(request)
-        inv_serv = await get_inventory_service()
-        plat_serv = await get_platform_service()
-        await create_platform(
-            platform=base_platform_request,
-            inventory_service=inv_serv,
-            platform_service=plat_serv
-            )
+        await create_platform(base_platform_request)
         
         # Lets say changes saved successfully and redirect to the new url while deleting our old one
         logger.debug(f"this is the uid copy: {uid_copy}")
@@ -698,32 +690,8 @@ class PlatformPageState(rx.State):
         host_id = working_platform.host.id
         if host_id =="":
             return False
-
-        try:
-            url = f"http://localhost:8000/api/task/ping/{host_id}"
-            
-            response = await get_request(url, {"host_id": host_id})
-            data = response.json()
-            
-            logger.debug(f"Host reachability response for {host_id}: {data}")
-            
-            # Check if 'reachable' key exists, in case of api errors
-            if "reachable" not in data:
-                logger.error(f"Missing 'reachable' key in API response. Got keys: {list(data.keys())}")
-                logger.error(f"Full response: {data}")
-                
-                # Just to let us know if we got something unexpected
-                if "status" in data:
-                    logger.info(f"Found 'status' key instead: {data['status']}")
-                    # Maybe the API returns {"status": true/false} instead?
-                    return data["status"]
-                    
-                return False
-                
-            return data["reachable"]
-        except Exception as e:
-            logger.error(f"Error checking host reachability: {str(e)}")
-            return False
+        response = await ping_resolvable_host(host_id)
+        return response.reachable
         
     def check_instance_uncaught(self, working_platform: Instance) -> bool:
         uncaught: bool = False
