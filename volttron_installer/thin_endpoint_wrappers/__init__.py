@@ -1,7 +1,6 @@
 import httpx, asyncio
 from typing import Any, Optional, TypeVar, Type, Union, List, Dict
 
-from volttron_installer.backend.endpoints import ping_resolvable_host
 from ..backend.models import AgentType, HostEntry, PlatformDefinition, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ReachableResponse, \
     PlatformDeploymentStatus, CreateAgentRequest
@@ -151,29 +150,29 @@ async def ping_resolvable_host(host_id: str) -> ReachableResponse:
 
 # PUT requests
 async def update_platform(platform_id: str, platform: CreatePlatformRequest):
-    await put_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}", data=dict(id=platform_id, platform=platform))
+    await put_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}", data=platform.model_dump())
 
 async def update_agent(platform_id: str, agent_id: str, agent: CreateAgentRequest):
-    await put_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents/{agent_id}", data=dict(agent=agent))
+    await put_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents/{agent_id}", data=agent.model_dump())
 
 # POST requests
 async def create_platform(platform: CreatePlatformRequest):
-    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/", data=dict(platform=platform))
+    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/", data=platform.model_dump())
 
 async def deploy_platform(platform_id: str):
     await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/deploy/{platform_id}")
 
 async def add_host(host: CreateOrUpdateHostEntryRequest):
-    await post_request(f"{API_BASE_URL}{HOSTS_PREFIX}/", data=dict(host_entry=host))
+    await post_request(f"{API_BASE_URL}{HOSTS_PREFIX}/", data=host.model_dump())
 
 async def start_platform(platform_id: str):
-    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/start_platform", data=dict(platform_id=platform_id))
+    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/start_platform", data=platform_id)
 
 async def stop_platform(platform_id: str):
-    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/stop_platform", data=dict(platform_id=platform_id))
+    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/stop_platform", data=platform_id)
 
 async def create_agent(platform_id: str, agent: CreateAgentRequest):
-    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents", data=dict(agent=agent))
+    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents", data=agent.model_dump())
 
 # DELETE requests
 async def delete_platform(platform_id: str):
