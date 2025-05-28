@@ -841,7 +841,9 @@ def agent_config_page() -> rx.Component:
                         ),
                         value="2"
                     ),
-                    default_value="1"
+                    default_value="1",
+                    on_change=lambda v: AgentConfigState.change_agent_config_tab(v),
+                    value=AgentConfigState.selected_tab
                 ),
                 direction="column",
                 spacing="4",
@@ -850,83 +852,83 @@ def agent_config_page() -> rx.Component:
         ),
         # Skeleton stuff
         rx.vstack(
-        # Header
-        rx.hstack(
+            # Header
+            rx.hstack(
+                rx.skeleton(
+                    rx.box(),
+                    height="3rem",
+                    width="5rem",
+                    radius="5rem",
+                    loading=True,
+                ),
+                rx.skeleton(
+                    rx.box(),
+                    height="3rem",
+                    width="12rem",
+                    radius="5rem",
+                    loading=True,
+                ),
+                rx.skeleton(
+                    rx.box(),
+                    height="2.5rem",
+                    width="5rem",
+                    radius="5rem",
+                    loading=True,
+                ),
+                spacing="4",
+                align="center",
+            ),
+            # Tabs divider
             rx.skeleton(
                 rx.box(),
-                height="3rem",
-                width="5rem",
-                radius="5rem",
+                width="100%",
+                height="15px",
                 loading=True,
             ),
-            rx.skeleton(
-                rx.box(),
-                height="3rem",
-                width="12rem",
-                radius="5rem",
-                loading=True,
+            # Fields
+            rx.vstack(
+                rx.skeleton(
+                    rx.box(),
+                    width="4.5rem",
+                    height="1.5rem",
+                ),
+                rx.skeleton(
+                    rx.box(),
+                    width="14rem",
+                    height="2rem",
+                ),
+                spacing="4"
             ),
-            rx.skeleton(
-                rx.box(),
-                height="2.5rem",
-                width="5rem",
-                radius="5rem",
-                loading=True,
+            rx.vstack(
+                rx.skeleton(
+                    rx.box(),
+                    width="4.5rem",
+                    height="1.5rem",
+                ),
+                rx.skeleton(
+                    rx.box(),
+                    width="14rem",
+                    height="2rem",
+                ),
+                spacing="4"
             ),
-            spacing="4",
-            align="center",
-        ),
-        # Tabs divider
-        rx.skeleton(
-            rx.box(),
-            width="100%",
-            height="15px",
-            loading=True,
-        ),
-        # Fields
-        rx.vstack(
-            rx.skeleton(
-                rx.box(),
-                width="4.5rem",
-                height="1.5rem",
+            rx.vstack(
+                rx.skeleton(
+                    rx.box(),
+                    width="4.5rem",
+                    height="1.5rem",
+                ),
+                rx.skeleton(
+                    rx.box(),
+                    width="40rem",
+                    height="25rem",
+                ),
+                spacing="4"
             ),
-            rx.skeleton(
-                rx.box(),
-                width="14rem",
-                height="2rem",
-            ),
-            spacing="4"
-        ),
-        rx.vstack(
-            rx.skeleton(
-                rx.box(),
-                width="4.5rem",
-                height="1.5rem",
-            ),
-            rx.skeleton(
-                rx.box(),
-                width="14rem",
-                height="2rem",
-            ),
-            spacing="4"
-        ),
-        rx.vstack(
-            rx.skeleton(
-                rx.box(),
-                width="4.5rem",
-                height="1.5rem",
-            ),
-            rx.skeleton(
-                rx.box(),
-                width="40rem",
-                height="25rem",
-            ),
-            spacing="4"
-        ),
-        spacing="6",
-        padding="1rem",
+            spacing="6",
+            padding="1rem",
+        )
     )
-)
 
 def agent_draft() -> rx.Component:
     return rx.cond(AgentConfigState.is_hydrated, rx.dialog.root(
@@ -981,7 +983,9 @@ def agent_draft() -> rx.Component:
                                             ),
                                             rx.text("This config has unsaved changes"),
                                             spacing="3"
-                                        ),
+                                        ),                            
+                                        cursor="pointer",
+                                        on_click=lambda: AgentConfigState.handle_unsaved_config_banner_click(config.component_id),
                                         background_color="#FFA726",
                                         border_radius=".75rem"
                                     )
