@@ -68,4 +68,12 @@ else
     echo "Branch $PR_BRANCH not found, skipping deletion."
 fi
 
+# Pull the latest changes from upstream
+echo "Pulling latest changes from upstream..."
+if git remote | grep -q "^upstream$"; then
+    git pull upstream develop
+else
+    git pull origin develop
+fi
+
 echo "Cleanup complete. Current branch: $(git branch --show-current)"
