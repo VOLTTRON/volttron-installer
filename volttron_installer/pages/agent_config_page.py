@@ -767,15 +767,7 @@ def agent_config_page() -> rx.Component:
                                                                         )
                                                                     ),
                                                                     rx.vstack(
-                                                                        # rx.box(
                                                                         csv_field.csv_data_field(
-                                                                            # style={
-                                                                            #     "width" : "calc(calc(100% - max(10vw, 30px)) - 20px)",
-                                                                            #     "overflow-x" : "auto",
-                                                                            # },
-                                                                            # table_style={
-                                                                            #     "width": "60vw",
-                                                                            # },
                                                                             table_width=rx.breakpoints(
                                                                                 {
                                                                                     "0px" : "40vw",
@@ -784,10 +776,6 @@ def agent_config_page() -> rx.Component:
                                                                                 }
                                                                             )
                                                                         ),
-                                                                        #     style={
-                                                                        #         "width": "inherit",
-                                                                        #     }
-                                                                        # ),
                                                                         rx.cond(
                                                                             AgentConfigState.check_csv_validity == False,
                                                                             rx.text(

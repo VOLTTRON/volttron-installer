@@ -343,10 +343,7 @@ def csv_data_field(disabled: bool = False, table_style={}, table_width="100%", *
                 )
             ),
             rx.flex(
-                # rx.el.div(
-                    csv_table(disabled=disabled, width=table_width, style=table_style),
-                    # style={}
-                # ),
+                csv_table(disabled=disabled, width=table_width, style=table_style),
                 rx.flex(
                     add_column_dialog(disabled=disabled),
                     rx.divider(),
