@@ -928,6 +928,7 @@ def agent_draft() -> rx.Component:
                     "Identity",
                     rx.code_block(
                         AgentConfigState.working_agent.identity,
+                        style={"width": "clamp(15rem, 70vw, 100%)", "overflow_x": "auto"},
                         # disabled=True
                     )
                 ),
@@ -935,6 +936,7 @@ def agent_draft() -> rx.Component:
                     "Source",
                     rx.code_block(
                         AgentConfigState.working_agent.source,
+                        style={"width": "clamp(15rem, 70vw, 100%)", "overflow_x": "auto"},
                         # disabled=True
                     )
                 ),
@@ -947,7 +949,7 @@ def agent_draft() -> rx.Component:
                         ),
                         scrollbars="horizontal",
                         type="auto",
-                        style={"width":"30rem"}
+                        style={"width": "clamp(15rem, 70vw, 100%)", "overflow_x": "auto"},
                     ),
                 ),
                 rx.cond(
@@ -978,21 +980,9 @@ def agent_draft() -> rx.Component:
                                 form_entry.form_entry(
                                     "Path",
                                     rx.code_block(
-                                        config.path
+                                        config.path,
+                                        style={"width": "clamp(15rem, 70vw, 100%)", "overflow_x": "auto"},
                                     )
-                                    # rx.scroll_area(
-                                    #     rx.code_block(
-                                    #         config.path,
-                                    #         # language="json",
-                                    #     ),
-                                    #     scrollbars="horizontal",
-                                    #     type="auto",
-                                    #     style={"width":"30rem"}
-                                    # ),
-                                    # rx.input(
-                                    #     value=config.path,
-                                    #     disabled=True
-                                    # )
                                 ),
                                 form_entry.form_entry(
                                     "Data Type",
@@ -1014,7 +1004,7 @@ def agent_draft() -> rx.Component:
                                             ),
                                             scrollbars="horizontal",
                                             type="auto",
-                                            style={"width":"30rem"}
+                                            style={"width": "clamp(15rem, 70vw, 100%)", "overflow_x": "auto"},
                                         ),
                                         rx.box(
                                             rx.scroll_area(
@@ -1024,7 +1014,7 @@ def agent_draft() -> rx.Component:
                                                 ),
                                                 scrollbars="horizontal",
                                                 type="auto",
-                                                style={"width":"30rem"}
+                                                style={"width": "clamp(15rem, 70vw, 90rem)", "overflow_x": "auto"},
                                             ),
                                         )
                                     )
@@ -1077,6 +1067,8 @@ def agent_draft() -> rx.Component:
                 ),
                 justify="between"
             ),
+            max_width="100rem",
+            width="clamp(20rem, 80vw, 100rem)",
         ),
         open=AgentConfigState.draft_visible
     ))
