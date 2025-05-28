@@ -46,8 +46,10 @@ RUN git config --system pull.rebase false
 RUN git config --system core.autocrlf input
 
 # Add a script to help with PR testing
+# Add scripts to help with PR testing
 COPY ./test-pr.sh /usr/local/bin/test-pr
-RUN chmod +x /usr/local/bin/test-pr
+COPY ./cleanup-pr.sh /usr/local/bin/cleanup-pr
+RUN chmod +x /usr/local/bin/test-pr /usr/local/bin/cleanup-pr
 
 # Install Python development tools
 RUN pip install --no-cache-dir \
