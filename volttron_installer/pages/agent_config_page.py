@@ -767,14 +767,34 @@ def agent_config_page() -> rx.Component:
                                                                         )
                                                                     ),
                                                                     rx.vstack(
-                                                                        csv_field.csv_data_field(),
+                                                                        # rx.box(
+                                                                        csv_field.csv_data_field(
+                                                                            # style={
+                                                                            #     "width" : "calc(calc(100% - max(10vw, 30px)) - 20px)",
+                                                                            #     "overflow-x" : "auto",
+                                                                            # },
+                                                                            # table_style={
+                                                                            #     "width": "60vw",
+                                                                            # },
+                                                                            table_width=rx.breakpoints(
+                                                                                {
+                                                                                    "0px" : "40vw",
+                                                                                    "1200px" : "60vw"
+
+                                                                                }
+                                                                            )
+                                                                        ),
+                                                                        #     style={
+                                                                        #         "width": "inherit",
+                                                                        #     }
+                                                                        # ),
                                                                         rx.cond(
                                                                             AgentConfigState.check_csv_validity == False,
                                                                             rx.text(
                                                                                 "Invalid CSV variant detected",
                                                                                 color_scheme="red"
                                                                             )
-                                                                        )
+                                                                        ),
                                                                     )
                                                                 ),
                                                             ),
@@ -821,13 +841,15 @@ def agent_config_page() -> rx.Component:
                                 # border="1px solid white",
                                 border_radius=".5rem",
                                 padding="1rem",
-                                flex="1"
+                                flex="1",
+                                width="100%"
                             ),
                             align="start",
                             spacing="6",
                             direction="row",
                             padding_top="1rem",
-                            width="100%"
+                            id="this bro foo"
+                            # width="clamp(15rem, 20vw, 100%)"
                         ),
                         value="2"
                     ),
