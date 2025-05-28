@@ -605,7 +605,6 @@ def agent_config_page() -> rx.Component:
                             False,
                             True
                         )
-                        # on_click=lambda: AgentConfigState.save_agent_config()
                     ),
                     spacing="6",
                     align="center"
@@ -672,7 +671,6 @@ def agent_config_page() -> rx.Component:
                                             #TODO, i would like to create a system to check if the config is changed or not, apparently we cant index the 
                                             # dict which is annoying....
                                             class_name=rx.cond(
-                                                # True,
                                                 AgentConfigState.changed_configs_list.contains(config.component_id),
                                                 "agent_config_tile uncommitted",
                                                 "agent_config_tile"
@@ -690,10 +688,8 @@ def agent_config_page() -> rx.Component:
                                     spacing="4",
                                     justify="start",
                                 ),
-                                # border="1px solid white",
                                 border_radius=".5rem",
                                 padding="1rem",
-                                # flex="1"
                             ),
                             rx.flex(
                                 rx.flex(
@@ -826,7 +822,6 @@ def agent_config_page() -> rx.Component:
                                     align="start",
                                     spacing="6",
                                 ),
-                                # border="1px solid white",
                                 border_radius=".5rem",
                                 padding="1rem",
                                 flex="1",
@@ -836,8 +831,6 @@ def agent_config_page() -> rx.Component:
                             spacing="6",
                             direction="row",
                             padding_top="1rem",
-                            id="this bro foo"
-                            # width="clamp(15rem, 20vw, 100%)"
                         ),
                         value="2"
                     ),
@@ -947,7 +940,6 @@ def agent_draft() -> rx.Component:
                     rx.code_block(
                         AgentConfigState.working_agent.source,
                         style={"width": "clamp(15rem, 70vw, 100%)", "overflow_x": "auto"},
-                        # disabled=True
                     )
                 ),
                 form_entry.form_entry(
