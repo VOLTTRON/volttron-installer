@@ -605,7 +605,6 @@ def agent_config_page() -> rx.Component:
                             False,
                             True
                         )
-                        # on_click=lambda: AgentConfigState.save_agent_config()
                     ),
                     spacing="6",
                     align="center"
@@ -672,7 +671,6 @@ def agent_config_page() -> rx.Component:
                                             #TODO, i would like to create a system to check if the config is changed or not, apparently we cant index the 
                                             # dict which is annoying....
                                             class_name=rx.cond(
-                                                # True,
                                                 AgentConfigState.changed_configs_list.contains(config.component_id),
                                                 "agent_config_tile uncommitted",
                                                 "agent_config_tile"
@@ -690,10 +688,8 @@ def agent_config_page() -> rx.Component:
                                     spacing="4",
                                     justify="start",
                                 ),
-                                # border="1px solid white",
                                 border_radius=".5rem",
                                 padding="1rem",
-                                # flex="1"
                             ),
                             rx.flex(
                                 rx.flex(
@@ -767,14 +763,22 @@ def agent_config_page() -> rx.Component:
                                                                         )
                                                                     ),
                                                                     rx.vstack(
-                                                                        csv_field.csv_data_field(),
+                                                                        csv_field.csv_data_field(
+                                                                            table_width=rx.breakpoints(
+                                                                                {
+                                                                                    "0px" : "40vw",
+                                                                                    "1200px" : "60vw"
+
+                                                                                }
+                                                                            )
+                                                                        ),
                                                                         rx.cond(
                                                                             AgentConfigState.check_csv_validity == False,
                                                                             rx.text(
                                                                                 "Invalid CSV variant detected",
                                                                                 color_scheme="red"
                                                                             )
-                                                                        )
+                                                                        ),
                                                                     )
                                                                 ),
                                                             ),
@@ -818,16 +822,15 @@ def agent_config_page() -> rx.Component:
                                     align="start",
                                     spacing="6",
                                 ),
-                                # border="1px solid white",
                                 border_radius=".5rem",
                                 padding="1rem",
-                                flex="1"
+                                flex="1",
+                                width="100%"
                             ),
                             align="start",
                             spacing="6",
                             direction="row",
                             padding_top="1rem",
-                            width="100%"
                         ),
                         value="2"
                     ),
@@ -937,7 +940,6 @@ def agent_draft() -> rx.Component:
                     rx.code_block(
                         AgentConfigState.working_agent.source,
                         style={"width": "clamp(15rem, 70vw, 100%)", "overflow_x": "auto"},
-                        # disabled=True
                     )
                 ),
                 form_entry.form_entry(

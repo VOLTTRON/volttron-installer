@@ -191,7 +191,7 @@ def craft_table_cell(content: str, header: str = None, index: int = None, row_id
     )
 
 @base_component_wrapper
-def csv_table(width=r"100%", height="100%", **props):
+def csv_table(height="100%", **props):
     return rx.table.root(
         rx.table.header(
             rx.table.row(
@@ -222,7 +222,6 @@ def csv_table(width=r"100%", height="100%", **props):
                 )
             )
         ),
-        width=width,
         height=height,
         **props
     )
@@ -330,7 +329,7 @@ def remove_column_dialog(disabled: bool = False):
         )
     )
 
-def csv_data_field(disabled: bool = False, **props):
+def csv_data_field(disabled: bool = False, table_style={}, table_width="100%", **props):
     return rx.cond(
         CSVDataState.is_hydrated, 
         rx.flex(
@@ -344,24 +343,21 @@ def csv_data_field(disabled: bool = False, **props):
                 )
             ),
             rx.flex(
-                rx.el.div(
-                    csv_table(disabled=disabled, **props),
-                    class_name="config_template_config_container"
-                ),
+                csv_table(disabled=disabled, width=table_width, style=table_style),
                 rx.flex(
                     add_column_dialog(disabled=disabled),
                     rx.divider(),
                     remove_column_dialog(disabled=disabled),
                     direction="column",
-                    spacing="4"
+                    spacing="4",
                 ),
                 direction="row",
                 spacing="4",
-                width=r"calc(100% - 2rem)",
-                max_width="100%"
+                width="100%",
             ),
             spacing="6",
-            direction="column"
+            direction="column",
+            **props
         ),
         rx.spinner(height="100vh")
     )
