@@ -98,6 +98,8 @@ class AgentModelView(rx.Base):
 
     in_file: bool = False
 
+    # Fields that handle UI actions and functionality
+    selected_agent_config_tab: str = "1"
     selected_config_component_id: str = ""
     routing_id: str = ""
 

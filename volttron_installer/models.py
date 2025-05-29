@@ -14,6 +14,7 @@ class Instance(rx.Base):
     uncaught: bool = False
     valid: bool = False    
 
+    # UI vars
     web_checked: bool = False
     advanced_expanded: bool = False
     agent_configuration_expanded: bool = False

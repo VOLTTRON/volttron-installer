@@ -804,6 +804,10 @@ class AgentConfigState(rx.State):
         agent_uid = args.get("agent_uid", "")
         return {"uid": uid, "agent_uid": agent_uid}
 
+    @rx.var
+    def selected_tab(self) -> str:
+        return self.working_agent.selected_agent_config_tab
+
     # ========= state vars to streamline working checking the validity of working config =======
     
     # TODO: implement def config_uncaught var
@@ -945,6 +949,10 @@ class AgentConfigState(rx.State):
                 break
 
     @rx.event
+    def change_agent_config_tab(self, value):
+        self.working_agent.selected_agent_config_tab = value
+
+    @rx.event
     def flip_draft_visibility(self):
         self.draft_visible = not self.draft_visible
         logger.debug(f"ok bro is {self.draft_visible}")
@@ -997,6 +1005,13 @@ class AgentConfigState(rx.State):
                     yield rx.set_value(id, value)
                 break
     
+    @rx.event
+    def handle_unsaved_config_banner_click(self, component_id: str):
+        """Handle click on unsaved config banner to set the selected component id"""
+        self.working_agent.selected_config_component_id = component_id
+        yield AgentConfigState.flip_draft_visibility
+        yield AgentConfigState.change_agent_config_tab("2")
+
     @rx.event
     async def handle_config_store_entry_upload(self, files: list[rx.UploadFile]):
         # dealing with file uploads
