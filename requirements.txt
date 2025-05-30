@@ -78,9 +78,9 @@ PyYAML==6.0.2
 qrcode==7.4.2
 readme_renderer==44.0
 redis==5.2.1
-reflex==0.7.6
+reflex==0.7.11
 reflex-chakra==0.6.2
-reflex-hosting-cli==0.1.32
+reflex-hosting-cli==0.1.49
 repath==0.9.0
 requests==2.32.3
 requests-toolbelt==1.0.0
