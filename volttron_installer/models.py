@@ -34,3 +34,17 @@ class Instance(rx.Base):
             host_dict["ansible_user"] and \
             host_dict["ansible_host"] != ""
         )
+
+    def refresh_for_copy(self) -> None:
+        """
+        Refresh the instance for copying.
+        """
+        self.new_instance = True
+        self.platform.in_file = False
+        for agent in self.platform.agents.values():
+            agent.in_file = False
+            agent.selected_config_component_id = ""
+            agent.selected_agent_config_tab="1"
+            for config in agent.config_store:
+                config.in_file = False
+                config.selected_cell = ""

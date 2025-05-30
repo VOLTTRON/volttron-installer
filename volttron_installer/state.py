@@ -513,8 +513,7 @@ class PlatformPageState(rx.State):
         uid = self.generate_unique_uid()
         copy_instance = deepcopy(self.platforms[instance_name])
         copy_instance.platform.config.instance_name = uid
-        copy_instance.new_instance = True
-        copy_instance.platform.in_file = False
+        copy_instance.refresh_for_copy()
         self.platforms[uid] = copy_instance
         yield NavigationState.route_to_platform(self.platforms[uid].platform.config.instance_name)
         yield rx.toast.info(f"Platform: {instance_name} has been copied")
