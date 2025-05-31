@@ -94,8 +94,9 @@ class CSVDataState(AgentConfigState):
     def add_column(self, form_data: dict):
         """Add a new column."""
         column_name = form_data["column_name"]
+        prefill_data = form_data.get("prefill_cells", "")
         working_variant_copy = self.working_config.csv_variants[self.selected_variant]
-        working_variant_copy[column_name] = [""] * self.num_rows
+        working_variant_copy[column_name] = [prefill_data] * self.num_rows
         # Ensure that the selected variant change is pushed through into working_config_store
         self.working_config.csv_variants[self.selected_variant] = working_variant_copy
         
@@ -248,6 +249,13 @@ def add_column_dialog(disabled: bool = False):
                         ),
                         required_entry=True
                     ),
+                    form_entry.form_entry(
+                        "Prefill Cells",
+                        rx.input(
+                            name="prefill_cells",
+                            disabled=disabled
+                        ),
+                    ),
                     rx.flex(
                         rx.dialog.close(
                             rx.button(
@@ -267,7 +275,7 @@ def add_column_dialog(disabled: bool = False):
                         justify="end"
                     ),
                     direction="column",
-                    spacing="6"
+                    spacing="4"
                 ),
                 on_submit=CSVDataState.add_column if not disabled else None,
                 reset_on_submit=False,
