@@ -988,7 +988,7 @@ def configuration_tab_content() -> rx.Component:
                                 form_entry.form_entry(
                                     "Host",
                                     rx.input(
-                                        value= working_platform.host.id,
+                                        value= working_platform.host.ansible_host,
                                         on_change=lambda v: State.update_detail("id", v),
                                         size="3",
                                         required=True,

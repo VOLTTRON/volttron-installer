@@ -1,0 +1,7 @@
+agents: {}
+config:
+  instance_name: instance1
+  message_bus: zmq
+  options: []
+  vip_address: tcp://127.0.0.1:22916
+host_id: instance2
