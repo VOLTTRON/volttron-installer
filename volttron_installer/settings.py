@@ -5,10 +5,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Load dev environment variables if dev.env exists otherwise
 # load production .env file
-if Path("dev.env").exists():
-    load_dotenv("dev.env")
-elif Path(".env").exists():
+if Path(".env").exists():
     load_dotenv()
+elif Path("dev.env").exists():
+    load_dotenv("dev.env")
+
 else:
     raise FileNotFoundError("No .env nore dev.env file found")
 
