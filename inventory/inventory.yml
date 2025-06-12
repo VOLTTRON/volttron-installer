@@ -1,0 +1,24 @@
+all:
+  hosts:
+    172.18.65.126:
+      ansible_connection: ssh
+      ansible_host: 172.18.65.126
+      ansible_port: 22
+      ansible_user: User
+      host_configs_dir: ''
+      http_proxy: ''
+      https_proxy: ''
+      id: 172.18.65.126
+      volttron_home: ~/.volttron
+      volttron_venv: ''
+    localhost:
+      ansible_connection: ssh
+      ansible_host: localhost
+      ansible_port: 22
+      ansible_user: Services
+      host_configs_dir: ''
+      http_proxy: ''
+      https_proxy: ''
+      id: localhost
+      volttron_home: ~/.volttron
+      volttron_venv: ''
