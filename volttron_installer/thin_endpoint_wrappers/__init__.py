@@ -200,7 +200,7 @@ async def deploy_platform(platform_id: str):
     await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/deploy/{platform_id}")
 
 async def add_host(host: CreateOrUpdateHostEntryRequest):
-    await post_request(f"{API_BASE_URL}{HOSTS_PREFIX}/", data=host.model_dump())
+    await post_request(f"{API_BASE_URL}{HOSTS_PREFIX}", data=host.model_dump())
 
 async def start_platform(platform_id: str):
     await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/start_platform", data=platform_id)
