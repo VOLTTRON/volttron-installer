@@ -5,6 +5,10 @@ import json
 import re
 import os
 import yaml
+from dotenv import load_dotenv, dotenv_values 
+
+load_dotenv() 
+
 
 def test_ansible_version():
     """Test that ansible version is >= 2.9"""
