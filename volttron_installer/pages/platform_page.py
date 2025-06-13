@@ -360,6 +360,13 @@ def configuration_tab_content() -> rx.Component:
                                         on_change=lambda: State.toggle_web()
                                     )
                                 ),
+                                form_entry.form_entry(
+                                    "Member of Federation",
+                                    rx.checkbox(
+                                        size="3",
+                                        # Implement federation toggling logic here.
+                                    )
+                                ),
                                 rx.cond(
                                     working_platform.web_checked,
                                     rx.fragment(
