@@ -4,6 +4,7 @@ import subprocess
 import json
 import re
 import os
+import yaml
 
 def test_ansible_version():
     """Test that ansible version is >= 2.9"""
@@ -456,3 +457,26 @@ async def test_host_key_verification_with_ssh_options():
             known_hosts.unlink()
         if backup_path and backup_path.exists():
             backup_path.rename(known_hosts)
+
+@pytest.mark.asyncio
+async def test_host_location_given_host_id():
+    test_pass_existence = False
+    #gets a known test case 
+    with open(Path.home() /'.volttron_installer_data/inventory.yml', 'r') as file:
+        data = yaml.safe_load(file)
+        
+    host_id = 'test_host' #set existing host id
+    temp_string = str(data)
+    
+    assert host_id in temp_string
+    
+    if host_id in temp_string:
+        user=data['all']['hosts'][host_id]['ansible_user']
+        port=data['all']['hosts'][host_id]['ansible_port']
+    
+    if 'ansible_password' in temp_string:
+        test_pass_existence = True
+        
+    assert test_pass_existence == False
+    assert user == "user"#is proper information from test_host
+    assert port == 22

@@ -7,6 +7,7 @@ from .. services.inventory_service import get_inventory_service, InventoryServic
 from .. services.platform_service import get_platform_service, PlatformService
 import json
 import os
+import yaml
 from loguru import logger
 
 class AnsibleService:
@@ -271,9 +272,16 @@ class AnsibleService:
         Returns:
             HostEntry object
         """
+        with open(Path.home()/".volttron_user_data/inventory.yml", "r") as file:
+            data = yaml.safe_load(file)
         # Implement the logic to retrieve the HostEntry by its ID
         # This is a placeholder implementation
-        return HostEntry(host="example.com", user="user", port=22, password="password")
+        tmp_str = str(data)
+        if "ansible_password" in tmp_str:
+            password = data['all']['hosts'][host_id]['ansible_password']
+            return HostEntry(host=host_id, user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'], password = data['all']['hosts'][host_id]['ansible_password'])
+            
+        return HostEntry(host=host_id, user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'])
 
 __ansible_service__ = AnsibleService()
 
