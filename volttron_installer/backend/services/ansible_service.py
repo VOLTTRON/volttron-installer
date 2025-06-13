@@ -7,8 +7,11 @@ from .. services.inventory_service import get_inventory_service, InventoryServic
 from .. services.platform_service import get_platform_service, PlatformService
 import json
 import os
+
+from dotenv import load_dotenv, dotenv_values 
 import yaml
 from loguru import logger
+load_dotenv() 
 
 class AnsibleService:
     """Service for executing Ansible playbooks and commands"""
@@ -272,16 +275,24 @@ class AnsibleService:
         Returns:
             HostEntry object
         """
-        with open(Path.home()/".volttron_user_data/inventory.yml", "r") as file:
-            data = yaml.safe_load(file)
+        path =  Path.home()/os.getenv("VI_DATA_DIR")
+        if os.path.exists(path):
+         
+            with open(Path.home()/os.getenv("VI_DATA_DIR"), "r") as file:
+                data = yaml.safe_load(file)
         # Implement the logic to retrieve the HostEntry by its ID
         # This is a placeholder implementation
-        tmp_str = str(data)
-        if "ansible_password" in tmp_str:
-            password = data['all']['hosts'][host_id]['ansible_password']
-            return HostEntry(host=host_id, user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'], password = data['all']['hosts'][host_id]['ansible_password'])
+            tmp_str = str(data)
+            if data['all']['hosts'][host_id]:
+                if "ansible_password" in tmp_str:
+                    password = data['all']['hosts'][host_id]['ansible_password']
+                    return HostEntry(host=host_id, user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'], password = data['all']['hosts'][host_id]['ansible_password'])
             
-        return HostEntry(host=host_id, user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'])
+                return HostEntry(host=host_id, user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'])
+            else:
+                print("HOST IS NOT A MEMBER OF INVENTORY FILE")
+        else:
+            print("PATH DOES NOT EXIST TO INVENTORY FILE")
 
 __ansible_service__ = AnsibleService()
 
