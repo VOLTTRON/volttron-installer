@@ -9,8 +9,7 @@ from ..components import header
 from ..components.tabs import platform_overview
 from .platform_page import State as PlatformState 
 
-class IndexTabState(rx.State):
-    ...
+
 
 @rx.page(route="/")
 def index() -> rx.Component:

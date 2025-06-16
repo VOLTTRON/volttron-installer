@@ -1360,3 +1360,6 @@ class AgentConfigState(rx.State):
             config_fields["csv"] = False
 
         return (valid, config_fields)
+
+class IndexPageState(rx.State):
+    ...
