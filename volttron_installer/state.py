@@ -32,13 +32,27 @@ from copy import deepcopy
 class AppState(rx.State):
     """The app state."""
     sidebar_page_selected: str = "overview"
-    tool_dropdown_toggled: bool = False
+    tool_accordion_value: str ="tools"
 
     # Events
+    @rx.var
+    def sidebar_selected_page(): 
+        pass
+
     @rx.event
-    def toggle_tool_dropdown(self):
+    def toggle_tool_dropdown(self, value: str):
         """Toggle the tool dropdown."""
-        self.tool_dropdown_toggled = not self.tool_dropdown_toggled
+        self.tool_accordion_value = value
+
+    @rx.event
+    def select_bacnet_scan(self):
+        self.sidebar_page_selected = "bacnet_scan"
+        # yield NavigationState.route_to_bacnet_scan()
+
+    @rx.event
+    def select_overview(self):
+        self.sidebar_page_selected = "overview"
+        # yield NavigationState.route_to_index()
 
 settings = get_settings()
 
@@ -1400,6 +1414,42 @@ class IndexPageState(rx.State):
             self.selected_tool = tool
         logger.debug(f"Selected tool changed to: {self.selected_tool}")
 
+
+
+class BacnetScanState(rx.State):
+    scanning_bacnet_ip: bool = False
+    is_starting_proxy: bool = False
+    proxy_up: bool = False
+
+    # Events
+    @rx.event
+    def toggle_proxy(self):
+        """Toggle the proxy state"""
+        if self.proxy_up:
+            self.proxy_up = False
+            yield rx.toast.success("Proxy stopped successfully.")
+        else:
+            yield BacnetScanState.start_proxy()
+
+    @rx.event
+    async def start_proxy(self):
+        """Handle the start proxy button click"""
+        if self.is_starting_proxy:
+            yield rx.toast.info("Proxy is already starting.")
+            return
+        self.is_starting_proxy = True
+        yield rx.toast.success("Starting proxy...")
+        # TODO implement proxy start logic
+        import asyncio
+        await asyncio.sleep(2)
+        self.proxy_up = True
+        self.is_starting_proxy = False
+        yield rx.toast.success("Proxy started successfully.")
+
+    @rx.event
+    async def stop_proxy(self):
+        pass
+    
     @rx.event
     async def handle_bacnet_scan(self):
         """Handle the BACnet scan button click"""

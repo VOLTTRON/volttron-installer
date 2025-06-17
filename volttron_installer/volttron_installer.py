@@ -10,6 +10,7 @@ from .styles import styles
 from .pages.index import index
 from .pages.platform_new import new_platform_page
 from .pages.platform_page import platform_page, State as PlatformState
+from .pages.bacnet_scan import bacnet_scan
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -44,6 +45,12 @@ app.add_page(
     index, 
     route="/",
     on_load=PlatformState.hydrate_state
+)
+
+app.add_page(
+    bacnet_scan,
+    route="/tools/bacnet_scan"
+
 )
 
 # Register the lifespan task
