@@ -35,19 +35,15 @@ from copy import deepcopy
 
 class AppState(rx.State):
     """The app state."""
-    # platforms
-    # hosts
-    # agents
-    # templates
-    # ==============
-    # perhaps all of the fields above are filled out by the respective
-    # backend methods, like list_of_x(). this will still be compatible
-    # with our tab_states.py because we each of those states will 
-    # inherit from this state. My thought process here is that I will
-    # have to create tab_contents for each of x fields, then those will
-    # be the forward facing models that will be used in the frontend. 
+    sidebar_page_selected: str = "overview"
+    tool_dropdown_toggled: bool = False
 
-    ...
+    # Events
+    @rx.event
+    def toggle_tool_dropdown(self):
+        """Toggle the tool dropdown."""
+        self.tool_dropdown_toggled = not self.tool_dropdown_toggled
+
 
 class ToolState(rx.State):
     """State for managing tool lifecycle."""
@@ -1459,7 +1455,6 @@ class AgentConfigState(rx.State):
 
 class IndexPageState(rx.State):
     """State for the Index page"""
-
     selected_tool: str = ""
     scanning_bacnet_ip: bool = False
     is_starting_proxy: bool = False

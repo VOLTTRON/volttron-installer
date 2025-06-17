@@ -10,13 +10,14 @@ from ..components.tabs import platform_overview
 from ..components.tiles.config_tile import config_tile
 from ..components.buttons import tile_icon
 from .platform_page import State as PlatformState 
+from ..layouts.app_layout_sidebar import app_layout_sidebar
 
 from ..state import IndexPageState
 
 
 @rx.page(route="/")
 def index() -> rx.Component:
-    return rx.fragment(
+    return app_layout_sidebar(
         rx.vstack(
             header.header.header(
                 rx.text("VOLTTRON Installer", size="7"),
