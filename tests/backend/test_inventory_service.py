@@ -21,7 +21,7 @@ def inventory_service(temp_inventory_file):
 
 @pytest.fixture
 def host_entry():
-    return HostEntry(id="host1", ansible_user="foo", ansible_host="192.168.1.1")
+    return HostEntry(id="host1", ansible_user="foo", ansible_host="192.168.1.1", name = "host1")
 
 @pytest.mark.asyncio
 async def test_create_host(inventory_service, host_entry):
@@ -97,7 +97,7 @@ async def test_create_host(inventory_service):
 
 @pytest.mark.asyncio
 async def test_remove_host(inventory_service):
-    host_entry = HostEntry(id="test_host", ansible_user="user", ansible_host="127.0.0.1")
+    host_entry = HostEntry(id="test_host", ansible_user="user", ansible_host="127.0.0.1", name ="test_host" )
     await inventory_service.create_host(host_entry)
     await inventory_service.remove_host("test_host")
     retrieved_host = await inventory_service.get_host("test_host")
@@ -105,7 +105,7 @@ async def test_remove_host(inventory_service):
 
 @pytest.mark.asyncio
 async def test_get_host(inventory_service):
-    host_entry = HostEntry(id="test_host", ansible_user="user", ansible_host="127.0.0.1")
+    host_entry = HostEntry(id="test_host", ansible_user="user", ansible_host="127.0.0.1",name="test_host")
     await inventory_service.create_host(host_entry)
     retrieved_host = await inventory_service.get_host("test_host")
     assert retrieved_host is not None
@@ -113,8 +113,8 @@ async def test_get_host(inventory_service):
 
 @pytest.mark.asyncio
 async def test_get_hosts(inventory_service):
-    host_entry1 = HostEntry(id="test_host1", ansible_user="user1", ansible_host="127.0.0.1")
-    host_entry2 = HostEntry(id="test_host2", ansible_user="user2", ansible_host="127.0.0.2")
+    host_entry1 = HostEntry(id="test_host1", ansible_user="user1", ansible_host="127.0.0.1", name = "test_host1")
+    host_entry2 = HostEntry(id="test_host2", ansible_user="user2", ansible_host="127.0.0.2", name = "test_host2")
     await inventory_service.create_host(host_entry1)
     await inventory_service.create_host(host_entry2)
     hosts = await inventory_service.get_hosts()
@@ -132,9 +132,9 @@ async def test_clear_inventory(inventory_service):
 
 @pytest.mark.asyncio
 async def test_update_host(inventory_service):
-    host_entry = HostEntry(id="test_host", ansible_user="user", ansible_host="127.0.0.1")
+    host_entry = HostEntry(id="test_host", ansible_user="user", ansible_host="127.0.0.1", name="test_host")
     await inventory_service.create_host(host_entry)
-    updated_host_entry = HostEntry(id="test_host", ansible_user="new_user", ansible_host="127.0.0.1")
+    updated_host_entry = HostEntry(id="test_host", ansible_user="new_user", ansible_host="127.0.0.1", name="test_host")
     await inventory_service.update_host("test_host", updated_host_entry)
     retrieved_host = await inventory_service.get_host("test_host")
     assert retrieved_host is not None
