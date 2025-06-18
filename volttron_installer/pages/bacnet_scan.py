@@ -60,6 +60,8 @@ def bacnet_scan() -> rx.Component:
                         content=request_who_is_accordion_content(),
                         value="6",
                     ),
+                    value=BacnetScanState.open_accordion_items,
+                    on_value_change=BacnetScanState.set_open_items,
                     collapsible=True,
                     variant="outline",                    
                     width="100%",
@@ -75,10 +77,11 @@ def bacnet_scan() -> rx.Component:
                         True
                     ),
                 ),
+                rx.cond(BacnetScanState.proxy_up==False, rx.text("**A proxy must be up to use this tool.**", color_scheme="red")),
                 spacing="6",
                 align="start",
             ),
-            padding_top="2rem",
+            padding="2rem",
             align="center",
             justify="center",
             width="100%",
@@ -92,173 +95,295 @@ def request_who_is_accordion_content() -> rx.Component:
     return rx.form(
             rx.vstack(
                 rx.vstack(
-                    # TODO implement on_change functionality for these inputs, have them save their
-                    # values for everything
-                    form_entry.form_entry("Device Instance Low", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
-                    form_entry.form_entry("Device Instance High", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
-                    form_entry.form_entry("Dest", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry(
+                        "Device Instance Low", 
+                        rx.input(
+                            value=BacnetScanState.request_who_is.device_instance_low,
+                            on_change=lambda value: BacnetScanState.request_who_is_input("device_instance_low", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
+                    form_entry.form_entry(
+                        "Device Instance High", 
+                        rx.input(
+                            value=BacnetScanState.request_who_is.device_instance_high,
+                            on_change=lambda value: BacnetScanState.request_who_is_input("device_instance_high", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
+                    form_entry.form_entry(
+                        "Dest", 
+                        rx.input(
+                            value=BacnetScanState.request_who_is.dest,
+                            on_change=lambda value: BacnetScanState.request_who_is_input("dest", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
                     spacing="6",
                     align="start",
-                    style={"color" : "white"}
+                    style={"color": "white"}
                 ),
                 rx.hstack(
                     rx.button(
                         "Request Who Is",
-                        # disabled = write_property_not_ready
-                        # color_scheme="primary",
-                        # on_click=BacnetScanState.write_property
                         variant="surface",
+                        on_click=BacnetScanState.handle_request_who_is,
+                        disabled=rx.cond(BacnetScanState.proxy_up, False, True)
                     ),
                     align="end"
                 ),
                 spacing="6",
                 align="center",
                 padding="2rem",
+            ),
+            on_submit=BacnetScanState.handle_request_who_is
         )
-    )
 
 def read_device_all_accordion_content() -> rx.Component:
     return rx.form(
             rx.vstack(
                 rx.vstack(
-                    # TODO implement on_change functionality for these inputs, have them save their
-                    # values for everything
-                    form_entry.form_entry("Device Address", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
-                    form_entry.form_entry("Device Object Identifier", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry(
+                        "Device Address", 
+                        rx.input(
+                            value=BacnetScanState.read_device_all.device_address,
+                            on_change=lambda value: BacnetScanState.read_device_all_input("device_address", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
+                    form_entry.form_entry(
+                        "Device Object Identifier", 
+                        rx.input(
+                            value=BacnetScanState.read_device_all.device_object_identifier,
+                            on_change=lambda value: BacnetScanState.read_device_all_input("device_object_identifier", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
                     spacing="6",
                     align="start",
-                    style={"color" : "white"}
+                    style={"color": "white"}
                 ),
                 rx.hstack(
                     rx.button(
                         "Read Device All",
-                        # disabled = write_property_not_ready
-                        # color_scheme="primary",
-                        # on_click=BacnetScanState.write_property
                         variant="surface",
+                        on_click=BacnetScanState.handle_read_device_all,
+                        disabled=rx.cond(BacnetScanState.proxy_up, False, True)
                     ),
                     align="end"
                 ),
                 spacing="6",
                 align="center",
                 padding="2rem",
-            )
+            ),
+            on_submit=BacnetScanState.handle_read_device_all
         )
 
 def scan_ip_range_accordion_content() -> rx.Component:
     return rx.form(
             rx.vstack(
                 rx.vstack(
-                    # TODO implement on_change functionality for these inputs, have them save their
-                    # values for everything
-                    form_entry.form_entry("Network String", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry(
+                        "Network String", 
+                        rx.input(
+                            value=BacnetScanState.scan_ip_range.network_string,
+                            on_change=lambda value: BacnetScanState.scan_ip_range_input("network_string", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
                     spacing="6",
                     align="start",
-                    style={"color" : "white"}
+                    style={"color": "white"}
                 ),
                 rx.hstack(
                     rx.button(
                         "Scan IP",
-                        # disabled = write_property_not_ready
-                        # color_scheme="primary",
-                        # on_click=BacnetScanState.write_property
                         variant="surface",
+                        on_click=BacnetScanState.handle_scan_ip_range,
+                        disabled=rx.cond(BacnetScanState.proxy_up, False, True)
                     ),
                     align="end"
                 ),
                 spacing="6",
                 align="center",
                 padding="2rem",
-            )
+            ),
+            on_submit=BacnetScanState.handle_scan_ip_range
         )
 
 def ping_ip_accordion_content() -> rx.Component:
     return rx.form(
             rx.vstack(
                 rx.vstack(
-                    # TODO implement on_change functionality for these inputs, have them save their
-                    # values for everything
-                    form_entry.form_entry("IP Address", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry(
+                        "IP Address", 
+                        rx.input(
+                            value=BacnetScanState.ping_ip.ip_address,
+                            on_change=lambda value: BacnetScanState.ping_ip_input("ip_address", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
                     spacing="6",
                     align="start",
-                    style={"color" : "white"}
+                    style={"color": "white"}
                 ),
                 rx.hstack(
                     rx.button(
                         "Ping IP",
-                        # disabled = write_property_not_ready
-                        # color_scheme="primary",
-                        # on_click=BacnetScanState.write_property
                         variant="surface",
+                        on_click=BacnetScanState.handle_ping_ip,
+                        disabled=rx.cond(BacnetScanState.proxy_up, False, True)
                     ),
                     align="end"
                 ),
                 spacing="6",
                 align="center",
                 padding="2rem",
-            )
+            ),
+            on_submit=BacnetScanState.handle_ping_ip
         )
 
 def read_property_accordion_content() -> rx.Component:
     return rx.form(
             rx.vstack(
                 rx.vstack(
-                    # TODO implement on_change functionality for these inputs, have them save their
-                    # values for everything
-                    form_entry.form_entry("Device Address", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
-                    form_entry.form_entry("Object Identifier", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
-                    form_entry.form_entry("Property Identifier", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
-                    form_entry.form_entry("Property Array Index", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True))), # int, optional
+                    form_entry.form_entry(
+                        "Device Address", 
+                        rx.input(
+                            value=BacnetScanState.read_property.device_address,
+                            on_change=lambda value: BacnetScanState.read_property_input("device_address", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
+                    form_entry.form_entry(
+                        "Object Identifier", 
+                        rx.input(
+                            value=BacnetScanState.read_property.object_identifier,
+                            on_change=lambda value: BacnetScanState.read_property_input("object_identifier", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
+                    form_entry.form_entry(
+                        "Property Identifier", 
+                        rx.input(
+                            value=BacnetScanState.read_property.property_identifier,
+                            on_change=lambda value: BacnetScanState.read_property_input("property_identifier", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
+                    form_entry.form_entry(
+                        "Property Array Index", 
+                        rx.input(
+                            value=BacnetScanState.read_property.property_array_index,
+                            on_change=lambda value: BacnetScanState.read_property_input("property_array_index", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        )
+                    ),
                     spacing="6",
                     align="start",
-                    style={"color" : "white"}
+                    style={"color": "white"}
                 ),
                 rx.hstack(
                     rx.button(
                         "Read Property",
-                        # disabled = write_property_not_ready
-                        # color_scheme="primary",
-                        # on_click=BacnetScanState.write_property
                         variant="surface",
+                        on_click=BacnetScanState.handle_read_property,
+                        disabled=rx.cond(BacnetScanState.proxy_up, False, True)
                     ),
                     align="end"
                 ),
                 spacing="6",
                 align="center",
                 padding="2rem",
-            )
+            ),
+            on_submit=BacnetScanState.handle_read_property
         )
 
 def write_property_accordion_content() -> rx.Component:
     return rx.form(
             rx.vstack(
                 rx.vstack(
-                    # TODO implement on_change functionality for these inputs, have them save their
-                    # values for everything
-                    form_entry.form_entry("Device Address", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
-                    form_entry.form_entry("Object Identifier", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
-                    form_entry.form_entry("Property Identifier", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
-                    form_entry.form_entry("Value", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
-                    form_entry.form_entry("Priority", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # int
-                    form_entry.form_entry("Property Array Index", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True))), # int, optional
+                    form_entry.form_entry(
+                        "Device Address", 
+                        rx.input(
+                            value=BacnetScanState.write_property.device_address,
+                            on_change=lambda value: BacnetScanState.write_property_input("device_address", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
+                    form_entry.form_entry(
+                        "Object Identifier", 
+                        rx.input(
+                            value=BacnetScanState.write_property.object_identifier,
+                            on_change=lambda value: BacnetScanState.write_property_input("object_identifier", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
+                    form_entry.form_entry(
+                        "Property Identifier", 
+                        rx.input(
+                            value=BacnetScanState.write_property.property_identifier,
+                            on_change=lambda value: BacnetScanState.write_property_input("property_identifier", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
+                    form_entry.form_entry(
+                        "Value", 
+                        rx.input(
+                            value=BacnetScanState.write_property.value,
+                            on_change=lambda value: BacnetScanState.write_property_input("value", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
+                    form_entry.form_entry(
+                        "Priority", 
+                        rx.input(
+                            value=BacnetScanState.write_property.priority,
+                            on_change=lambda value: BacnetScanState.write_property_input("priority", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        ), 
+                        required_entry=True
+                    ),
+                    form_entry.form_entry(
+                        "Property Array Index", 
+                        rx.input(
+                            value=BacnetScanState.write_property.property_array_index,
+                            on_change=lambda value: BacnetScanState.write_property_input("property_array_index", value),
+                            disabled=rx.cond(BacnetScanState.proxy_up, False, True)
+                        )
+                    ),
                     spacing="6",
                     align="start",
-                    style={"color" : "white"}
+                    style={"color": "white"}
                 ),
                 rx.hstack(
                     rx.button(
                         "Write Property",
-                        # disabled = write_property_not_ready
-                        # color_scheme="primary",
-                        # on_click=BacnetScanState.write_property
                         variant="surface",
+                        on_click=BacnetScanState.handle_write_property,
+                        disabled=rx.cond(BacnetScanState.proxy_up, False, True)
                     ),
                     align="end"
                 ),
                 spacing="6",
                 align="center",
                 padding="2rem",
-            )
+            ),
+            on_submit=BacnetScanState.handle_write_property
         )
 
 @rx.page(route="/tools/bacnet_scan")

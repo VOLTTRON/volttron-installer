@@ -2,7 +2,7 @@ import reflex as rx
 from .settings import get_settings
 from .model_views import AgentModelView, ConfigStoreEntryModelView
 from .utils.create_component_uid import generate_unique_uid
-from .models import Instance
+from .models import *
 from .utils.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
 from .utils.validate_content import check_json, check_csv, check_path, check_yaml, check_regular_expression
 from .utils.create_csv_string import create_csv_string, create_and_validate_csv_string
@@ -894,9 +894,6 @@ class PlatformPageState(rx.State):
 
         return (valid, validity_map)
 
-
-
-
 class AgentConfigState(rx.State):
     working_agent: AgentModelView = AgentModelView()
     selected_component_id: str = ""
@@ -1520,8 +1517,30 @@ class BacnetScanState(rx.State):
     scanning_bacnet_ip: bool = False
     is_starting_proxy: bool = False
     proxy_up: bool = False
+    _open_accordion_items: list[str] = []
 
+    # Models
+    request_who_is: RequestWhoIsModel = RequestWhoIsModel()
+    read_device_all: ReadDeviceAllModel = ReadDeviceAllModel()
+    scan_ip_range: ScanIPRangeModel = ScanIPRangeModel()
+    ping_ip: PingIPModel = PingIPModel()
+    read_property: ReadPropertyModel = ReadPropertyModel()
+    write_property: WritePropertyModel = WritePropertyModel()
+
+    # Computed Vars
+    @rx.var
+    def open_accordion_items(self) -> list[str]:
+        """Get the currently open accordion items"""
+        if self.proxy_up:
+            return self._open_accordion_items
+        self._open_accordion_items = []
+        return self._open_accordion_items
+    
     # Events
+    @rx.event
+    def set_open_items(self, value):
+        self._open_accordion_items = value
+
     @rx.event
     def toggle_proxy(self):
         """Toggle the proxy state"""
@@ -1529,6 +1548,7 @@ class BacnetScanState(rx.State):
             self.proxy_up = False
             yield rx.toast.success("Proxy stopped successfully.")
         else:
+            yield rx.toast.info("Starting proxy...")
             yield BacnetScanState.start_proxy()
 
     @rx.event
@@ -1538,7 +1558,7 @@ class BacnetScanState(rx.State):
             yield rx.toast.info("Proxy is already starting.")
             return
         self.is_starting_proxy = True
-        yield rx.toast.success("Starting proxy...")
+        yield
         # TODO implement proxy start logic
         import asyncio
         await asyncio.sleep(2)
@@ -1561,3 +1581,159 @@ class BacnetScanState(rx.State):
         # TODO implement scan logic
         import asyncio
         await asyncio.sleep(2)
+
+    # Handle inputs into model
+    @rx.event
+    def request_who_is_input(self, field: str, value: str):
+        """Handle input changes for the Request Who Is form."""
+        if field == "device_instance_low":
+            self.request_who_is.device_instance_low = value
+        elif field == "device_instance_high":
+            self.request_who_is.device_instance_high = value
+        elif field == "dest":
+            self.request_who_is.dest = value
+
+    @rx.event
+    def read_device_all_input(self, field: str, value: str):
+        """Handle input changes for the Read Device All form."""
+        if field == "device_address":
+            self.read_device_all.device_address = value
+        elif field == "device_object_identifier":
+            self.read_device_all.device_object_identifier = value
+
+    @rx.event
+    def scan_ip_range_input(self, field: str, value: str):
+        """Handle input changes for the Scan IP Range form."""
+        if field == "network_string":
+            self.scan_ip_range.network_string = value
+
+    @rx.event
+    def ping_ip_input(self, field: str, value: str):
+        """Handle input changes for the Ping IP form."""
+        if field == "ip_address":
+            self.ping_ip.ip_address = value
+
+    @rx.event
+    def read_property_input(self, field: str, value: str):
+        """Handle input changes for the Read Property form."""
+        if field == "device_address":
+            self.read_property.device_address = value
+        elif field == "object_identifier":
+            self.read_property.object_identifier = value
+        elif field == "property_identifier":
+            self.read_property.property_identifier = value
+        elif field == "property_array_index":
+            # Handle empty string as None for optional field
+            self.read_property.property_array_index = value if value.strip() else None
+
+    @rx.event
+    def write_property_input(self, field: str, value: str):
+        """Handle input changes for the Write Property form."""
+        if field == "device_address":
+            self.write_property.device_address = value
+        elif field == "object_identifier":
+            self.write_property.object_identifier = value
+        elif field == "property_identifier":
+            self.write_property.property_identifier = value
+        elif field == "value":
+            self.write_property.value = value
+        elif field == "priority":
+            self.write_property.priority = value
+        elif field == "property_array_index":
+            # Handle empty string as None for optional field
+            self.write_property.property_array_index = value if value.strip() else None
+
+    @rx.event
+    def ip_address_input(self, value: str):
+        """Handle input change for the main IP address field."""
+        self.ip_address = value
+
+
+    # Handle the actual endpoint actions/functionality
+    @rx.event
+    async def handle_request_who_is(self):
+        """Handle the Request Who Is form submission."""
+        if not self.proxy_up:
+            yield rx.toast.error("Proxy must be started first.")
+            return
+            
+        # Access form data using self.request_who_is.device_instance_low, etc.
+        yield rx.toast.info(f"Sending Who-Is request from {self.request_who_is.device_instance_low} to {self.request_who_is.device_instance_high}")
+        
+        # TODO: Implement actual BACnet logic here
+        import asyncio
+        await asyncio.sleep(1)
+        
+        # Example response handling
+        yield rx.toast.success("Who-Is request completed.")
+    
+    @rx.event
+    async def handle_read_device_all(self):
+        """Handle the Read Device All form submission."""
+        if not self.proxy_up:
+            yield rx.toast.error("Proxy must be started first.")
+            return
+            
+        yield rx.toast.info(f"Reading all properties from device {self.read_device_all.device_address}")
+        
+        # TODO: Implement actual BACnet logic here
+        import asyncio
+        await asyncio.sleep(1)
+        
+        yield rx.toast.success("Read Device All completed.")
+    
+    @rx.event
+    async def handle_scan_ip_range(self):
+        """Handle the Scan IP Range form submission."""
+        if not self.proxy_up:
+            yield rx.toast.error("Proxy must be started first.")
+            return
+            
+        yield rx.toast.info(f"Scanning network: {self.scan_ip_range.network_string}")
+        
+        # TODO: Implement actual scan logic here
+        import asyncio
+        await asyncio.sleep(2)
+        
+        yield rx.toast.success("IP Range scan completed.")
+    
+    @rx.event
+    async def handle_ping_ip(self):
+        """Handle the Ping IP form submission."""
+        yield rx.toast.info(f"Pinging IP: {self.ping_ip.ip_address}")
+        
+        # TODO: Implement actual ping logic here
+        import asyncio
+        await asyncio.sleep(0.5)
+        
+        yield rx.toast.success("Ping completed.")
+    
+    @rx.event
+    async def handle_read_property(self):
+        """Handle the Read Property form submission."""
+        if not self.proxy_up:
+            yield rx.toast.error("Proxy must be started first.")
+            return
+            
+        yield rx.toast.info(f"Reading property from {self.read_property.device_address}")
+        
+        # TODO: Implement actual BACnet logic here
+        import asyncio
+        await asyncio.sleep(1)
+        
+        yield rx.toast.success("Read Property completed.")
+    
+    @rx.event
+    async def handle_write_property(self):
+        """Handle the Write Property form submission."""
+        if not self.proxy_up:
+            yield rx.toast.error("Proxy must be started first.")
+            return
+            
+        yield rx.toast.info(f"Writing to property on {self.write_property.device_address}")
+        
+        # TODO: Implement actual BACnet write logic here
+        import asyncio
+        await asyncio.sleep(1)
+        
+        yield rx.toast.success("Write Property completed.")
