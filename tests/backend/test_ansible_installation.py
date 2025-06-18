@@ -286,7 +286,7 @@ async def test_host_key_verification_with_invalid_host():
             # Run the playbook directly to check output
             return_code, stdout, stderr = await service.run_playbook(
                 "ensure-host-keys",
-                inventory=f"{test_host['ansible_host']},",  # Use specific host
+                f"{test_host['ansible_host']},",  # Use specific host
                 extra_vars={
                     "ansible_host": test_host["ansible_host"],
                     "ansible_user": test_host["ansible_user"],

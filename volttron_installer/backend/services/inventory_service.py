@@ -31,12 +31,17 @@ class InventoryService:
     async def create_host(self, entry: HostEntry):
         """Add a host to the inventory"""
         with self._lock:
-            self._internal_state['all']['hosts'][entry.id] = entry.model_dump()
+            self._internal_state['all']['hosts'][entry.name] = entry.model_dump()
             yaml.dump(self._internal_state, self.inventory_path.open('w'))
     
     async def remove_host(self, host_id: str):
         """Remove a host from the inventory"""      
         with self._lock:
+            entry = self._internal_state['all']['hosts']
+            # for e in entry:
+            #     if host_id in self._internal_state['all']['hosts'][e]['id']:
+            #         del self._internal_state['all']['hosts'][e]
+            #         yaml.dump(self._internal_state, self.inventory_path.open('w'))
             if host_id in self._internal_state['all']['hosts']:
                 del self._internal_state['all']['hosts'][host_id]
                 yaml.dump(self._internal_state, self.inventory_path.open('w'))
@@ -44,9 +49,11 @@ class InventoryService:
     async def get_host(self, host_id: str) -> Optional[HostEntry]:
         """Get a host from the inventory"""
         with self._lock:
-            entry = self._internal_state['all']['hosts'].get(host_id)
-            if entry:
-                return HostEntry.model_validate(entry)
+            entry = self._internal_state['all']['hosts']
+            for e in entry:
+                if self._internal_state['all']['hosts'][e]['id'] == host_id:
+                    host_val = self._internal_state['all']['hosts'][e]
+                    return HostEntry.model_validate(host_val)
             return None
         
     async def get_hosts(self) -> Dict[str, HostEntry]:

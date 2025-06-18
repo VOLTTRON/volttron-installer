@@ -71,7 +71,8 @@ async def add_host(host_entry: CreateOrUpdateHostEntryRequest):
             http_proxy=host_entry.http_proxy,
             https_proxy=host_entry.https_proxy,
             volttron_venv=host_entry.volttron_venv,
-            host_configs_dir=host_entry.host_configs_dir
+            host_configs_dir=host_entry.host_configs_dir,
+            name = host_entry.name
         )
 
         inventory_service = await get_inventory_service()
@@ -125,6 +126,7 @@ async def create_platform(platform: CreatePlatformRequest,
     """Creates a new platform"""
     try:
         host = await inventory_service.get_host(platform.host_id)
+
         if host is None:
             raise HTTPException(status_code=404, detail="Host not found")
         

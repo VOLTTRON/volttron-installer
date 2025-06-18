@@ -627,9 +627,9 @@ class PlatformPageState(rx.State):
         
         host_request = working_platform.host.to_dict()
         host_request["ansible_port"] = int(host_request["ansible_port"])
+        host_request["name"] =  working_platform.platform.config.instance_name
         request = CreateOrUpdateHostEntryRequest(**host_request)
         # logger.debug(f"this is the request: {request}")
-        
         logger.debug(f"this is the uid copy: {uid_copy}")
         await add_host(request)
         inv_serv = await get_inventory_service()

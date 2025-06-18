@@ -24,6 +24,7 @@ class HostEntry(BaseModel):
     volttron_venv: str | None = None
     volttron_home: str = "~/.volttron"
     host_configs_dir: str | None = None
+    name:str | None = None
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -36,7 +37,8 @@ class HostEntry(BaseModel):
             "https_proxy": "" if self.https_proxy is None else self.https_proxy,
             "volttron_venv": "" if self.volttron_venv is None else self.volttron_venv,
             "volttron_home": self.volttron_home,
-            "host_configs_dir": "" if self.host_configs_dir is None else self.host_configs_dir
+            "host_configs_dir": "" if self.host_configs_dir is None else self.host_configs_dir,
+            "name": "" if self.name is None else self.name
         }
 
 class ReachableResponse(BaseModel):
