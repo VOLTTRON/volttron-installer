@@ -7,7 +7,6 @@ def app_layout_sidebar(*children)-> rx.Component:
         app_sidebar(),
         rx.divider(
             orientation="vertical",
-            # height="100vh",
             width="1px",
             color=rx.color("accent", 3),
         ),
