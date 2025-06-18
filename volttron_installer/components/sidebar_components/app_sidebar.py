@@ -83,10 +83,9 @@ def sidebar_items() -> rx.Component:
             icon="layout-dashboard",
             href="/",
             underline="none",
-            on_click=lambda: AppState.select_overview,
             extra_style={
                 "bg" : rx.cond(
-                    AppState.sidebar_page_selected=="overview",
+                    AppState.sidebar_selected_page=="overview",
                     rx.color("accent", 4),
                     rx.color("accent", 3)
                 )
@@ -99,10 +98,9 @@ def sidebar_items() -> rx.Component:
                 "search",
                 underline="none",
                 href="/tools/bacnet_scan",
-                on_click=lambda: AppState.select_bacnet_scan,
                 extra_style={
                 "bg" : rx.cond(
-                        AppState.sidebar_page_selected=="bacnet_scan",
+                        AppState.sidebar_selected_page=="/tools/bacnet_scan/",
                         rx.color("accent", 4),
                         rx.color("accent", 3)
                     )
@@ -120,7 +118,7 @@ def app_sidebar() -> rx.Component:
             rx.vstack(
                 rx.hstack(
                     rx.image(
-                        src="logo-mini.png",
+                        src="/logo-mini.png",
                         width="2.25em",
                         height="auto",
                         border_radius="25%",

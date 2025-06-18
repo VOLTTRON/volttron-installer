@@ -35,13 +35,15 @@ from copy import deepcopy
 
 class AppState(rx.State):
     """The app state."""
-    sidebar_page_selected: str = "overview"
+    _sidebar_page_selected: str = "overview"
     tool_accordion_value: str ="tools"
 
     # Events
     @rx.var
-    def sidebar_selected_page(): 
-        pass
+    def sidebar_selected_page(self) -> str:
+        self._sidebar_page_selected = self.router.page.raw_path if self.router.page.raw_path != "/" else "overview"
+        logger.debug(self._sidebar_page_selected)
+        return self._sidebar_page_selected
 
     @rx.event
     def toggle_tool_dropdown(self, value: str):
