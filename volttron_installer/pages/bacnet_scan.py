@@ -33,35 +33,50 @@ def bacnet_scan() -> rx.Component:
                     rx.accordion.item(
                         header="Write Property",
                         content=write_property_accordion_content(),
+                        value="1"
                     ),
                     rx.accordion.item(
                         header="Read Property",
                         content=read_property_accordion_content(),
+                        value="2"
                     ),
                     rx.accordion.item(
                         header="Ping IP",
                         content=ping_ip_accordion_content(),
+                        value="3"
                     ),
                     rx.accordion.item(
                         header="Scan IP Range",
                         content=scan_ip_range_accordion_content(),
+                        value="4"
                     ),
                     rx.accordion.item(
                         header="Read Device All",
                         content=read_device_all_accordion_content(),
+                        value="5"
                     ),
                     rx.accordion.item(
                         header="Request Who Is",
                         content=request_who_is_accordion_content(),
+                        value="6",
                     ),
                     collapsible=True,
                     variant="outline",                    
                     width="100%",
                     type="multiple",
+                    color_scheme=rx.cond(
+                        BacnetScanState.proxy_up,
+                        "blue",
+                        "red"
+                    ),
+                    disabled=rx.cond(
+                        BacnetScanState.proxy_up,
+                        False,
+                        True
+                    ),
                 ),
                 spacing="6",
                 align="start",
-                # width="100%",
             ),
             padding_top="2rem",
             align="center",
@@ -79,9 +94,9 @@ def request_who_is_accordion_content() -> rx.Component:
                 rx.vstack(
                     # TODO implement on_change functionality for these inputs, have them save their
                     # values for everything
-                    form_entry.form_entry("Device Instance Low", rx.input(), required_entry=True), # str
-                    form_entry.form_entry("Device Instance High", rx.input(), required_entry=True), # str
-                    form_entry.form_entry("Dest", rx.input(), required_entry=True), # str
+                    form_entry.form_entry("Device Instance Low", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry("Device Instance High", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry("Dest", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
                     spacing="6",
                     align="start",
                     style={"color" : "white"}
@@ -101,14 +116,15 @@ def request_who_is_accordion_content() -> rx.Component:
                 padding="2rem",
         )
     )
+
 def read_device_all_accordion_content() -> rx.Component:
     return rx.form(
             rx.vstack(
                 rx.vstack(
                     # TODO implement on_change functionality for these inputs, have them save their
                     # values for everything
-                    form_entry.form_entry("Device Address", rx.input(), required_entry=True), # str
-                    form_entry.form_entry("Device Object Identifier", rx.input(), required_entry=True), # str
+                    form_entry.form_entry("Device Address", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry("Device Object Identifier", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
                     spacing="6",
                     align="start",
                     style={"color" : "white"}
@@ -135,7 +151,7 @@ def scan_ip_range_accordion_content() -> rx.Component:
                 rx.vstack(
                     # TODO implement on_change functionality for these inputs, have them save their
                     # values for everything
-                    form_entry.form_entry("Network String", rx.input(), required_entry=True), # str
+                    form_entry.form_entry("Network String", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
                     spacing="6",
                     align="start",
                     style={"color" : "white"}
@@ -162,7 +178,7 @@ def ping_ip_accordion_content() -> rx.Component:
                 rx.vstack(
                     # TODO implement on_change functionality for these inputs, have them save their
                     # values for everything
-                    form_entry.form_entry("IP Address", rx.input(), required_entry=True), # str
+                    form_entry.form_entry("IP Address", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
                     spacing="6",
                     align="start",
                     style={"color" : "white"}
@@ -189,10 +205,10 @@ def read_property_accordion_content() -> rx.Component:
                 rx.vstack(
                     # TODO implement on_change functionality for these inputs, have them save their
                     # values for everything
-                    form_entry.form_entry("Device Address", rx.input(), required_entry=True), # str
-                    form_entry.form_entry("Object Identifier", rx.input(), required_entry=True), # str
-                    form_entry.form_entry("Property Identifier", rx.input(), required_entry=True), # str
-                    form_entry.form_entry("Property Array Index", rx.input()), # int, optional
+                    form_entry.form_entry("Device Address", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry("Object Identifier", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry("Property Identifier", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry("Property Array Index", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True))), # int, optional
                     spacing="6",
                     align="start",
                     style={"color" : "white"}
@@ -219,12 +235,12 @@ def write_property_accordion_content() -> rx.Component:
                 rx.vstack(
                     # TODO implement on_change functionality for these inputs, have them save their
                     # values for everything
-                    form_entry.form_entry("Device Address", rx.input(), required_entry=True), # str
-                    form_entry.form_entry("Object Identifier", rx.input(), required_entry=True), # str
-                    form_entry.form_entry("Property Identifier", rx.input(), required_entry=True), # str
-                    form_entry.form_entry("Value", rx.input(), required_entry=True), # str
-                    form_entry.form_entry("Priority", rx.input(), required_entry=True), # int
-                    form_entry.form_entry("Property Array Index", rx.input()), # int, optional
+                    form_entry.form_entry("Device Address", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry("Object Identifier", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry("Property Identifier", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry("Value", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # str
+                    form_entry.form_entry("Priority", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True)), required_entry=True), # int
+                    form_entry.form_entry("Property Array Index", rx.input(disabled=rx.cond(BacnetScanState.proxy_up,False,True))), # int, optional
                     spacing="6",
                     align="start",
                     style={"color" : "white"}
