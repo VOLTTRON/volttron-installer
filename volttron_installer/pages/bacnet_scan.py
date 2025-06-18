@@ -1,8 +1,8 @@
 import reflex as rx
 from ..state import BacnetScanState
 from ..components.form_components import form_entry
+from ..layouts import app_layout_sidebar
 
-@rx.page(route="/tools/bacnet_scan")
 def bacnet_scan() -> rx.Component:
     return rx.fragment(
         rx.vstack(
@@ -30,4 +30,10 @@ def bacnet_scan() -> rx.Component:
             justify="center",
             width="100%",
         )
+    )
+
+@rx.page(route="/tools/bacnet_scan")
+def bacnet_scan_page() -> rx.Component:
+    return app_layout_sidebar.app_layout_sidebar(
+        bacnet_scan(),
     )
