@@ -34,5 +34,8 @@ def platform_overview_tab() -> rx.Component:
                 justify="between"
             ),
             platform_overview.platform_overview(),
+            overflow_y="auto",
+            height="100%",
+            width="100%",
         )
     )
