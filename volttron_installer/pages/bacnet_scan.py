@@ -26,13 +26,13 @@ def bacnet_scan() -> rx.Component:
                     )
                 ),
             ),
+            padding_top="2rem",
             align="center",
             justify="center",
             width="100%",
         )
     )
 
-@rx.page(route="/tools/bacnet_scan")
 def bacnet_scan_page() -> rx.Component:
     return app_layout_sidebar.app_layout_sidebar(
         bacnet_scan(),

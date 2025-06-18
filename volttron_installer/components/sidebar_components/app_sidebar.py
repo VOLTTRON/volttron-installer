@@ -87,7 +87,7 @@ def sidebar_items() -> rx.Component:
                 "bg" : rx.cond(
                     AppState.sidebar_selected_page=="overview",
                     rx.color("accent", 4),
-                    rx.color("accent", 3)
+                    rx.color("black")
                 )
             }
         ),
@@ -102,7 +102,8 @@ def sidebar_items() -> rx.Component:
                 "bg" : rx.cond(
                         AppState.sidebar_selected_page=="/tools/bacnet_scan/",
                         rx.color("accent", 4),
-                        rx.color("accent", 3)
+                        rx.color("black")
+
                     )
                 }
             ),
@@ -139,7 +140,7 @@ def app_sidebar() -> rx.Component:
                 # z_index="5",
                 padding_x="1em",
                 padding_y="1.5em",
-                bg=rx.color("accent", 3),
+                # bg=rx.color("accent", 3),
                 align="start",
                 min_height="100%",
                 height="100vh",
