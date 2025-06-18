@@ -4,7 +4,7 @@ from ..components.form_components import form_entry
 from ..layouts import app_layout_sidebar
 
 def bacnet_scan() -> rx.Component:
-    return rx.fragment(
+    return rx.box(
         rx.vstack(
             rx.vstack(
                 form_entry.form_entry(
@@ -65,7 +65,10 @@ def bacnet_scan() -> rx.Component:
             align="center",
             justify="center",
             width="100%",
-        )
+        ),
+        overflow_y="auto",
+        height="100%",
+        width="100%",
     )
 
 def request_who_is_accordion_content() -> rx.Component:
