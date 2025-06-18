@@ -115,7 +115,8 @@ def sidebar_items() -> rx.Component:
 
 def app_sidebar() -> rx.Component:
     return rx.box(
-        rx.desktop_only(
+        # TODO actually implement the the drawer for mobile resolution later, until then we keep the sidebar for both
+        # rx.desktop_only(
             rx.vstack(
                 rx.hstack(
                     rx.image(
@@ -146,7 +147,7 @@ def app_sidebar() -> rx.Component:
                 height="100vh",
                 width="16em",
             ),
-        ),
+        # ),
         # rx.mobile_and_tablet(
         #     rx.drawer.root(
         #         rx.drawer.trigger(
