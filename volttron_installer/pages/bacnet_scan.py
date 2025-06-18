@@ -7,25 +7,27 @@ def bacnet_scan() -> rx.Component:
     return rx.box(
         rx.vstack(
             rx.vstack(
-                form_entry.form_entry(
-                    "IP Address",
-                    rx.hstack(
-                        rx.input(),
-                        rx.button(
-                            rx.cond(
-                                BacnetScanState.proxy_up,
-                                "Stop Proxy",
-                                "Start Proxy",
-                            ),
-                            loading=BacnetScanState.is_starting_proxy,
-                            color_scheme=rx.cond(
-                                BacnetScanState.proxy_up,
-                                "red",
-                                "primary"
-                            ),
-                            on_click=BacnetScanState.toggle_proxy
-                        )
-                    ),
+                rx.form(
+                        form_entry.form_entry(
+                        "IP Address",
+                        rx.hstack(
+                            rx.input(),
+                            rx.button(
+                                rx.cond(
+                                    BacnetScanState.proxy_up,
+                                    "Stop Proxy",
+                                    "Start Proxy",
+                                ),
+                                loading=BacnetScanState.is_starting_proxy,
+                                color_scheme=rx.cond(
+                                    BacnetScanState.proxy_up,
+                                    "red",
+                                    "primary"
+                                ),
+                                on_click=BacnetScanState.toggle_proxy
+                            )
+                        ),
+                    )
                 ),
                 rx.accordion.root(
                     rx.accordion.item(
@@ -72,34 +74,36 @@ def bacnet_scan() -> rx.Component:
     )
 
 def request_who_is_accordion_content() -> rx.Component:
-    return rx.vstack(
+    return rx.form(
             rx.vstack(
-                # TODO implement on_change functionality for these inputs, have them save their
-                # values for everything
-                form_entry.form_entry("Device Instance Low", rx.input(), required_entry=True), # str
-                form_entry.form_entry("Device Instance High", rx.input(), required_entry=True), # str
-                form_entry.form_entry("Dest", rx.input(), required_entry=True), # str
-                spacing="6",
-                align="start",
-                style={"color" : "white"}
-            ),
-            rx.hstack(
-                rx.button(
-                    "Request Who Is",
-                    # disabled = write_property_not_ready
-                    # color_scheme="primary",
-                    # on_click=BacnetScanState.write_property
-                    variant="surface",
+                rx.vstack(
+                    # TODO implement on_change functionality for these inputs, have them save their
+                    # values for everything
+                    form_entry.form_entry("Device Instance Low", rx.input(), required_entry=True), # str
+                    form_entry.form_entry("Device Instance High", rx.input(), required_entry=True), # str
+                    form_entry.form_entry("Dest", rx.input(), required_entry=True), # str
+                    spacing="6",
+                    align="start",
+                    style={"color" : "white"}
                 ),
-                align="end"
-            ),
-            spacing="6",
-            align="center",
-            padding="2rem",
+                rx.hstack(
+                    rx.button(
+                        "Request Who Is",
+                        # disabled = write_property_not_ready
+                        # color_scheme="primary",
+                        # on_click=BacnetScanState.write_property
+                        variant="surface",
+                    ),
+                    align="end"
+                ),
+                spacing="6",
+                align="center",
+                padding="2rem",
         )
-
+    )
 def read_device_all_accordion_content() -> rx.Component:
-    return rx.vstack(
+    return rx.form(
+            rx.vstack(
                 rx.vstack(
                     # TODO implement on_change functionality for these inputs, have them save their
                     # values for everything
@@ -123,9 +127,11 @@ def read_device_all_accordion_content() -> rx.Component:
                 align="center",
                 padding="2rem",
             )
+        )
 
 def scan_ip_range_accordion_content() -> rx.Component:
-    return rx.vstack(
+    return rx.form(
+            rx.vstack(
                 rx.vstack(
                     # TODO implement on_change functionality for these inputs, have them save their
                     # values for everything
@@ -148,9 +154,11 @@ def scan_ip_range_accordion_content() -> rx.Component:
                 align="center",
                 padding="2rem",
             )
+        )
 
 def ping_ip_accordion_content() -> rx.Component:
-    return rx.vstack(
+    return rx.form(
+            rx.vstack(
                 rx.vstack(
                     # TODO implement on_change functionality for these inputs, have them save their
                     # values for everything
@@ -173,9 +181,11 @@ def ping_ip_accordion_content() -> rx.Component:
                 align="center",
                 padding="2rem",
             )
+        )
 
 def read_property_accordion_content() -> rx.Component:
-    return rx.vstack(
+    return rx.form(
+            rx.vstack(
                 rx.vstack(
                     # TODO implement on_change functionality for these inputs, have them save their
                     # values for everything
@@ -201,9 +211,11 @@ def read_property_accordion_content() -> rx.Component:
                 align="center",
                 padding="2rem",
             )
+        )
 
 def write_property_accordion_content() -> rx.Component:
-    return rx.vstack(
+    return rx.form(
+            rx.vstack(
                 rx.vstack(
                     # TODO implement on_change functionality for these inputs, have them save their
                     # values for everything
@@ -231,6 +243,7 @@ def write_property_accordion_content() -> rx.Component:
                 align="center",
                 padding="2rem",
             )
+        )
 
 @rx.page(route="/tools/bacnet_scan")
 def bacnet_scan_page() -> rx.Component:
