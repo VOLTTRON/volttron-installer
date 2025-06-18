@@ -48,3 +48,32 @@ class Instance(rx.Base):
             for config in agent.config_store:
                 config.in_file = False
                 config.selected_cell = ""
+
+class RequestWhoIsModel(rx.Model):
+    device_instance_low: str = ""
+    device_instance_high: str = "" 
+    dest: str = ""
+
+class ReadDeviceAllModel(rx.Model):
+    device_address: str = ""
+    device_object_identifier: str = ""
+
+class ScanIPRangeModel(rx.Model):
+    network_string: str = ""
+
+class PingIPModel(rx.Model):
+    ip_address: str = ""
+
+class ReadPropertyModel(rx.Model):
+    device_address: str = ""
+    object_identifier: str = ""
+    property_identifier: str = ""
+    property_array_index: str = ""
+
+class WritePropertyModel(rx.Model):
+    device_address: str = ""
+    object_identifier: str = ""
+    property_identifier: str = ""
+    value: str = ""
+    priority: str = ""
+    property_array_index: str = ""
