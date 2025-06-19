@@ -22,4 +22,4 @@ def init(app: FastAPI | rx.App):
     app.include_router(api.task_router, prefix="/api")
     app.include_router(api.catalog_router, prefix="/api")
     
-    app.include_router(tool_router, prefix="/tool")
+    app.include_router(tool_router, prefix="/tools")
