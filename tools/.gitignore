@@ -1,0 +1,4 @@
+# Ignore tool repositories but keep directory structure
+*/
+!.gitignore
+!README.md
