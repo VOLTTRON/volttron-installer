@@ -5,18 +5,18 @@ from .tool_manager import ToolManager
 from .tool_router import tool_router
 
 def init(app: FastAPI | rx.App):
-
-    # Tool configuration--bacnet scan tool
+    # Start the BACnet scan tool service
+    # The tool should already be installed via pip install -e/pip install requirements.txt
     ToolManager.start_tool_service(
-        tool_name="bacnet-scan-tool",
         module_path="bacnet_scan_tool.main:app",
-        port=8001
+        port=8001,
+        # use_poetry=True  # Avoid this because using poetry within the app with no poetry lock file messes things up
     )
     
-    # Reflex wraps around the fastapi endpoint, so we gotta do some of this to add routes.
+    # Reflex wraps fast API
     if isinstance(app, rx.App):
         app = app.api
-        
+    
     app.include_router(api.ansible_router, prefix="/api")
     app.include_router(api.platform_router, prefix="/api")
     app.include_router(api.task_router, prefix="/api")
