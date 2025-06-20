@@ -48,3 +48,8 @@ class Instance(rx.Base):
             for config in agent.config_store:
                 config.in_file = False
                 config.selected_cell = ""
+
+class Tool(rx.Base):
+    name: str = ""
+    module_path: str = ""
+    use_poetry: bool = False

@@ -12,11 +12,14 @@ from .platform_page import State as PlatformState
 class IndexTabState(rx.State):
     ...
 
+from ..backend.models import ToolRequest
+
 @rx.page(route="/")
 def index() -> rx.Component:
     # Welcome Page (Index)
     return rx.fragment(
         rx.vstack(
+            rx.button(),
             header.header.header(
                 rx.text("Overview", size="7"),
                 add_icon_button.add_icon_button(

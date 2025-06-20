@@ -7,13 +7,14 @@ from .utils.conversion_methods import json_string_to_csv_string, csv_string_to_j
 from .utils.validate_content import check_json, check_csv, check_path, check_yaml, check_regular_expression
 from .utils.create_csv_string import create_csv_string, create_and_validate_csv_string
 from .navigation.state import NavigationState
-from .backend.models import AgentType, HostEntry, PlatformConfig, PlatformDefinition, ConfigStoreEntry, AgentDefinition, CreatePlatformRequest, CreateOrUpdateHostEntryRequest
+from .backend.models import AgentType, HostEntry, PlatformConfig, PlatformDefinition, ConfigStoreEntry, AgentDefinition, CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ToolRequest
 from .utils.create_component_uid import generate_unique_uid
 from .utils.conversion_methods import csv_string_to_usable_dict
 from .utils.validate_content import check_json
 from .utils.prettify import prettify_json
 from .utils import delete_file
 from loguru import logger
+from typing import Dict, Optional, List
 from .model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
 from .thin_endpoint_wrappers import ( 
     get_agent_catalog, 
@@ -23,7 +24,10 @@ from .thin_endpoint_wrappers import (
     add_host, 
     update_platform, 
     create_platform, 
-    deploy_platform
+    deploy_platform,
+    start_tool,
+    stop_tool,
+    tool_status
 )
 from .thin_endpoint_wrappers import *
 import string, random, json, csv, yaml, re, io
@@ -44,6 +48,122 @@ class AppState(rx.State):
     # be the forward facing models that will be used in the frontend. 
 
     ...
+
+class ToolState(rx.State):
+    """State for managing tool lifecycle."""
+    
+    # Track running tools
+    running_tools: dict[str, bool] = {}
+    tool_ports: dict[str, int] = {}
+    loading_tools: dict[str, bool] = {}
+    error_message: Optional[str] = None
+    
+    # Tool configuration
+    tool_configs: dict[str, ToolRequest] = {
+        "bacnet-scan-tool": ToolRequest(
+            name= "BACnet Scan Tool",
+            module_path= "bacnet_scan_tool.main:app",
+            use_poetry= False,
+        ),
+        # Add other tools as we go
+    }
+    
+    @rx.event
+    async def start_tool(self, tool_id: str) -> None:
+        """Start a specific tool service."""
+        if tool_id not in self.tool_configs:
+            self.error_message = f"Unknown tool: {tool_id}"
+            return
+        
+        # Check if already running
+        if self.running_tools.get(tool_id, False):
+            return
+        
+        # Set loading state
+        self.loading_tools[tool_id] = True
+        
+        try:
+            # Get tool config
+            config = self.tool_configs[tool_id]
+            
+            # Call API to start the tool
+            response = await start_tool(config)
+            
+            self.running_tools[tool_id] = True
+            self.tool_ports[tool_id] = response.port
+            self.error_message = None
+            self.error_message = result.get("detail", "Failed to start tool")
+                
+        except Exception as e:
+            self.error_message = f"Error starting tool: {str(e)}"
+        finally:
+            # Clear loading state
+            self.loading_tools[tool_id] = False
+    
+    @rx.event
+    async def stop_tool(self, tool_id: str) -> None:
+        """Stop a specific tool service."""
+        if tool_id not in self.tool_configs:
+            self.error_message = f"Unknown tool: {tool_id}"
+            return
+        
+        # Check if it's running
+        if not self.running_tools.get(tool_id, False):
+            return
+        
+        # Set loading state
+        self.loading_tools[tool_id] = True
+        
+        try:
+            # Get tool config
+            config = self.tool_configs[tool_id]
+            
+            # Call API to stop the tool
+            response = await self.fetch(
+                "/api/tools/stop_tool",
+                method="POST",
+                data={
+                    "tool_name": tool_id,
+                    "module_path": config["module_path"]
+                }
+            )
+            
+            if response.status == 200:
+                self.running_tools[tool_id] = False
+                if tool_id in self.tool_ports:
+                    del self.tool_ports[tool_id]
+                self.error_message = None
+            else:
+                result = await response.json()
+                self.error_message = result.get("detail", "Failed to stop tool")
+                
+        except Exception as e:
+            self.error_message = f"Error stopping tool: {str(e)}"
+        finally:
+            # Clear loading state
+            self.loading_tools[tool_id] = False
+    
+    @rx.event
+    async def check_tool_status(self, tool_id: str) -> None:
+        """Check if a specific tool is running."""
+        if tool_id not in self.tool_configs:
+            return
+        
+        try:
+            # Call API to get tool status
+            response = await self.fetch(f"/api/tools/tool_status/{tool_id}")
+            result = await response.json()
+            
+            if response.status == 200:
+                self.running_tools[tool_id] = result.get("running", False)
+                if result.get("running"):
+                    self.tool_ports[tool_id] = result.get("port")
+                elif tool_id in self.tool_ports:
+                    del self.tool_ports[tool_id]
+                
+        except Exception as e:
+            print(f"Error checking tool status: {str(e)}")
+
 
 
 settings = get_settings()

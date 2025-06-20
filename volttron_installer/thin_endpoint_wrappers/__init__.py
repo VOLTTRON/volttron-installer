@@ -1,9 +1,11 @@
 import httpx, asyncio
 from typing import Any, Optional, TypeVar, Type, Union, List, Dict
 
+from pydantic import BaseModel
+
 from ..backend.models import AgentType, HostEntry, PlatformDefinition, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ReachableResponse, \
-    PlatformDeploymentStatus, CreateAgentRequest
+    PlatformDeploymentStatus, CreateAgentRequest, ToolRequest, ToolStatusResponse 
 
 API_BASE_URL = "http://localhost:8000"
 API_PREFIX = "/api"
@@ -12,6 +14,8 @@ PLATFORMS_PREFIX = f"{API_PREFIX}/platforms"
 HOSTS_PREFIX = f"{ANSIBLE_PREFIX}/hosts"
 CATALOG_PREFIX = f"{API_PREFIX}/catalog"
 TASK_PREFIX = f"{API_PREFIX}/task"
+MANAGE_TOOLS_PREFIX = f"{API_PREFIX}/manage_tools"
+TOOL_PROXY_PREFIX = "/tool_proxy"
 
 DEFAULT_TIMEOUT = 5.0  # 5 seconds timeout
 
@@ -148,6 +152,11 @@ async def ping_resolvable_host(host_id: str) -> ReachableResponse:
     """Ping a host to check if it is reachable."""
     return await get_request(f"{API_BASE_URL}{TASK_PREFIX}/ping/{host_id}")
 
+@with_model(ToolStatusResponse)
+async def tool_status(tool_name: str) -> ToolStatusResponse:
+    """Get a tool's status."""
+    return await get_request(f"{API_BASE_URL}{MANAGE_TOOLS_PREFIX}/tool_status/{tool_name}")
+
 # PUT requests
 async def update_platform(platform_id: str, platform: CreatePlatformRequest):
     await put_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}", data=platform.model_dump())
@@ -174,6 +183,17 @@ async def stop_platform(platform_id: str):
 async def create_agent(platform_id: str, agent: CreateAgentRequest):
     await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents", data=agent.model_dump())
 
+async def start_tool(tool_request: ToolRequest):
+    """Start a tool with the given request."""
+    await post_request(f"{API_BASE_URL}{MANAGE_TOOLS_PREFIX}/start_tool", data=tool_request.model_dump())
+
+async def stop_tool(tool_name: str):
+    """Stop a tool by its name."""
+    await post_request(f"{API_BASE_URL}{MANAGE_TOOLS_PREFIX}/stop_tool/{tool_name}")
+
+async def post_tool_proxy(tool_name: str, path: str, data: BaseModel = None):
+    await post_request(f"{API_BASE_URL}/{TOOL_PROXY_PREFIX}/{tool_name}/{path}", data=data.model_dump() if data != None else None)
+
 # DELETE requests
 async def delete_platform(platform_id: str):
     await delete_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}")
@@ -183,3 +203,6 @@ async def remove_from_inventory(host_id: str):
 
 async def delete_agent(platform_id: str, agent_id: str):
     await delete_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents/{agent_id}")
+
+async def delete_tool_proxy(tool_name: str, path: str, data: BaseModel = None):
+    await delete_request(f"{API_BASE_URL}/{TOOL_PROXY_PREFIX}/{tool_name}/{path}", data=data.model_dump() if data != None else None)
