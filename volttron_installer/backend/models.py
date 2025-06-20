@@ -39,6 +39,16 @@ class HostEntry(BaseModel):
             "host_configs_dir": "" if self.host_configs_dir is None else self.host_configs_dir
         }
 
+class ToolRequest(BaseModel):
+    tool_name: str
+    module_path: str
+    use_poetry: bool = False
+
+class ToolStatusResponse(BaseModel):
+    tool_name: str
+    tool_running: bool
+    port: int
+
 class ReachableResponse(BaseModel):
     reachable: bool = True
 

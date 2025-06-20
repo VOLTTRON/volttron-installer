@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import os, asyncio
 
+from volttron_installer.backend.tool_manager import ToolManager
 from volttron_installer.backend.services.ansible_service import AnsibleService, get_ansible_service
 from volttron_installer.backend.services.inventory_service import InventoryService, get_inventory_service
 from volttron_installer.backend.services.platform_service import PlatformService, get_platform_service
@@ -22,7 +23,9 @@ from .models import (
     AgentDefinition,
     DeployPlatformRequest,
     PlatformDeplymentStatusRequest,
-    ReachableResponse
+    ReachableResponse,
+    ToolRequest,
+    ToolStatusResponse
 )
 
 
@@ -30,7 +33,7 @@ platform_router = APIRouter(prefix="/platforms", tags=["platforms"])
 ansible_router = APIRouter(prefix="/ansible", tags=["ansible"])
 task_router = APIRouter(prefix="/task", tags=["tasks"])
 catalog_router = APIRouter(prefix="/catalog", tags=["catalog"])
-
+tool_management_router = APIRouter(prefix="/tool_manage", tags=["tools"])
 
 @ansible_router.get("/hosts", response_model=list[HostEntry])
 async def get_hosts() -> list[HostEntry]:
@@ -441,3 +444,39 @@ async def get_agent_from_catalog(identity: str) -> AgentType:
         raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@tool_management_router.post("/start_tool")
+async def start_tool(request: ToolRequest):
+    """Start a specific tool service on demand."""
+    result = ToolManager.start_tool_service(
+        tool_name=request.tool_name,
+        module_path=request.module_path,
+        use_poetry=request.use_poetry
+    )
+    
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result["message"])
+    
+    return result
+
+@tool_management_router.post("/stop_tool/{tool_name}")
+async def stop_tool(tool_name: str):
+    """Stop a specific tool service."""
+    result = ToolManager.stop_tool_service(tool_name=tool_name)
+    
+    if not result["success"]:
+        raise HTTPException(status_code=404, detail=result["message"])
+    
+    return result
+
+@tool_management_router.get("/tool_status/{tool_name}", response_model=ToolStatusResponse)
+async def tool_status(tool_name: str):
+    """Check if a specific tool is running."""
+    is_running = ToolManager.is_tool_running(tool_name)
+    port = ToolManager.get_tool_port(tool_name) if is_running else None
+    
+    return ToolStatusResponse(**{
+        "tool_name": tool_name,
+        "running": is_running,
+        "port": port
+    })
