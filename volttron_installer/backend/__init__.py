@@ -1,8 +1,18 @@
 import reflex as rx
 from fastapi import FastAPI
+from contextlib import asynccontextmanager
 from . import endpoints as api
-from .tool_manager import ToolManager
+from .endpoints import tool_management_router
 from .tool_router import tool_router
+from .tool_manager import ToolManager
+
+# Cleanup after shutdown
+@asynccontextmanager
+async def tools_lifespan(app):
+    # Startup code
+    yield
+    # Shutdown code
+    ToolManager.stop_all_tools()
 
 def init(app: FastAPI | rx.App):
     # Start the BACnet scan tool service
@@ -17,9 +27,11 @@ def init(app: FastAPI | rx.App):
     if isinstance(app, rx.App):
         app = app.api
     
+    # Include your existing routers
     app.include_router(api.ansible_router, prefix="/api")
     app.include_router(api.platform_router, prefix="/api")
     app.include_router(api.task_router, prefix="/api")
     app.include_router(api.catalog_router, prefix="/api")
     
+    app.include_router(tool_management_router, prefix="/api/tools")
     app.include_router(tool_router, prefix="/tools")

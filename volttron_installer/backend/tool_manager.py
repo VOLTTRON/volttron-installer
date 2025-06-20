@@ -1,50 +1,119 @@
 # tools_manager.py
-import subprocess
-import threading
-import sys
-import time
 import importlib.util
-from loguru import logger
+import os
+import subprocess
+import sys
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Optional
 
 class ToolManager:
-    """Manages external tool applications that are installed via pip."""
+    """Manages external tool applications with on-demand initialization and inactivity monitoring."""
     
-    _tool_processes = {}
+    _tool_processes: Dict[str, subprocess.Popen] = {}
+    _tool_ports: Dict[str, int] = {}
+    _tool_last_access: Dict[str, float] = {}
+    _next_available_port = 8001
+    _inactivity_monitor_running = False
+    _inactivity_timeout_minutes = 30  # Default timeout
     
     @classmethod
-    def is_package_installed(cls, package_name: str) -> bool:
-        """Check if a Python package is installed."""
-        return importlib.util.find_spec(package_name) is not None
+    def is_tool_running(cls, tool_name: str) -> bool:
+        """Check if a specific tool is currently running."""
+        if tool_name not in cls._tool_processes:
+            return False
+            
+        process = cls._tool_processes[tool_name]
+        return process.poll() is None  # None means process is still running
     
     @classmethod
-    def start_tool_service(cls, module_path: str, port: int = 8001, use_poetry: bool = False):
+    def get_tool_port(cls, tool_name: str) -> Optional[int]:
+        """Get the port a tool is running on."""
+        return cls._tool_ports.get(tool_name)
+    
+    @classmethod
+    def record_tool_access(cls, tool_name: str) -> None:
+        """Record that a tool was accessed."""
+        if tool_name in cls._tool_processes:
+            cls._tool_last_access[tool_name] = time.time()
+            print(f"Tool access recorded: {tool_name} at {datetime.now().strftime('%H:%M:%S')}")
+    
+    @classmethod
+    def start_tool_service(cls, 
+                          tool_name: str,
+                          module_path: str, 
+                          port: int = None, 
+                          use_poetry: bool = False,
+                          poetry_project_path: str = None) -> dict:
         """
-        Start a tool service using the module path directly.
+        Start a tool service on-demand.
         
-        Args:
-            module_path: The module path to the FastAPI app (e.g., "bacnet_scan_tool.main:app")
-            port: The port to run the tool on
-            use_poetry: Whether to run the tool using Poetry
+        Returns:
+            dict: Status information including success, port, and any error message
         """
+        # Start inactivity monitor if not already running
+        if not cls._inactivity_monitor_running:
+            cls._start_inactivity_monitor()
+        
+        # If already running, record access and return the current port
+        if cls.is_tool_running(tool_name):
+            cls.record_tool_access(tool_name)
+            return {
+                "success": True,
+                "port": cls._tool_ports[tool_name],
+                "message": f"Tool '{tool_name}' is already running"
+            }
+        
+        # Assign a port if not specified
+        if port is None:
+            port = cls._next_available_port
+            cls._next_available_port += 1
+        
         # Extract package name from module path
         package_name = module_path.split('.')[0]
         
         # Check if the package is installed
-        if not cls.is_package_installed(package_name):
-            logger.error(f"Error: Package '{package_name}' is not installed.")
-            logger.error(f"Please install it using: pip install -e /path/to/{package_name}")
-            return False
+        if not importlib.util.find_spec(package_name):
+            return {
+                "success": False,
+                "message": f"Package '{package_name}' is not installed"
+            }
         
+        # Find the package location if using Poetry
+        if use_poetry:
+            if not poetry_project_path:
+                # Try to find the repository location
+                poetry_project_path = cls._find_repo_directory(package_name)
+            
+            if not poetry_project_path or not os.path.exists(poetry_project_path):
+                return {
+                    "success": False, 
+                    "message": f"Could not find Poetry project path for {package_name}"
+                }
+        
+        # Start the tool in a separate thread
         def run_service():
             try:
                 command = []
+                env = os.environ.copy()
                 
                 if use_poetry:
+                    # Check if Poetry is installed
+                    try:
+                        subprocess.run(["poetry", "--version"], check=True, stdout=subprocess.PIPE)
+                    except (subprocess.SubprocessError, FileNotFoundError):
+                        print(f"Poetry not found. Please install Poetry to run {tool_name}.")
+                        return
+                    
                     # Use Poetry to run the tool
                     command = ["poetry", "run", "uvicorn"]
+                    cwd = poetry_project_path
                 else:
                     # Use the current Python interpreter
                     command = [sys.executable, "-m", "uvicorn"]
+                    cwd = None
                 
                 # Add the module path and parameters
                 command.extend([
@@ -53,54 +122,199 @@ class ToolManager:
                     "--port", str(port)
                 ])
                 
-                logger.debug(f"Starting service: {' '.join(command)}")
+                print(f"Starting {tool_name} with command: {' '.join(command)}")
                 
                 # Start the tool in a subprocess
                 process = subprocess.Popen(
                     command,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True
+                    text=True,
+                    cwd=cwd,
+                    env=env
                 )
                 
-                # Store the process
-                cls._tool_processes[module_path] = process
+                # Store the process and port
+                cls._tool_processes[tool_name] = process
+                cls._tool_ports[tool_name] = port
+                
+                # Record initial access time
+                cls.record_tool_access(tool_name)
                 
                 # Print output for debugging
                 def log_output():
                     for line in process.stdout:
-                        logger.debug(f"[{module_path}] {line.strip()}")
+                        print(f"[{tool_name}] {line.strip()}")
                     for line in process.stderr:
-                        logger.debug(f"[{module_path} ERROR] {line.strip()}")
+                        print(f"[{tool_name} ERROR] {line.strip()}")
                 
                 # Start output logging thread
                 output_thread = threading.Thread(target=log_output, daemon=True)
                 output_thread.start()
                 
-                logger.debug(f"Started tool service '{module_path}' on port {port}")
-                return process
+                # Monitor process and clean up when it exits
+                process.wait()
                 
+                # Process has exited, clean up
+                if tool_name in cls._tool_processes and cls._tool_processes[tool_name] == process:
+                    del cls._tool_processes[tool_name]
+                    if tool_name in cls._tool_ports:
+                        del cls._tool_ports[tool_name]
+                    if tool_name in cls._tool_last_access:
+                        del cls._tool_last_access[tool_name]
+                    
+                    print(f"Tool service '{tool_name}' has stopped")
+                    
             except Exception as e:
-                logger.error(f"Error starting tool service '{module_path}': {e}")
+                print(f"Error running tool service '{tool_name}': {e}")
                 import traceback
                 traceback.print_exc()
-                return None
         
-        # Start the service in a separate thread
+        # Start the service thread
         thread = threading.Thread(target=run_service, daemon=True)
         thread.start()
         
-        # Give the service time to start
+        # Give the service a moment to start
         time.sleep(2)
-        return True
+        
+        # Check if the process is running
+        if cls.is_tool_running(tool_name):
+            return {
+                "success": True,
+                "port": port,
+                "message": f"Started tool '{tool_name}' on port {port}"
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Failed to start tool '{tool_name}'"
+            }
+    
+    @classmethod
+    def stop_tool_service(cls, tool_name: str) -> dict:
+        """
+        Stop a specific tool service.
+        
+        Returns:
+            dict: Status information including success and any message
+        """
+        if tool_name not in cls._tool_processes:
+            return {"success": False, "message": f"Tool '{tool_name}' is not running"}
+        
+        try:
+            process = cls._tool_processes[tool_name]
+            process.terminate()
+            
+            # Wait a moment for graceful shutdown
+            for _ in range(5):
+                if process.poll() is not None:  # Process has exited
+                    break
+                time.sleep(0.5)
+            
+            # Force kill if still running
+            if process.poll() is None:
+                process.kill()
+            
+            # Clean up
+            del cls._tool_processes[tool_name]
+            if tool_name in cls._tool_ports:
+                del cls._tool_ports[tool_name]
+            if tool_name in cls._tool_last_access:
+                del cls._tool_last_access[tool_name]
+                
+            return {"success": True, "message": f"Stopped tool '{tool_name}'"}
+        except Exception as e:
+            return {"success": False, "message": f"Error stopping tool '{tool_name}': {str(e)}"}
     
     @classmethod
     def stop_all_tools(cls):
         """Stop all running tool services."""
-        for name, process in cls._tool_processes.items():
-            try:
-                process.terminate()
-                print(f"Stopped tool service '{name}'")
-            except:
-                pass
-        cls._tool_processes.clear()
+        tool_names = list(cls._tool_processes.keys())
+        for name in tool_names:
+            cls.stop_tool_service(name)
+    
+    @classmethod
+    def set_inactivity_timeout(cls, minutes: int) -> None:
+        """
+        Set the inactivity timeout for automatic tool shutdown.
+        
+        Args:
+            minutes: Number of minutes after which inactive tools should be shut down
+        """
+        if minutes < 1:
+            raise ValueError("Inactivity timeout must be at least 1 minute")
+            
+        cls._inactivity_timeout_minutes = minutes
+        print(f"Tool inactivity timeout set to {minutes} minutes")
+    
+    @classmethod
+    def _start_inactivity_monitor(cls) -> None:
+        """Start monitoring tool inactivity."""
+        if cls._inactivity_monitor_running:
+            return
+            
+        def monitor_inactivity():
+            cls._inactivity_monitor_running = True
+            print(f"Tool inactivity monitor started (timeout: {cls._inactivity_timeout_minutes} minutes)")
+            
+            while True:
+                try:
+                    current_time = time.time()
+                    timeout_seconds = cls._inactivity_timeout_minutes * 60
+                    
+                    # Check each running tool
+                    for tool_name in list(cls._tool_processes.keys()):
+                        if tool_name not in cls._tool_last_access:
+                            # No access record, create one
+                            cls._tool_last_access[tool_name] = current_time
+                            continue
+                            
+                        last_access = cls._tool_last_access[tool_name]
+                        elapsed_seconds = current_time - last_access
+                        
+                        # If tool has been inactive for longer than the timeout, stop it
+                        if elapsed_seconds > timeout_seconds:
+                            print(f"Stopping inactive tool '{tool_name}' (inactive for {elapsed_seconds/60:.1f} minutes)")
+                            cls.stop_tool_service(tool_name)
+                            
+                except Exception as e:
+                    print(f"Error in inactivity monitor: {e}")
+                    
+                # Check every minute
+                time.sleep(60)
+        
+        # Start monitoring in a separate thread
+        thread = threading.Thread(target=monitor_inactivity, daemon=True)
+        thread.start()
+    
+    @classmethod
+    def _find_repo_directory(cls, package_name: str) -> Optional[str]:
+        """Find the repository directory for an installed package."""
+        try:
+            spec = importlib.util.find_spec(package_name)
+            if not spec or not spec.origin:
+                return None
+                
+            # Get module directory
+            module_dir = os.path.dirname(spec.origin)
+            
+            # Navigate to find pyproject.toml
+            current_dir = module_dir
+            for _ in range(5):  # Check up to 5 levels up
+                if os.path.exists(os.path.join(current_dir, "pyproject.toml")):
+                    return current_dir
+                parent_dir = os.path.dirname(current_dir)
+                if parent_dir == current_dir:  # Reached root
+                    break
+                current_dir = parent_dir
+                
+            # If not found, try src pattern
+            if "site-packages" in module_dir:
+                src_dir = os.path.join(os.path.dirname(module_dir), "src", package_name.replace("_", "-"))
+                if os.path.exists(os.path.join(src_dir, "pyproject.toml")):
+                    return src_dir
+            
+            return None
+        except Exception as e:
+            print(f"Error finding repo directory: {e}")
+            return None
