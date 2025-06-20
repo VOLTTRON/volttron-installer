@@ -462,7 +462,7 @@ async def test_host_key_verification_with_ssh_options():
 async def test_host_location_given_host_id():
     test_pass_existence = False
     #gets a known test case 
-    with open(Path.home() /'.volttron_installer_data/inventory.yml', 'r') as file:
+    with open(Path.home() /os.getenv("VI_DATA_DIR")/'inventory.yml', 'r') as file:
         data = yaml.safe_load(file)
         
     host_id = 'test_host' #set existing host id

@@ -1,2 +1,35 @@
 all:
-  hosts: {}
+  hosts:
+    test_host:
+      ansible_connection: ssh
+      ansible_host: 127.0.0.1
+      ansible_port: 22
+      ansible_user: user
+      host_configs_dir: null
+      http_proxy: null
+      https_proxy: null
+      id: test_host
+      volttron_home: ~/.volttron
+      volttron_venv: null
+    test_host1:
+      ansible_connection: ssh
+      ansible_host: 127.0.0.1
+      ansible_port: 22
+      ansible_user: user1
+      host_configs_dir: null
+      http_proxy: null
+      https_proxy: null
+      id: test_host1
+      volttron_home: ~/.volttron
+      volttron_venv: null
+    test_host2:
+      ansible_connection: ssh
+      ansible_host: 127.0.0.2
+      ansible_port: 22
+      ansible_user: user2
+      host_configs_dir: null
+      http_proxy: null
+      https_proxy: null
+      id: test_host2
+      volttron_home: ~/.volttron
+      volttron_venv: null

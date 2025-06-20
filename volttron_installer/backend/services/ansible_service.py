@@ -272,7 +272,7 @@ class AnsibleService:
         Returns:
             HostEntry object
         """
-        with open(Path.home()/".volttron_user_data/inventory.yml", "r") as file:
+        with open(Path.home()/os.getenv("VI_DATA_DIR"), "r") as file:
             data = yaml.safe_load(file)
         # Implement the logic to retrieve the HostEntry by its ID
         # This is a placeholder implementation
