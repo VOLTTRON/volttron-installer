@@ -33,7 +33,7 @@ platform_router = APIRouter(prefix="/platforms", tags=["platforms"])
 ansible_router = APIRouter(prefix="/ansible", tags=["ansible"])
 task_router = APIRouter(prefix="/task", tags=["tasks"])
 catalog_router = APIRouter(prefix="/catalog", tags=["catalog"])
-tool_management_router = APIRouter(prefix="/tool_manage", tags=["tools"])
+tool_management_router = APIRouter(prefix="/manage_tools", tags=["manage tools"])
 
 @ansible_router.get("/hosts", response_model=list[HostEntry])
 async def get_hosts() -> list[HostEntry]:
@@ -459,7 +459,7 @@ async def start_tool(request: ToolRequest):
     
     return result
 
-@tool_management_router.post("/stop_tool/{tool_name}")
+@tool_management_router.post("/stop_tool/{tool_name}", response_model=dict[str, str])
 async def stop_tool(tool_name: str):
     """Stop a specific tool service."""
     result = ToolManager.stop_tool_service(tool_name=tool_name)
