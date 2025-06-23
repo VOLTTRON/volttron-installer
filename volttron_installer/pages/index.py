@@ -15,8 +15,6 @@ from ..layouts.app_layout_sidebar import app_layout_sidebar
 from ..state import IndexPageState
 
 
-from ..backend.models import ToolRequest
-
 @rx.page(route="/")
 def index() -> rx.Component:
     return app_layout_sidebar(
@@ -26,7 +24,6 @@ def index() -> rx.Component:
 def platform_overview_tab() -> rx.Component:
     return rx.fragment(
         rx.vstack(
-            rx.button(),
             header.header.header(
                 rx.text("Overview", size="7"),
                 add_icon_button.add_icon_button(
