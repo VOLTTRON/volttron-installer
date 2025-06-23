@@ -1,4 +1,3 @@
-# tools_manager.py
 import importlib.util
 import os
 import subprocess
@@ -8,6 +7,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
+from loguru import logger
 
 class ToolManager:
     """Manages external tool applications with on-demand initialization and inactivity monitoring."""
@@ -38,7 +38,7 @@ class ToolManager:
         """Record that a tool was accessed."""
         if tool_name in cls._tool_processes:
             cls._tool_last_access[tool_name] = time.time()
-            print(f"Tool access recorded: {tool_name} at {datetime.now().strftime('%H:%M:%S')}")
+            logger.debug(f"Tool access recorded: {tool_name} at {datetime.now().strftime('%H:%M:%S')}")
     
     @classmethod
     def start_tool_service(cls, 
@@ -104,7 +104,7 @@ class ToolManager:
                     try:
                         subprocess.run(["poetry", "--version"], check=True, stdout=subprocess.PIPE)
                     except (subprocess.SubprocessError, FileNotFoundError):
-                        print(f"Poetry not found. Please install Poetry to run {tool_name}.")
+                        logger.debug(f"Poetry not found. Please install Poetry to run {tool_name}.")
                         return
                     
                     # Use Poetry to run the tool
@@ -122,7 +122,7 @@ class ToolManager:
                     "--port", str(port)
                 ])
                 
-                print(f"Starting {tool_name} with command: {' '.join(command)}")
+                logger.debug(f"Starting {tool_name} with command: {' '.join(command)}")
                 
                 # Start the tool in a subprocess
                 process = subprocess.Popen(
@@ -144,9 +144,9 @@ class ToolManager:
                 # Print output for debugging
                 def log_output():
                     for line in process.stdout:
-                        print(f"[{tool_name}] {line.strip()}")
+                        logger.debug(f"[{tool_name}] {line.strip()}")
                     for line in process.stderr:
-                        print(f"[{tool_name} ERROR] {line.strip()}")
+                        logger.debug(f"[{tool_name} ERROR] {line.strip()}")
                 
                 # Start output logging thread
                 output_thread = threading.Thread(target=log_output, daemon=True)
@@ -163,10 +163,10 @@ class ToolManager:
                     if tool_name in cls._tool_last_access:
                         del cls._tool_last_access[tool_name]
                     
-                    print(f"Tool service '{tool_name}' has stopped")
+                    logger.debug(f"Tool service '{tool_name}' has stopped")
                     
             except Exception as e:
-                print(f"Error running tool service '{tool_name}': {e}")
+                logger.debug(f"Error running tool service '{tool_name}': {e}")
                 import traceback
                 traceback.print_exc()
         
@@ -179,6 +179,8 @@ class ToolManager:
         
         # Check if the process is running
         if cls.is_tool_running(tool_name):
+            
+            logger.debug(cls._tool_processes)
             return {
                 "success": True,
                 "port": port,
@@ -189,7 +191,7 @@ class ToolManager:
                 "success": False,
                 "message": f"Failed to start tool '{tool_name}'"
             }
-    
+
     @classmethod
     def stop_tool_service(cls, tool_name: str) -> dict:
         """
@@ -198,6 +200,8 @@ class ToolManager:
         Returns:
             dict: Status information including success and any message
         """
+        from loguru import logger
+        
         if tool_name not in cls._tool_processes:
             return {"success": False, "message": f"Tool '{tool_name}' is not running"}
         
@@ -215,15 +219,25 @@ class ToolManager:
             if process.poll() is None:
                 process.kill()
             
+            # Log current state before cleanup
+            logger.debug(f"Before cleanup: _tool_processes: {list(cls._tool_processes.keys())}")
+            
             # Clean up
-            del cls._tool_processes[tool_name]
-            if tool_name in cls._tool_ports:
-                del cls._tool_ports[tool_name]
-            if tool_name in cls._tool_last_access:
-                del cls._tool_last_access[tool_name]
+            # Usually this check wont go through because when we kill the process, the function run_service() detects,
+            # that we ended the process and will clean up there.
+            if tool_name in cls._tool_processes:
+                # If not, we'll do it here
+                logger.debug(f"Cleaning up tool in stop_tool_service: {tool_name}")
+                del cls._tool_processes[tool_name]
+                if tool_name in cls._tool_ports:
+                    del cls._tool_ports[tool_name]
+                if tool_name in cls._tool_last_access:
+                    del cls._tool_last_access[tool_name]
                 
+            logger.debug(f"After cleanup: _tool_processes: {list(cls._tool_processes.keys())}")
             return {"success": True, "message": f"Stopped tool '{tool_name}'"}
         except Exception as e:
+            logger.exception(f"Exception when stopping tool '{tool_name}'")
             return {"success": False, "message": f"Error stopping tool '{tool_name}': {str(e)}"}
     
     @classmethod
@@ -245,7 +259,7 @@ class ToolManager:
             raise ValueError("Inactivity timeout must be at least 1 minute")
             
         cls._inactivity_timeout_minutes = minutes
-        print(f"Tool inactivity timeout set to {minutes} minutes")
+        logger.debug(f"Tool inactivity timeout set to {minutes} minutes")
     
     @classmethod
     def _start_inactivity_monitor(cls) -> None:
@@ -255,7 +269,7 @@ class ToolManager:
             
         def monitor_inactivity():
             cls._inactivity_monitor_running = True
-            print(f"Tool inactivity monitor started (timeout: {cls._inactivity_timeout_minutes} minutes)")
+            logger.debug(f"Tool inactivity monitor started (timeout: {cls._inactivity_timeout_minutes} minutes)")
             
             while True:
                 try:
@@ -274,11 +288,11 @@ class ToolManager:
                         
                         # If tool has been inactive for longer than the timeout, stop it
                         if elapsed_seconds > timeout_seconds:
-                            print(f"Stopping inactive tool '{tool_name}' (inactive for {elapsed_seconds/60:.1f} minutes)")
+                            logger.debug(f"Stopping inactive tool '{tool_name}' (inactive for {elapsed_seconds/60:.1f} minutes)")
                             cls.stop_tool_service(tool_name)
                             
                 except Exception as e:
-                    print(f"Error in inactivity monitor: {e}")
+                    logger.debug(f"Error in inactivity monitor: {e}")
                     
                 # Check every minute
                 time.sleep(60)
@@ -316,5 +330,5 @@ class ToolManager:
             
             return None
         except Exception as e:
-            print(f"Error finding repo directory: {e}")
+            logger.debug(f"Error finding repo directory: {e}")
             return None

@@ -459,14 +459,18 @@ async def start_tool(request: ToolRequest):
     
     return result
 
-@tool_management_router.post("/stop_tool/{tool_name}", response_model=dict[str, str])
+@tool_management_router.post("/stop_tool/{tool_name}", response_model=dict[str, str | bool])
 async def stop_tool(tool_name: str):
+    from loguru import logger
     """Stop a specific tool service."""
     result = ToolManager.stop_tool_service(tool_name=tool_name)
-    
-    if not result["success"]:
+    logger.debug(result)
+    if not result["success"] and "not running" not in result["message"]:
         raise HTTPException(status_code=404, detail=result["message"])
     
+    if "not running" in result["message"]:
+        return {"success": True, "message": f"Tool '{tool_name}' is already stopped"}
+
     return result
 
 @tool_management_router.get("/tool_status/{tool_name}", response_model=ToolStatusResponse)
