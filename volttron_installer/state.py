@@ -54,16 +54,14 @@ class ToolState(rx.State):
     
     # Track running tools
     running_tools: dict[str, bool] = {}
-    tool_ports: dict[str, int] = {}
     loading_tools: dict[str, bool] = {}
     error_message: Optional[str] = None
     
     # Tool configuration
     tool_configs: dict[str, ToolRequest] = {
-        "bacnet-scan-tool": ToolRequest(
-            name= "BACnet Scan Tool",
-            module_path= "bacnet_scan_tool.main:app",
-            use_poetry= False,
+        "bacnet_scan_tool": ToolRequest(
+            tool_name="bacnet_scan_tool",
+            module_path="bacnet_scan_tool.main:app",
         ),
         # Add other tools as we go
     }
@@ -71,12 +69,14 @@ class ToolState(rx.State):
     @rx.event
     async def start_tool(self, tool_id: str) -> None:
         """Start a specific tool service."""
+        logger.debug(f"starting tool : {tool_id}")
         if tool_id not in self.tool_configs:
-            self.error_message = f"Unknown tool: {tool_id}"
+            logger.debug(f"Unknown tool: {tool_id}")
             return
         
         # Check if already running
         if self.running_tools.get(tool_id, False):
+            logger.debug("tool is already running")
             return
         
         # Set loading state
@@ -86,16 +86,14 @@ class ToolState(rx.State):
             # Get tool config
             config = self.tool_configs[tool_id]
             
+            logger.debug("calling api...")
             # Call API to start the tool
-            response = await start_tool(config)
-            
+            await start_tool(config)
             self.running_tools[tool_id] = True
-            self.tool_ports[tool_id] = response.port
-            self.error_message = None
-            self.error_message = result.get("detail", "Failed to start tool")
-                
+            logger.debug("tool started")
+            
         except Exception as e:
-            self.error_message = f"Error starting tool: {str(e)}"
+            logger.debug(f"Error starting tool: {str(e)}")
         finally:
             # Clear loading state
             self.loading_tools[tool_id] = False
@@ -103,42 +101,27 @@ class ToolState(rx.State):
     @rx.event
     async def stop_tool(self, tool_id: str) -> None:
         """Stop a specific tool service."""
+        logger.debug(f"stopping tool : {tool_id}")
         if tool_id not in self.tool_configs:
-            self.error_message = f"Unknown tool: {tool_id}"
+            logger.debug(f"Unknown tool: {tool_id}")
             return
         
         # Check if it's running
         if not self.running_tools.get(tool_id, False):
+            logger.debug("tool is already not running")
             return
         
         # Set loading state
         self.loading_tools[tool_id] = True
         
-        try:
-            # Get tool config
-            config = self.tool_configs[tool_id]
-            
+        try:           
             # Call API to stop the tool
-            response = await self.fetch(
-                "/api/tools/stop_tool",
-                method="POST",
-                data={
-                    "tool_name": tool_id,
-                    "module_path": config["module_path"]
-                }
-            )
-            
-            if response.status == 200:
-                self.running_tools[tool_id] = False
-                if tool_id in self.tool_ports:
-                    del self.tool_ports[tool_id]
-                self.error_message = None
-            else:
-                result = await response.json()
-                self.error_message = result.get("detail", "Failed to stop tool")
-                
+            await stop_tool(tool_id)
+            self.running_tools[tool_id] = False
+            logger.debug("tool stopped")
+
         except Exception as e:
-            self.error_message = f"Error stopping tool: {str(e)}"
+            logger.debug(f"Error stopping tool: {str(e)}")
         finally:
             # Clear loading state
             self.loading_tools[tool_id] = False
@@ -151,18 +134,10 @@ class ToolState(rx.State):
         
         try:
             # Call API to get tool status
-            response = await self.fetch(f"/api/tools/tool_status/{tool_id}")
-            result = await response.json()
-            
-            if response.status == 200:
-                self.running_tools[tool_id] = result.get("running", False)
-                if result.get("running"):
-                    self.tool_ports[tool_id] = result.get("port")
-                elif tool_id in self.tool_ports:
-                    del self.tool_ports[tool_id]
-                
+            tool_status: ToolStatusResponse = await tool_status(tool_id)
+            self.running_tools[tool_id] = tool_status.tool_running
         except Exception as e:
-            print(f"Error checking tool status: {str(e)}")
+            logger.debug(f"Error checking tool status: {str(e)}")
 
 
 
