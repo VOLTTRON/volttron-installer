@@ -17,4 +17,4 @@ def init(app: FastAPI | rx.App, inactivity_timeout_minutes: int = 30):
     app.include_router(api.catalog_router, prefix="/api")
     
     app.include_router(api.tool_management_router, prefix="/api")
-    app.include_router(tool_router, prefix="/tool_proxy")
+    app.include_router(tool_router, prefix="/api")

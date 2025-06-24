@@ -15,7 +15,7 @@ HOSTS_PREFIX = f"{ANSIBLE_PREFIX}/hosts"
 CATALOG_PREFIX = f"{API_PREFIX}/catalog"
 TASK_PREFIX = f"{API_PREFIX}/task"
 MANAGE_TOOLS_PREFIX = f"{API_PREFIX}/manage_tools"
-TOOL_PROXY_PREFIX = "/tool_proxy"
+TOOL_PROXY_PREFIX = "{API_PREFIX}/tool_proxy"
 
 DEFAULT_TIMEOUT = 5.0  # 5 seconds timeout
 

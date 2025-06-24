@@ -5,7 +5,7 @@ from starlette.responses import StreamingResponse
 from .tool_manager import ToolManager
 
 # Create a router for dynamic proxying
-tool_router = APIRouter(tags=["tool proxy"])
+tool_router = APIRouter(prefix="/tool_proxy", tags=["tool proxy"])
 
 @tool_router.api_route("/{tool_name}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 async def proxy_to_tool(request: Request, tool_name: str, path: str):
