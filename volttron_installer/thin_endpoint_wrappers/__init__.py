@@ -1,5 +1,5 @@
 import httpx, asyncio
-from typing import Any, Optional, TypeVar, Type, Union, List, Dict
+from typing import Any, Optional, TypeVar, Type, Union, List, Dict, Literal
 
 from pydantic import BaseModel
 
@@ -15,7 +15,7 @@ HOSTS_PREFIX = f"{ANSIBLE_PREFIX}/hosts"
 CATALOG_PREFIX = f"{API_PREFIX}/catalog"
 TASK_PREFIX = f"{API_PREFIX}/task"
 MANAGE_TOOLS_PREFIX = f"{API_PREFIX}/manage_tools"
-TOOL_PROXY_PREFIX = "{API_PREFIX}/tool_proxy"
+TOOL_PROXY_PREFIX = f"{API_PREFIX}/tool_proxy"
 
 DEFAULT_TIMEOUT = 5.0  # 5 seconds timeout
 
@@ -113,6 +113,29 @@ async def delete_request(url: str, params: Optional[dict[str, Any]] = None,
         except Exception as e:
             raise ApiError(500, str(e))
 
+async def proxy_request(
+        url: str, 
+        request_type: Literal["PUT", "POST", "GET", "DELETE", "OPTIONS", "PATCH"], 
+        timeout: float = DEFAULT_TIMEOUT, 
+        **kwargs
+    ) -> httpx.Response:
+    """Send an async request to the specified URL."""
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        try:
+            response = await client.request(
+                method=request_type,
+                url=url, 
+                **kwargs
+            )
+            response.raise_for_status()
+            return response
+        except httpx.TimeoutException:
+            raise ApiError(408, f"Request timed out connecting to {url}")
+        except httpx.HTTPStatusError as e:
+            raise ApiError(e.response.status_code, e.response.text)
+        except Exception as e:
+            raise ApiError(500, str(e))
+
 # Endpoints.
 # GET requests
 @with_model(HostEntry)
@@ -157,12 +180,18 @@ async def tool_status(tool_name: str) -> ToolStatusResponse:
     """Get a tool's status."""
     return await get_request(f"{API_BASE_URL}{MANAGE_TOOLS_PREFIX}/tool_status/{tool_name}")
 
+async def get_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
+    return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/get/{tool_name}/{path}", "GET", **kwargs)
+
 # PUT requests
 async def update_platform(platform_id: str, platform: CreatePlatformRequest):
     await put_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}", data=platform.model_dump())
 
 async def update_agent(platform_id: str, agent_id: str, agent: CreateAgentRequest):
     await put_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents/{agent_id}", data=agent.model_dump())
+
+async def put_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
+    return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/put/{tool_name}/{path}", "PUT", **kwargs)
 
 # POST requests
 async def create_platform(platform: CreatePlatformRequest):
@@ -191,8 +220,8 @@ async def stop_tool(tool_name: str):
     """Stop a tool by its name."""
     await post_request(f"{API_BASE_URL}{MANAGE_TOOLS_PREFIX}/stop_tool/{tool_name}")
 
-async def post_tool_proxy(tool_name: str, path: str, data: BaseModel = None):
-    await post_request(f"{API_BASE_URL}/{TOOL_PROXY_PREFIX}/{tool_name}/{path}", data=data.model_dump() if data != None else None)
+async def post_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
+    return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/post/{tool_name}/{path}", "POST", **kwargs)
 
 # DELETE requests
 async def delete_platform(platform_id: str):
@@ -204,5 +233,5 @@ async def remove_from_inventory(host_id: str):
 async def delete_agent(platform_id: str, agent_id: str):
     await delete_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents/{agent_id}")
 
-async def delete_tool_proxy(tool_name: str, path: str, data: BaseModel = None):
-    await delete_request(f"{API_BASE_URL}/{TOOL_PROXY_PREFIX}/{tool_name}/{path}", data=data.model_dump() if data != None else None)
+async def delete_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
+    await delete_request(f"{API_BASE_URL}/{TOOL_PROXY_PREFIX}/post/{tool_name}/{path}", "DELETE", **kwargs)

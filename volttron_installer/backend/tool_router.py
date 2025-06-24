@@ -7,7 +7,36 @@ from .tool_manager import ToolManager
 # Create a router for dynamic proxying
 tool_router = APIRouter(prefix="/tool_proxy", tags=["tool proxy"])
 
-@tool_router.api_route("/{tool_name}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+@tool_router.get("/get/{tool_name}/{path:path}")
+async def tool_proxy_get(request: Request, tool_name: str, path: str):
+    response = await proxy_to_tool(request, tool_name, path)
+    return response
+
+@tool_router.post("/post/{tool_name}/{path:path}")
+async def tool_proxy_post(request: Request, tool_name: str, path: str):
+    response = await proxy_to_tool(request, tool_name, path)
+    return response
+
+@tool_router.put("/put/{tool_name}/{path:path}")
+async def tool_proxy_put(request: Request, tool_name: str, path: str):
+    response = await proxy_to_tool(request, tool_name, path)
+    return response
+
+@tool_router.delete("/delete/{tool_name}/{path:path}")
+async def tool_proxy_delete(request: Request, tool_name: str, path: str):
+    response = await proxy_to_tool(request, tool_name, path)
+    return response
+
+@tool_router.patch("/patch/{tool_name}/{path:path}")
+async def tool_proxy_patch(request: Request, tool_name: str, path: str):
+    response = await proxy_to_tool(request, tool_name, path)
+    return response
+
+@tool_router.options("/options/{tool_name}/{path:path}")
+async def tool_proxy_options(request: Request, tool_name: str, path: str):
+    response = await proxy_to_tool(request, tool_name, path)
+    return response
+
 async def proxy_to_tool(request: Request, tool_name: str, path: str):
     """
     Dynamically proxy requests to the appropriate tool.
@@ -32,7 +61,7 @@ async def proxy_to_tool(request: Request, tool_name: str, path: str):
     # Proxy the request to the tool
     target_url = f"http://localhost:{port}/{path}"
     
-    # Get request details
+    # Get request details - preserve everything
     headers = {k: v for k, v in request.headers.items() 
               if k.lower() not in ("host", "content-length")}
     content = await request.body()
@@ -43,6 +72,7 @@ async def proxy_to_tool(request: Request, tool_name: str, path: str):
         await client.aclose()
         
     try:
+        # Forward the request with all original properties
         response = await client.request(
             method=request.method,
             url=target_url,
@@ -52,6 +82,7 @@ async def proxy_to_tool(request: Request, tool_name: str, path: str):
             cookies=request.cookies,
         )
         
+        # Return the response exactly as received
         return StreamingResponse(
             response.aiter_bytes(),
             status_code=response.status_code,
