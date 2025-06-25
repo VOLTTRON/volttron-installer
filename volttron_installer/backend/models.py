@@ -1,4 +1,4 @@
-from typing import Literal, List, Optional
+from typing import Any, Literal, List, Optional
 from typing_extensions import Annotated
 import logging
 
@@ -772,3 +772,35 @@ class DeployPlatformRequest(BaseModel):
 class PlatformDeplymentStatusRequest(BaseModel):
     """Request model for getting the state of a platform deployment"""
     platform_id: str
+
+class BACnetDevice(BaseModel):
+    pduSource: str
+    deviceIdentifier: str
+    maxAPDULengthAccepted: int
+    segmentationSupported: str
+    vendorID: int
+    object_name: str
+    scanned_ip_target: str
+    device_instance: int
+
+class BACnetScanResults(BaseModel):
+    status: str
+    devices: list[BACnetDevice]
+
+class BACnetReadPropertyRequest(BaseModel):
+    device_address: str
+    object_identifier: str
+    property_identifier: str
+    property_array_index: int | None = None
+
+class BACnetWritePropertyRequest(BaseModel):
+    device_address: str
+    object_identifier: str
+    property_identifier: str
+    value: Any
+    priority: int
+    property_array_index: int | None = None
+
+class BACnetReadDeviceAllRequest(BaseModel):
+    device_address: str
+    device_object_identifier: str
