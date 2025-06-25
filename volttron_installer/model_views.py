@@ -80,7 +80,7 @@ class ConfigStoreEntryModelView(rx.Base):
         return {
             "path": self.path,
             "data_type": self.data_type,
-            "value": self.value,
+            "value": str(self.value),
             "component_id": self.component_id,
             "csv_variants": self.csv_variants 
         }
@@ -98,6 +98,8 @@ class AgentModelView(rx.Base):
 
     in_file: bool = False
 
+    # Fields that handle UI actions and functionality
+    selected_agent_config_tab: str = "1"
     selected_config_component_id: str = ""
     routing_id: str = ""
 
@@ -106,6 +108,7 @@ class AgentModelView(rx.Base):
             "identity": self.identity,
             "source": self.source,
             "config": self.config,
+            "config_store_allowed": self.config_store_allowed,
             "config_store": {
                 config["path"]: {
                     "path": config["path"],

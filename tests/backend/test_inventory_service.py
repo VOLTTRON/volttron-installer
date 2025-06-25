@@ -5,12 +5,15 @@ from pathlib import Path
 from unittest.mock import MagicMock
 from volttron_installer.backend.services.inventory_service import InventoryService
 from volttron_installer.backend.models import HostEntry
+from volttron_installer.settings import get_settings
+
 
 @pytest.fixture
 def temp_inventory_file():
     with tempfile.NamedTemporaryFile(delete=False) as temp_file:
         yield Path(temp_file.name)
     temp_file.unlink()
+    
 
 @pytest.fixture
 def inventory_service(temp_inventory_file):
@@ -42,6 +45,12 @@ async def test_remove_host(inventory_service, host_entry):
     with inventory_service._lock:
         assert "host1" not in inventory_service._internal_state['all']['hosts']
 
+@pytest.mark.asyncio
+async def test_existence_of_yml(file_path, inventory_service):
+    inventory_service.__init__(file_path)
+    assert inventory_service._inventory_path.exists()
+    assert inventory_service._inventory_path.is_file().bit_count() == {'all': {'hosts': {}}}
+    
 @pytest.mark.asyncio
 async def test_remove_host_persists_to_file(inventory_service, host_entry):
     await inventory_service.create_host(host_entry)

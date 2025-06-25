@@ -1,38 +1,33 @@
 import reflex as rx
-from pathlib import Path
 from .settings import get_settings
-from . import backend as bk
-import reflex as rx
 from .model_views import AgentModelView, ConfigStoreEntryModelView
 from .utils.create_component_uid import generate_unique_uid
-# from platform_page import State as PlatformPageState
-# from platform_page import Instance
 from .models import Instance
 from .utils.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
 from .utils.validate_content import check_json, check_csv, check_path, check_yaml, check_regular_expression
 from .utils.create_csv_string import create_csv_string, create_and_validate_csv_string
-import io, re, json, csv, yaml
 from .navigation.state import NavigationState
-from .backend.models import AgentType, HostEntry, PlatformConfig, PlatformDefinition, ConfigStoreEntry, AgentDefinition
-from .backend.endpoints import get_all_platforms, create_platform, \
-    CreatePlatformRequest, CreateOrUpdateHostEntryRequest, add_host, \
-    get_agent_catalog, get_hosts, update_platform, get_inventory_service, \
-    get_platform_service, get_platform_status, deploy_platform, \
-    get_ansible_service
+from .backend.models import AgentType, HostEntry, PlatformConfig, PlatformDefinition, ConfigStoreEntry, AgentDefinition, CreatePlatformRequest, CreateOrUpdateHostEntryRequest
 from .utils.create_component_uid import generate_unique_uid
 from .utils.conversion_methods import csv_string_to_usable_dict
 from .utils.validate_content import check_json
 from .utils.prettify import prettify_json
+from .utils import delete_file
 from loguru import logger
 from .model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
+from .thin_endpoint_wrappers import ( 
+    get_agent_catalog, 
+    get_hosts, 
+    get_all_platforms, 
+    ping_resolvable_host, 
+    add_host, 
+    update_platform, 
+    create_platform, 
+    deploy_platform
+)
 from .thin_endpoint_wrappers import *
-# from ...rxconfig import config
-import string, random, json, csv, yaml, re
+import string, random, json, csv, yaml, re, io
 from copy import deepcopy
-
-
-
-
 
 class AppState(rx.State):
     """The app state."""
@@ -63,11 +58,6 @@ class SettingsState(rx.State):
     _data_dir: str = settings.data_dir
 
 async def __agents_off_catalog__() -> list[AgentModelView]:
-    # response = await get_request(f"{API_BASE_URL}{CATALOG_PREFIX}/agents")
-    # data = response.json()
-    # logger.debug(f"this is the data: {data}")
-    # # Construct the catalog from the data.
-    # catalog: Dict[str, AgentType] = {item["identity"]: AgentType(**item) for item in data}
     catalog: dict[str, AgentType] = await get_agent_catalog()
     agent_list: list[AgentModelView] = []
 
@@ -110,12 +100,7 @@ async def __agents_off_catalog__() -> list[AgentModelView]:
     return agent_list
 
 async def __instances_from_api__() -> dict[str, Instance]:
-    # logger.debug(f"backend url: {rx.config}")
-    # platforms: list[PlatformDefinition] = await get_all_platforms()
-    # Trying to test out the wrapper
-    response = await get_request("http://localhost:8000/api/platforms/")
-    data = response.json()
-    platforms: list[PlatformDefinition] = [PlatformDefinition(**item) for item in data]
+    platforms: list[PlatformDefinition] = await get_all_platforms()
     hosts: list[HostEntry] = await get_hosts()
     host_by_id: dict[str, HostEntry] = {}
     for h in hosts:
@@ -142,9 +127,6 @@ async def __instances_from_api__() -> dict[str, Instance]:
             volttron_home=working_host_entry.volttron_home,
         )
 
-        # platform_status = await get_platform_status(
-        #     get_request("http://localhost:8000/api/platforms/status", p.config.instance_name)
-        #     )
         instance = {
             p.config.instance_name: Instance(
                 host=host,
@@ -199,7 +181,6 @@ async def __instances_from_api__() -> dict[str, Instance]:
                 if config.data_type == "CSV":
                     usable_csv = csv_string_to_usable_dict(config.value)
                     config.csv_variants["Custom"] = usable_csv
-                    # logger.debug(f"Loaded usable CSV for config {config.path} inside agent {agent.identity}: {usable_csv}")
             # After going through the agent's config store and assigning the safe entries,
             # we can now assign the agent's safe_agent
             agent.safe_agent = agent.to_dict()
@@ -528,6 +509,22 @@ class PlatformPageState(rx.State):
         yield NavigationState.route_to_platform(new_uid)
 
     @rx.event
+    def copy_platform(self, instance_name: str):
+        uid = self.generate_unique_uid()
+        copy_instance = deepcopy(self.platforms[instance_name])
+        copy_instance.platform.config.instance_name = uid
+        copy_instance.refresh_for_copy()
+        self.platforms[uid] = copy_instance
+        yield NavigationState.route_to_platform(self.platforms[uid].platform.config.instance_name)
+        yield rx.toast.info(f"Platform: {instance_name} has been copied")
+        # This is a weird way of doing it but we are doing this because 
+        # the UI routes to the instance name of a platform. and when we change
+        # the instance name after we route to the uid it solves some headaches,
+        # but probably should fix the headaches that it would cause.
+        copy_instance.platform.config.instance_name = instance_name
+        # yield self.update_platform_config_detail("instance_name", instance_name)
+        
+    @rx.event
     def toggle_advanced(self):
         working_platform: Instance = self.platforms[self.current_uid]
         working_platform.advanced_expanded = not working_platform.advanced_expanded
@@ -566,15 +563,7 @@ class PlatformPageState(rx.State):
         if working_platform.uncaught != False and working_platform.valid:
             working_platform.safe_host_entry = working_platform.host.to_dict()
             working_platform.uncaught = False
-
-            depends = await get_ansible_service()
-            deploy_platform(
-                PlatformConfig(
-                    instance_name=working_platform.platform.config.instance_name,
-                    vip_address=working_platform.platform.config.vip_address
-                ),
-                ansible=depends
-            )
+            await deploy_platform(working_platform.platform.config.instance_name)
             yield rx.toast.success("Deployed Successfully!")
      
     @rx.event
@@ -587,7 +576,6 @@ class PlatformPageState(rx.State):
 
         working_platform.safe_host_entry = working_platform.host.to_dict()
         working_platform.uncaught = False
-        # logger.debug(f"getting the host id: {working_platform.safe_host_entry['id']}")
         
         # Create base platform
         base_platform_request = CreatePlatformRequest(
@@ -601,6 +589,7 @@ class PlatformPageState(rx.State):
                     identity=identity,
                     source=agent["source"],
                     config=agent["config"],
+                    config_store_allowed=agent["config_store_allowed"],
                     config_store={
                         path: ConfigStoreEntry(
                             path=path,
@@ -613,9 +602,6 @@ class PlatformPageState(rx.State):
         )
 
         logger.debug(f"this is the uid copy: {uid_copy}")
-        # # Logging
-        # logger.debug(f"Final base platform_request: {base_platform_request}")
-        # logger.debug(f"this is my base platform_request: {base_platform_request}")
         if working_platform.platform.config.instance_name in [p.config.instance_name for p in all_platforms]:
             logger.debug("yes we have committed this already")
             await update_platform(
@@ -629,16 +615,9 @@ class PlatformPageState(rx.State):
         host_request["ansible_port"] = int(host_request["ansible_port"])
         host_request["name"] =  working_platform.platform.config.instance_name
         request = CreateOrUpdateHostEntryRequest(**host_request)
-        # logger.debug(f"this is the request: {request}")
-        logger.debug(f"this is the uid copy: {uid_copy}")
+
         await add_host(request)
-        inv_serv = await get_inventory_service()
-        plat_serv = await get_platform_service()
-        await create_platform(
-            platform=base_platform_request,
-            inventory_service=inv_serv,
-            platform_service=plat_serv
-            )
+        await create_platform(base_platform_request)
         
         # Lets say changes saved successfully and redirect to the new url while deleting our old one
         logger.debug(f"this is the uid copy: {uid_copy}")
@@ -686,44 +665,17 @@ class PlatformPageState(rx.State):
         host_id = working_platform.host.id
         if host_id =="":
             return False
-
-        try:
-            url = f"http://localhost:8000/api/task/ping/{host_id}"
-            
-            response = await get_request(url, {"host_id": host_id})
-            data = response.json()
-            
-            logger.debug(f"Host reachability response for {host_id}: {data}")
-            
-            # Check if 'reachable' key exists, in case of api errors
-            if "reachable" not in data:
-                logger.error(f"Missing 'reachable' key in API response. Got keys: {list(data.keys())}")
-                logger.error(f"Full response: {data}")
-                
-                # Just to let us know if we got something unexpected
-                if "status" in data:
-                    logger.info(f"Found 'status' key instead: {data['status']}")
-                    # Maybe the API returns {"status": true/false} instead?
-                    return data["status"]
-                    
-                return False
-                
-            return data["reachable"]
-        except Exception as e:
-            logger.error(f"Error checking host reachability: {str(e)}")
-            return False
+        response = await ping_resolvable_host(host_id)
+        return response.reachable
         
     def check_instance_uncaught(self, working_platform: Instance) -> bool:
         uncaught: bool = False
         # check if host details are changed
-        # logger.debug(f"I am checking host now..")
         if working_platform.host.to_dict() != working_platform.safe_host_entry:
-            # logger.debug(f"Host is uncaught")
             uncaught = True
 
         # check if platform details are changed but skip the agents field as we will handle that separately
         if {k: v for k, v in working_platform.platform.to_dict().items() if k != 'agents'} != {k: v for k, v in working_platform.platform.safe_platform.items() if k != 'agents'}:
-            # logger.debug(f"Platform is uncaught")
             uncaught = True
 
         # check if we added some new uncaught agents
@@ -734,10 +686,6 @@ class PlatformPageState(rx.State):
                 # we can break out of this because we just needed to find at least one brand new uncaught agent
                 # to render the platform as uncaught
                 break
-
-        # if working_platform.platform.to_dict() != working_platform.platform.safe_platform:
-        #     # logger.debug(f"Platform is uncaught")
-        #     uncaught = True
         
         return uncaught
 
@@ -823,7 +771,6 @@ class PlatformPageState(rx.State):
         
         new_name = working_platform.platform.config.instance_name
         existing_names=[p.platform.safe_platform["config"]["instance_name"] for p in self.in_file_platforms if p.new_instance == False and self.current_uid != p.platform.safe_platform["config"]["instance_name"]]
-        # logger.debug(f"Checking if '{new_name}' exists in: {existing_names}")
 
         # Check to see if our instance is taken already:
         # Seeing if our instance name is inside a list of already registered instance names...
@@ -847,7 +794,6 @@ class AgentConfigState(rx.State):
     selected_component_id: str = ""
     draft_visible: bool = False
     
-
     # Vars
     # this being named agent details doesn't make sense to be honest
     @rx.var
@@ -856,6 +802,10 @@ class AgentConfigState(rx.State):
         uid = args.get("uid", "")
         agent_uid = args.get("agent_uid", "")
         return {"uid": uid, "agent_uid": agent_uid}
+
+    @rx.var
+    def selected_tab(self) -> str:
+        return self.working_agent.selected_agent_config_tab
 
     # ========= state vars to streamline working checking the validity of working config =======
     
@@ -926,8 +876,28 @@ class AgentConfigState(rx.State):
     @rx.var
     def changed_configs_list(self) -> list[str]:
         """returns a list of component ids for the config store entries that have been changed"""
-        return list(config.component_id for config in self.working_agent.config_store if config.dict() != config.safe_entry)
+        return list(config.component_id for config in self.working_agent.config_store if config.dict() != config.safe_entry or config.safe_entry["path"] == "")
+    
+    @rx.var
+    def committed_configs(self) -> list[ConfigStoreEntryModelView]:
+        return [
+            ConfigStoreEntryModelView(
+                    path=config.safe_entry["path"], 
+                    data_type=config.safe_entry["data_type"],
+                    value=config.safe_entry["value"],
+                    csv_variants=config.csv_variants,
+                    component_id=config.component_id,
+                    selected_variant=config.selected_variant,
+                ) for config in self.working_agent.config_store if not config.uncommitted]
+    
+    @rx.var
+    def has_valid_configs(self) -> bool:
+        return (len(self.working_agent.config_store) > 0 and 
+                any(not config.uncommitted for config in self.working_agent.config_store))
 
+    @rx.var
+    def num_of_new_invalid_configs(self) -> int:
+        return len([config.path for config in self.working_agent.config_store if config.uncommitted]) 
     # ======== End of config validation vars =========
 
 
@@ -963,22 +933,8 @@ class AgentConfigState(rx.State):
         return validity_map["config"]
 
     # ======== End of agent validation vars========
-    
-    @rx.var
-    def committed_configs(self) -> list[ConfigStoreEntryModelView]:
-        return [
-            ConfigStoreEntryModelView(
-                    path=config.safe_entry["path"], 
-                    data_type=config.safe_entry["data_type"],
-                    value=config.safe_entry["value"],
-                    csv_variants=config.csv_variants,
-                ) for config in self.working_agent.config_store if not config.uncommitted]
-    
-    @rx.var
-    def has_valid_configs(self) -> bool:
-        return (len(self.working_agent.config_store) > 0 and 
-                any(not config.uncommitted for config in self.working_agent.config_store))
 
+    # Events
     @rx.event
     async def hydrate_working_agent(self):
         """Initialize working agent from platform state"""
@@ -991,7 +947,10 @@ class AgentConfigState(rx.State):
                 self.working_agent = agent
                 break
 
-    # Events
+    @rx.event
+    def change_agent_config_tab(self, value):
+        self.working_agent.selected_agent_config_tab = value
+
     @rx.event
     def flip_draft_visibility(self):
         self.draft_visible = not self.draft_visible
@@ -1041,19 +1000,23 @@ class AgentConfigState(rx.State):
                 logger.debug(f"this is the validity map: {valid_map}")
                 config.valid = valid
                 config.changed = config.dict() != config.safe_entry
-                # this shows the "changed" field as we update the config entry
-                # logger.debug(f"this is the changed value: {config.changed}")
-                # logger.debug(f"manually checking dict: {config.dict()}")
-                # logger.debug(f"manually checking safe_entry: {config.safe_entry}")
                 if id is not None:
                     yield rx.set_value(id, value)
+                break
     
+    @rx.event
+    def handle_unsaved_config_banner_click(self, component_id: str):
+        """Handle click on unsaved config banner to set the selected component id"""
+        self.working_agent.selected_config_component_id = component_id
+        yield AgentConfigState.flip_draft_visibility
+        yield AgentConfigState.change_agent_config_tab("2")
+
     @rx.event
     async def handle_config_store_entry_upload(self, files: list[rx.UploadFile]):
         # dealing with file uploads
         current_file = files[0]
         upload_data = await current_file.read()
-        outfile = (rx.get_upload_dir() / current_file.filename)
+        outfile = (rx.get_upload_dir() / current_file.name)
         
         with outfile.open("wb") as file_object:
             file_object.write(upload_data)
@@ -1061,13 +1024,13 @@ class AgentConfigState(rx.State):
         result: str = ""
         file_type: str = ""
 
-        if current_file.filename.endswith('.json'):
+        if current_file.name.endswith('.json'):
             with open(outfile, 'r') as file_object:
                 data = json.load(file_object)
                 file_type = "JSON"
                 result = json.dumps(data, indent=4)
 
-        elif current_file.filename.endswith('.csv'):
+        elif current_file.name.endswith('.csv'):
             with open(outfile, 'r') as file_object:
                 reader = csv.reader(file_object)
                 output = io.StringIO()
@@ -1104,23 +1067,24 @@ class AgentConfigState(rx.State):
         logger.debug("agent config store entry was uploaded")
         yield AgentConfigState.set_component_id(new_config_entry.component_id)
         yield rx.toast.success("Config store entry uploaded successfully")
+        delete_file.delete_file(current_file.name)
 
     @rx.event
     async def handle_agent_config_upload(self, files: list[rx.UploadFile]):
         file = files[0]
         upload_data = await file.read()
-        outfile = (rx.get_upload_dir() / file.filename)
+        outfile = (rx.get_upload_dir() / file.name)
         
         with outfile.open("wb") as file_object:
             file_object.write(upload_data)
 
         result: str = ""
 
-        if file.filename.endswith('.json'):
+        if file.name.endswith('.json'):
             with open(outfile, 'r') as file_object:
                 data = json.load(file_object)
                 result = json.dumps(data, indent=4)
-        elif file.filename.endswith('.yaml') or file.filename.endswith('.yml'):
+        elif file.name.endswith('.yaml') or file.name.endswith('.yml'):
             with open(outfile, 'r') as file_object:
                 data = yaml.safe_load(file_object)
                 result = yaml.dump(data, sort_keys=False, default_flow_style=False)
@@ -1131,6 +1095,7 @@ class AgentConfigState(rx.State):
         agent = self.working_agent
         agent.config = result
         yield rx.set_value("agent_config_field", result)
+        delete_file.delete_file(file.name)
     
     @rx.event
     def create_blank_config_entry(self):
