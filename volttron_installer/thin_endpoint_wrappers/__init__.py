@@ -234,4 +234,4 @@ async def delete_agent(platform_id: str, agent_id: str):
     await delete_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents/{agent_id}")
 
 async def delete_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
-    await delete_request(f"{API_BASE_URL}/{TOOL_PROXY_PREFIX}/post/{tool_name}/{path}", "DELETE", **kwargs)
+    await delete_request(f"{API_BASE_URL}/{TOOL_PROXY_PREFIX}/delete/{tool_name}/{path}", "DELETE", **kwargs)
