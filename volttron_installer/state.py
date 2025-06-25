@@ -640,6 +640,8 @@ class PlatformPageState(rx.State):
             platform_service=plat_serv
             )
         
+        #claire
+        
         # Lets say changes saved successfully and redirect to the new url while deleting our old one
         logger.debug(f"this is the uid copy: {uid_copy}")
         yield rx.toast.success("Changes saved successfully")
