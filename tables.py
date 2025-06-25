@@ -10,6 +10,7 @@ import os
 import classes
 import defaults
 
+
 def agent_table(rows):
     """Table for selecting agents"""
     agent_columns = [

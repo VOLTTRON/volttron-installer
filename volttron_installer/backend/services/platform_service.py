@@ -14,7 +14,7 @@ from volttron_installer.backend.services.inventory_service import get_inventory_
 class PlatformService:
     def __init__(self, platform_dir: Optional[Path] = None):
         if platform_dir is None:
-            platform_dir = Path(get_settings().data_dir) / "platforms"
+            platform_dir = Path(get_settings().data_dir)
         self.platform_dir = platform_dir
         self.platform_dir.mkdir(parents=True, exist_ok=True)
         self._lock = asyncio.Lock()  # Use asyncio.Lock for async operations

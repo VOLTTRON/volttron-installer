@@ -26,7 +26,8 @@ def create_host_entry():
         "https_proxy": None,
         "volttron_venv": None,
         "volttron_home": "~/.volttron",
-        "host_configs_dir": None
+        "host_configs_dir": None,
+        "name": "test_host"
     })
 
 def test_create_platform_endpoint(create_host_entry):
@@ -204,7 +205,8 @@ def test_create_host_entry():
         "https_proxy": None,
         "volttron_venv": None,
         "volttron_home": "~/.volttron",
-        "host_configs_dir": None
+        "host_configs_dir": None,
+        "name": "test_host"
     })
     assert response.status_code == 200
     assert response.json()["success"] is True
@@ -220,7 +222,8 @@ def test_get_host_entry():
         "https_proxy": None,
         "volttron_venv": None,
         "volttron_home": "~/.volttron",
-        "host_configs_dir": None
+        "host_configs_dir": None,
+        "name" : "test_host"
     })
     response = client.get(f"{HOSTS_PREFIX}/test_host")
     assert response.status_code == 200
@@ -237,9 +240,10 @@ def test_delete_host_entry():
         "https_proxy": None,
         "volttron_venv": None,
         "volttron_home": "~/.volttron",
-        "host_configs_dir": None
+        "host_configs_dir": None,
+        "name" : "test_host"
     })
-    response = client.delete(f"{HOSTS_PREFIX}/test_host")
+    response = client.delete(f"{HOSTS_PREFIX}/instance1.yml")
     assert response.status_code == 200
     assert response.json()["success"] is True
 
@@ -254,7 +258,8 @@ def test_list_host_entries():
         "https_proxy": None,
         "volttron_venv": None,
         "volttron_home": "~/.volttron",
-        "host_configs_dir": None
+        "host_configs_dir": None,
+        "name" : "test_host1"
     })
     client.post(f"{HOSTS_PREFIX}", json={
         "id": "test_host2",
@@ -266,7 +271,8 @@ def test_list_host_entries():
         "https_proxy": None,
         "volttron_venv": None,
         "volttron_home": "~/.volttron",
-        "host_configs_dir": None
+        "host_configs_dir": None,
+        "name" : "test_host2"
     })
     response = client.get(f"{HOSTS_PREFIX}")
     assert response.status_code == 200
