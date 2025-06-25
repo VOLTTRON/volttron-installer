@@ -47,12 +47,6 @@ app.add_page(
     on_load=PlatformState.hydrate_state
 )
 
-app.add_page(
-    bacnet_scan_page,
-    route="/tools/bacnet_scan"
-
-)
-
 # Register the lifespan task
 app.register_lifespan_task(lifespan)
 
