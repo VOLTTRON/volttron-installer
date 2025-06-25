@@ -37,9 +37,9 @@ class AnsibleService:
             Tuple of (return_code, stdout, stderr)
         """
         inventory_service = await get_inventory_service()
+        
 
-        cmd = ["ansible-playbook", "-i", inventory_service.inventory_path.as_posix(),
-               "--limit", hosts]
+        cmd = ["ansible-playbook", "-i", inventory_service.inventory_path.as_posix()]
 
         logger.debug(f"Running playbook {playbook_name} on hosts {hosts} cmd: {cmd}")
         # if connection:
@@ -132,7 +132,7 @@ class AnsibleService:
         cmd = [
             "ansible-playbook", "-i", inventory,
             "--connection", connection,
-            "volttron.deployment.ad-hoc",
+            "volttron.deployment.ad_hoc",
             "-e", f"command='{command}'"
         ]
 
@@ -296,5 +296,5 @@ class AnsibleService:
 
 __ansible_service__ = AnsibleService()
 
-def get_ansible_service() -> AnsibleService:
+async def get_ansible_service() -> AnsibleService:
     return __ansible_service__
