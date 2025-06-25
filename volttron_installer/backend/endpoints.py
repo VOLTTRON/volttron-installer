@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Optional
 import json
 from pathlib import Path
@@ -11,7 +12,16 @@ from volttron_installer.backend.services.platform_service import PlatformService
 from volttron_installer.backend.models import AgentCatalog
 
 from volttron_installer.backend.tool_proxy_factory import ToolProxyFactory
+from dotenv import load_dotenv
+from pathlib import Path
+import os
 
+if Path("dev.env").exists():
+    load_dotenv("dev.env")
+elif Path(".env").exists():
+    load_dotenv()
+else:
+    raise FileNotFoundError("No .env nore dev.env file found")
 
 from .models import (
     CreateOrUpdateHostEntryRequest,
