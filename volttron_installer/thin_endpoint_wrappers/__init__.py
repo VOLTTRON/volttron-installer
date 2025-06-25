@@ -1,13 +1,12 @@
 import httpx, asyncio
 from typing import Any, Optional, TypeVar, Type, Union, List, Dict, Literal
-
 from pydantic import BaseModel
-
 from ..backend.models import AgentType, HostEntry, PlatformDefinition, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ReachableResponse, \
     PlatformDeploymentStatus, CreateAgentRequest, ToolRequest, ToolStatusResponse 
+from rxconfig import config
 
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = f"{config.api_url}"
 API_PREFIX = "/api"
 ANSIBLE_PREFIX = f"{API_PREFIX}/ansible"
 PLATFORMS_PREFIX = f"{API_PREFIX}/platforms"
@@ -181,7 +180,7 @@ async def tool_status(tool_name: str) -> ToolStatusResponse:
     return await get_request(f"{API_BASE_URL}{MANAGE_TOOLS_PREFIX}/tool_status/{tool_name}")
 
 async def get_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
-    return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/get/{tool_name}/{path}", "GET", **kwargs)
+    return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/{tool_name}/{path}", "GET", **kwargs)
 
 # PUT requests
 async def update_platform(platform_id: str, platform: CreatePlatformRequest):
@@ -191,7 +190,7 @@ async def update_agent(platform_id: str, agent_id: str, agent: CreateAgentReques
     await put_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents/{agent_id}", data=agent.model_dump())
 
 async def put_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
-    return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/put/{tool_name}/{path}", "PUT", **kwargs)
+    return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/{tool_name}/{path}", "PUT", **kwargs)
 
 # POST requests
 async def create_platform(platform: CreatePlatformRequest):
@@ -221,7 +220,7 @@ async def stop_tool(tool_name: str):
     await post_request(f"{API_BASE_URL}{MANAGE_TOOLS_PREFIX}/stop_tool/{tool_name}")
 
 async def post_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
-    return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/post/{tool_name}/{path}", "POST", **kwargs)
+    return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/{tool_name}/{path}", "POST", **kwargs)
 
 # DELETE requests
 async def delete_platform(platform_id: str):
@@ -234,4 +233,4 @@ async def delete_agent(platform_id: str, agent_id: str):
     await delete_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents/{agent_id}")
 
 async def delete_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
-    await delete_request(f"{API_BASE_URL}/{TOOL_PROXY_PREFIX}/delete/{tool_name}/{path}", "DELETE", **kwargs)
+    await delete_request(f"{API_BASE_URL}/{TOOL_PROXY_PREFIX}/{tool_name}/{path}", "DELETE", **kwargs)

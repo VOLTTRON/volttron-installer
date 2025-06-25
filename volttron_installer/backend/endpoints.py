@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Optional
 import json
 from pathlib import Path
@@ -9,6 +9,18 @@ from volttron_installer.backend.services.ansible_service import AnsibleService, 
 from volttron_installer.backend.services.inventory_service import InventoryService, get_inventory_service
 from volttron_installer.backend.services.platform_service import PlatformService, get_platform_service
 from volttron_installer.backend.models import AgentCatalog
+
+from volttron_installer.backend.tool_proxy_factory import ToolProxyFactory
+from dotenv import load_dotenv
+from pathlib import Path
+import os
+
+if Path("dev.env").exists():
+    load_dotenv("dev.env")
+elif Path(".env").exists():
+    load_dotenv()
+else:
+    raise FileNotFoundError("No .env nore dev.env file found")
 
 from .models import (
     CreateOrUpdateHostEntryRequest,
@@ -28,12 +40,14 @@ from .models import (
     ToolStatusResponse
 )
 
+TOOLS_PREFIX = "/tools"
 
 platform_router = APIRouter(prefix="/platforms", tags=["platforms"])
 ansible_router = APIRouter(prefix="/ansible", tags=["ansible"])
 task_router = APIRouter(prefix="/task", tags=["tasks"])
 catalog_router = APIRouter(prefix="/catalog", tags=["catalog"])
 tool_management_router = APIRouter(prefix="/manage_tools", tags=["manage tools"])
+bacnet_scan_tool_router = APIRouter(prefix=f"{TOOLS_PREFIX}/bacnet_scan_tool", tags=["bacnet scan tool"])
 
 @ansible_router.get("/hosts", response_model=list[HostEntry])
 async def get_hosts() -> list[HostEntry]:
@@ -484,3 +498,20 @@ async def tool_status(tool_name: str):
         "running": is_running,
         "port": port
     })
+
+@bacnet_scan_tool_router.post("/start_proxy", response_model=dict[str, str])
+async def bacnet_scan_start_proxy(local_device_address: str):
+    from .tool_proxy_factory import ApiError
+
+    url=f"{os.environ.get('API_URL', 'http://localhost:8000')}/api/tool_proxy/bacnet_scan_tool/start_proxy"
+    REQUEST = {"local_device_address" : local_device_address}
+    try:
+        response = await ToolProxyFactory.request(
+            url,
+            "POST",
+            data=REQUEST
+        )
+        data = response.json()
+        return data
+    except ApiError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

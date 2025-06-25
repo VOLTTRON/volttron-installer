@@ -3,36 +3,46 @@ from fastapi import APIRouter, Request, HTTPException
 from starlette.background import BackgroundTask
 from starlette.responses import StreamingResponse
 from .tool_manager import ToolManager
+from dotenv import load_dotenv
+from pathlib import Path
+import os
+
+if Path("dev.env").exists():
+    load_dotenv("dev.env")
+elif Path(".env").exists():
+    load_dotenv()
+else:
+    raise FileNotFoundError("No .env nore dev.env file found")
 
 # Create a router for dynamic proxying
 tool_router = APIRouter(prefix="/tool_proxy", tags=["tool proxy"])
 
-@tool_router.get("/get/{tool_name}/{path:path}")
+@tool_router.get("/{tool_name}/{path:path}")
 async def tool_proxy_get(request: Request, tool_name: str, path: str):
     response = await proxy_to_tool(request, tool_name, path)
     return response
 
-@tool_router.post("/post/{tool_name}/{path:path}")
+@tool_router.post("/{tool_name}/{path:path}")
 async def tool_proxy_post(request: Request, tool_name: str, path: str):
     response = await proxy_to_tool(request, tool_name, path)
     return response
 
-@tool_router.put("/put/{tool_name}/{path:path}")
+@tool_router.put("/{tool_name}/{path:path}")
 async def tool_proxy_put(request: Request, tool_name: str, path: str):
     response = await proxy_to_tool(request, tool_name, path)
     return response
 
-@tool_router.delete("/delete/{tool_name}/{path:path}")
+@tool_router.delete("/{tool_name}/{path:path}")
 async def tool_proxy_delete(request: Request, tool_name: str, path: str):
     response = await proxy_to_tool(request, tool_name, path)
     return response
 
-@tool_router.patch("/patch/{tool_name}/{path:path}")
+@tool_router.patch("/{tool_name}/{path:path}")
 async def tool_proxy_patch(request: Request, tool_name: str, path: str):
     response = await proxy_to_tool(request, tool_name, path)
     return response
 
-@tool_router.options("/options/{tool_name}/{path:path}")
+@tool_router.options("/{tool_name}/{path:path}")
 async def tool_proxy_options(request: Request, tool_name: str, path: str):
     response = await proxy_to_tool(request, tool_name, path)
     return response
@@ -59,7 +69,7 @@ async def proxy_to_tool(request: Request, tool_name: str, path: str):
         raise HTTPException(status_code=500, detail="Could not determine tool port")
     
     # Proxy the request to the tool
-    target_url = f"http://localhost:{port}/{path}"
+    target_url = f"{os.environ.get('TOOL_PROXY_URL', 'http://localhost')}:{port}/{path}"
     
     # Get request details - preserve everything
     headers = {k: v for k, v in request.headers.items() 
