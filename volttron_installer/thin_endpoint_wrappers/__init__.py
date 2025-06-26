@@ -3,7 +3,9 @@ from typing import Any, Optional, TypeVar, Type, Union, List, Dict, Literal
 from pydantic import BaseModel
 from ..backend.models import AgentType, HostEntry, PlatformDefinition, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ReachableResponse, \
-    PlatformDeploymentStatus, CreateAgentRequest, ToolRequest, ToolStatusResponse 
+    PlatformDeploymentStatus, CreateAgentRequest, ToolRequest, ToolStatusResponse, \
+    BACnetReadDeviceAllRequest, BACnetDevice, BACnetReadPropertyRequest, BACnetScanResults, \
+    BACnetWritePropertyRequest
 from rxconfig import config
 
 API_BASE_URL = f"{config.api_url}"
@@ -16,6 +18,8 @@ TASK_PREFIX = f"{API_PREFIX}/task"
 MANAGE_TOOLS_PREFIX = f"{API_PREFIX}/manage_tools"
 TOOL_PROXY_PREFIX = f"{API_PREFIX}/tool_proxy"
 
+TOOLS_PREFIX = f"{API_PREFIX}/tools"
+BACNET_SCAN_TOOL_PREFIX = f"{TOOLS_PREFIX}/bacnet_scan_tool"
 DEFAULT_TIMEOUT = 5.0  # 5 seconds timeout
 
 T = TypeVar('T')
@@ -67,8 +71,7 @@ async def get_request(url: str, params: Optional[dict[str, Any]] = None,
         except Exception as e:
             raise ApiError(500, str(e))
 
-async def post_request(url: str, data: Optional[dict[str, Any]] = None,
-                       timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
+async def post_request(url: str, data: Optional[dict[str, Any]] = None, timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
     """Send an async POST request to the specified URL with optional JSON data."""
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         try:
@@ -179,6 +182,15 @@ async def tool_status(tool_name: str) -> ToolStatusResponse:
     """Get a tool's status."""
     return await get_request(f"{API_BASE_URL}{MANAGE_TOOLS_PREFIX}/tool_status/{tool_name}")
 
+async def get_bacnet_local_ip(target_ip: str = None) -> dict[str, str]:
+    """Get local IP address for BACnet communication."""
+    params = {"target_ip": target_ip} if target_ip else None
+    return await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/get_local_ip", "GET", params=params)
+
+async def get_windows_host_ip() -> dict[str, str]:
+    """Get Windows host IP address for WSL2 users."""
+    return await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/get_windows_host_ip", "GET")
+
 async def get_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
     return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/{tool_name}/{path}", "GET", **kwargs)
 
@@ -193,6 +205,74 @@ async def put_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
     return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/{tool_name}/{path}", "PUT", **kwargs)
 
 # POST requests
+async def start_bacnet_proxy(local_device_address: str = None) -> dict[str, str]:
+    """Start BACnet proxy with optional local device address."""
+    data = {"local_device_address": local_device_address} if local_device_address else {}
+    response = await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/start_proxy", "POST", params=data)
+    return response.json()
+
+@with_model(BACnetScanResults)
+async def scan_bacnet_ip_range(network_str: str) -> BACnetScanResults:
+    """Scan a BACnet IP range for devices."""
+    return await proxy_request(
+        f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/bacnet/scan_ip_range",
+        "POST",
+        timeout=15.0,
+        params={"network_str": network_str}
+    )
+
+async def read_bacnet_property(request: BACnetReadPropertyRequest) -> dict[str, str]:
+    """Read a property from a BACnet device."""
+    response = await proxy_request(
+        f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/read_property",
+        "POST",
+        json=request.model_dump()
+    )
+    return response.json()
+
+async def write_bacnet_property(request: BACnetWritePropertyRequest) -> dict[str, str]:
+    """Write a property to a BACnet device."""
+    from loguru import logger
+    logger.debug(request.model_dump())
+    response = await proxy_request(
+        f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/write_property",
+        "POST",
+        json=request.model_dump()
+    )
+    return response.json()
+
+async def read_bacnet_device_all(request: BACnetReadDeviceAllRequest) -> dict:
+    """Read all properties from a BACnet device."""
+    try:
+        response = await proxy_request(
+            f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/bacnet_scan_tool/bacnet/read_device_all",  # Note: changed to TOOL_PROXY_PREFIX
+            "POST",
+            json=request.model_dump()
+        )
+        return response.json()
+    except ApiError as e:
+        # Log error but provide a response that won't break client code
+        print(f"Error in read_bacnet_device_all: {e}")
+        return {"status": "error", "message": str(e), "properties": ""}
+
+async def bacnet_who_is(device_instance_low: int, device_instance_high: int, dest: str) -> dict:
+    """Send BACnet Who-Is request."""
+    response = await proxy_request(
+        f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/bacnet/who_is",
+        "POST",
+        params={
+            "device_instance_low": device_instance_low,
+            "device_instance_high": device_instance_high,
+            "dest": dest
+        }
+    )
+    return response.json()
+
+async def stop_bacnet_proxy() -> dict[str, str]:
+    """Stop the BACnet proxy."""
+    response = await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/stop_proxy", "POST")
+    return response.json()
+
 async def create_platform(platform: CreatePlatformRequest):
     await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/", data=platform.model_dump())
 
