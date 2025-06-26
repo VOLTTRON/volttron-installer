@@ -715,8 +715,6 @@ class PlatformPageState(rx.State):
         await add_host(request)
         await create_platform(base_platform_request)
         
-        #claire
-        
         # Lets say changes saved successfully and redirect to the new url while deleting our old one
         logger.debug(f"this is the uid copy: {uid_copy}")
         yield rx.toast.success("Changes saved successfully")
