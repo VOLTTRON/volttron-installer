@@ -24,7 +24,7 @@ class AnsibleService:
         self.playbook_dir = playbook_dir
             
 
-    async def run_playbook(self, playbook_name: str, hosts: str | list[str], extra_vars: dict = None) -> tuple[int, str, str]:
+    async def run_playbook(self, playbook_name: str, hosts: str | list[str], password: str = None, extra_vars: dict = None) -> tuple[int, str, str]:
         """Run an Ansible playbook asynchronously
 
         Args:
@@ -37,23 +37,25 @@ class AnsibleService:
             Tuple of (return_code, stdout, stderr)
         """
         inventory_service = await get_inventory_service()
-        
-
-        cmd = ["ansible-playbook", "-i", inventory_service.inventory_path.as_posix()]
+        cmd:str
+        if password == None: 
+            cmd = ["ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix()]
+        else:
+            password = f"'{password}'"
+            cmd = ["sshpass","-p", password, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix()]
 
         logger.debug(f"Running playbook {playbook_name} on hosts {hosts} cmd: {cmd}")
         # if connection:
         #     cmd.extend(["--connection", connection])
 
         # Merge default vars with provided vars
-        default_vars = {
+        """default_vars = {
             "ansible_ssh_common_args": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
         }
         if extra_vars:
             default_vars.update(extra_vars)
 
-        cmd.extend(["-e", json.dumps(default_vars)])
-
+        cmd.extend(["-e", json.dumps(default_vars)]) """
         # Ensure playbooks are run based on volttron.deployment
         if not playbook_name.startswith('volttron.deployment.'):
             playbook_name = f'volttron.deployment.{playbook_name}'
@@ -62,13 +64,11 @@ class AnsibleService:
         # playbook_file = playbook_name if playbook_name.endswith(".yml") else f"{playbook_name}.yml"
         # cmd.append(str(self.playbook_dir / playbook_file))
         cmd.append(playbook_name)
-
-        
         # Set environment variables
         env = os.environ.copy()
         #env['ANSIBLE_HOST_KEY_CHECKING'] = 'False'
         #env['ANSIBLE_SSH_ARGS'] = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
-
+        
         logger.debug(f"Executing command: {' '.join(cmd)}")
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -76,9 +76,17 @@ class AnsibleService:
             stderr=asyncio.subprocess.PIPE,
             env=env
         )
-
+        
         stdout, stderr = await process.communicate()
-        logger.debug(f"Playbook output: {stdout.decode() if stdout else ''}")
+        
+        
+        
+        """ input_pass = await asyncio.create_subprocess_exec(
+            *password,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        ) """
+        logger.debug(f"Playbook output: {stdout.decode() if stdout else stderr.decode()}")
         return (
             process.returncode,
             stdout.decode() if stdout else "",
@@ -111,7 +119,7 @@ class AnsibleService:
             stderr=asyncio.subprocess.PIPE
         )
 
-        stdout, stderr = await process.communicate()
+        stdout, stderr = await process.communicate(input=b"@Ansible")
         return (
             process.returncode,
             stdout.decode() if stdout else "",
