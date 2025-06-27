@@ -541,6 +541,11 @@ class PlatformPageState(rx.State):
         working_platform.web_checked = not working_platform.web_checked
 
     @rx.event
+    def toggle_federation(self):
+        working_platform: Instance = self.platforms[self.current_uid]
+        working_platform.federation_checked = not working_platform.federation_checked
+
+    @rx.event
     def update_detail(self, field: str, value):
         working_platform_instance = self.platforms[self.current_uid]
         if field == "id":
@@ -578,6 +583,9 @@ class PlatformPageState(rx.State):
         working_platform.safe_host_entry = working_platform.host.to_dict()
         working_platform.uncaught = False
         
+        # TODO save the federation field once we have it all up and running
+        # federation = working_platform.enable_federation
+
         # Create base platform
         base_platform_request = CreatePlatformRequest(
             host_id = working_platform.safe_host_entry["id"],

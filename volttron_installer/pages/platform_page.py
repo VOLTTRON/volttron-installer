@@ -353,11 +353,28 @@ def configuration_tab_content() -> rx.Component:
                                     )
                                 ),
                                 form_entry.form_entry(
+                                    "Member of Federation",
+                                    rx.vstack(
+                                        rx.checkbox(
+                                            size="3",
+                                            on_click = lambda: State.toggle_federation()
+                                        ),
+                                        justify="center",
+                                        align="center",
+                                        width="100%"
+                                    )
+                                ),
+                                form_entry.form_entry(
                                     "Web",
-                                    rx.checkbox(
-                                        size="3",
-                                        checked=working_platform.web_checked,
-                                        on_change=lambda: State.toggle_web()
+                                    rx.vstack(
+                                        rx.checkbox(
+                                            size="3",
+                                            checked=working_platform.web_checked,
+                                            on_change=lambda: State.toggle_web()
+                                        ),
+                                        justify="center",
+                                        align="center",
+                                        width="100%"
                                     )
                                 ),
                                 rx.cond(

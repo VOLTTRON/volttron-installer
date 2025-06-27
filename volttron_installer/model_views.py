@@ -151,6 +151,8 @@ class PlatformConfigModelView(rx.Base):
     vip_address: str = "tcp://127.0.0.1:22916"
     message_bus: Literal["zmq"] = "zmq"
     # options: list[KeyValuePair] = []
+    # TODO make this functional when federation stuff gets hydrated
+    # enable_federation: bool = False
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -158,6 +160,7 @@ class PlatformConfigModelView(rx.Base):
             "vip_address" : self.vip_address,
             "message_bus" : self.message_bus,
             "options" : []
+            # enable_federation: self.enable_federation
         }
 
 class PlatformModelView(rx.Base):
