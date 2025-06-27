@@ -49,13 +49,13 @@ class AnsibleService:
         #     cmd.extend(["--connection", connection])
 
         # Merge default vars with provided vars
-        """default_vars = {
+        default_vars = {
             "ansible_ssh_common_args": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
         }
         if extra_vars:
             default_vars.update(extra_vars)
 
-        cmd.extend(["-e", json.dumps(default_vars)]) """
+        cmd.extend(["-e", json.dumps(default_vars)])
         # Ensure playbooks are run based on volttron.deployment
         if not playbook_name.startswith('volttron.deployment.'):
             playbook_name = f'volttron.deployment.{playbook_name}'
@@ -78,14 +78,6 @@ class AnsibleService:
         )
         
         stdout, stderr = await process.communicate()
-        
-        
-        
-        """ input_pass = await asyncio.create_subprocess_exec(
-            *password,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        ) """
         logger.debug(f"Playbook output: {stdout.decode() if stdout else stderr.decode()}")
         return (
             process.returncode,
