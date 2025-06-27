@@ -27,6 +27,10 @@ class NavigationState(rx.State):
     def route_to_platform(self, uid: str):
         return rx.redirect(f"/platform/{uid}", is_external=False)
 
+    @rx.event
+    def route_to_bacnet_scan(self):
+        return rx.redirect("/bacnet_scan", is_external=False)
+
     # Agent configuration navigation
     @rx.event
     async def route_to_agent_config(self, platform_uid: str, agent_uid: str, agent: AgentModelView):

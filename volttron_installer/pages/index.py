@@ -5,16 +5,23 @@ import reflex as rx
 from rxconfig import config
 from ..components.buttons import add_icon_button
 from ..components import header
-
+from ..components.form_components import form_entry
 from ..components.tabs import platform_overview
+from ..components.tiles.config_tile import config_tile
+from ..components.buttons import tile_icon
 from .platform_page import State as PlatformState 
+from ..layouts.app_layout_sidebar import app_layout_sidebar
 
-class IndexTabState(rx.State):
-    ...
+from ..state import IndexPageState
+
 
 @rx.page(route="/")
 def index() -> rx.Component:
-    # Welcome Page (Index)
+    return app_layout_sidebar(
+            platform_overview_tab()
+        )
+
+def platform_overview_tab() -> rx.Component:
     return rx.fragment(
         rx.vstack(
             header.header.header(
@@ -27,5 +34,8 @@ def index() -> rx.Component:
                 justify="between"
             ),
             platform_overview.platform_overview(),
+            overflow_y="auto",
+            height="100%",
+            width="100%",
         )
     )

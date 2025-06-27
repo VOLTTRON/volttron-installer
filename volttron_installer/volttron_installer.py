@@ -10,6 +10,7 @@ from .styles import styles
 from .pages.index import index
 from .pages.platform_new import new_platform_page
 from .pages.platform_page import platform_page, State as PlatformState
+from .pages.bacnet_scan import bacnet_scan_page
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
