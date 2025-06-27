@@ -304,7 +304,7 @@ async def task_status(id: str):
     return {"status": "ok"}
 
 @platform_router.post("/deploy/{platform_id}")
-async def deploy_platform(platform_id: str,password:str,
+async def deploy_platform(platform_id: str, password:str,
                           ansible: AnsibleService = Depends(get_ansible_service),
                           platform_service: PlatformService = Depends(get_platform_service)):
 
