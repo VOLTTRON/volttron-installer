@@ -134,9 +134,12 @@ async def create_platform(platform: CreatePlatformRequest,
                                                  config=platform.config,
                                                  agents=platform.agents)
         await platform_service.create_platform(platform_definition)
+        ans = await get_ansible_service() 
+        #await ans.run_playbook("run_platforms",  platform.host_id)
         return SuccessResponse(object=platform_definition)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
 
 @platform_router.put("/{id}")
 async def update_platform(id: str, platform: CreatePlatformRequest):
@@ -301,7 +304,7 @@ async def task_status(id: str):
     return {"status": "ok"}
 
 @platform_router.post("/deploy/{platform_id}")
-async def deploy_platform(platform_id: str,
+async def deploy_platform(platform_id: str, password:str,
                           ansible: AnsibleService = Depends(get_ansible_service),
                           platform_service: PlatformService = Depends(get_platform_service)):
 
@@ -311,10 +314,19 @@ async def deploy_platform(platform_id: str,
         platform = await platform_service.get_platform(platform_id)
         if platform is None:
             raise HTTPException(status_code=404, detail="Platform not found")
+        
+        ret, stdout, stderr = await ansible.run_playbook("host_config", platform.host_id, password)
 
+        if ret != 0:
+             raise HTTPException(
+                status_code=500,
+                detail=f"Ansible deployment failed: {stderr or stdout}"
+            )
+        hosts=platform.host_id,
         return_code, stdout, stderr = await ansible.run_playbook(
-            "install-platform",
-            hosts=platform.host_id,
+            "install_platform",
+            hosts,
+            password,
             extra_vars=platform.config.model_dump()
         )
 

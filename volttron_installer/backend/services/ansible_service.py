@@ -24,7 +24,7 @@ class AnsibleService:
         self.playbook_dir = playbook_dir
             
 
-    async def run_playbook(self, playbook_name: str, hosts: str | list[str], extra_vars: dict = None) -> tuple[int, str, str]:
+    async def run_playbook(self, playbook_name: str, hosts: str | list[str], password: str = None, extra_vars: dict = None) -> tuple[int, str, str]:
         """Run an Ansible playbook asynchronously
 
         Args:
@@ -37,9 +37,12 @@ class AnsibleService:
             Tuple of (return_code, stdout, stderr)
         """
         inventory_service = await get_inventory_service()
-
-        cmd = ["ansible-playbook", "-i", inventory_service.inventory_path.as_posix(),
-               "--limit", hosts]
+        cmd:str
+        if password == None: 
+            cmd = ["ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix()]
+        else:
+            password = f"'{password}'"
+            cmd = ["sshpass","-p", password, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix()]
 
         logger.debug(f"Running playbook {playbook_name} on hosts {hosts} cmd: {cmd}")
         # if connection:
@@ -53,7 +56,6 @@ class AnsibleService:
             default_vars.update(extra_vars)
 
         cmd.extend(["-e", json.dumps(default_vars)])
-
         # Ensure playbooks are run based on volttron.deployment
         if not playbook_name.startswith('volttron.deployment.'):
             playbook_name = f'volttron.deployment.{playbook_name}'
@@ -62,13 +64,11 @@ class AnsibleService:
         # playbook_file = playbook_name if playbook_name.endswith(".yml") else f"{playbook_name}.yml"
         # cmd.append(str(self.playbook_dir / playbook_file))
         cmd.append(playbook_name)
-
-        
         # Set environment variables
         env = os.environ.copy()
         #env['ANSIBLE_HOST_KEY_CHECKING'] = 'False'
         #env['ANSIBLE_SSH_ARGS'] = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
-
+        
         logger.debug(f"Executing command: {' '.join(cmd)}")
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -76,9 +76,9 @@ class AnsibleService:
             stderr=asyncio.subprocess.PIPE,
             env=env
         )
-
+        
         stdout, stderr = await process.communicate()
-        logger.debug(f"Playbook output: {stdout.decode() if stdout else ''}")
+        logger.debug(f"Playbook output: {stdout.decode() if stdout else stderr.decode()}")
         return (
             process.returncode,
             stdout.decode() if stdout else "",
@@ -111,7 +111,7 @@ class AnsibleService:
             stderr=asyncio.subprocess.PIPE
         )
 
-        stdout, stderr = await process.communicate()
+        stdout, stderr = await process.communicate(input=b"@Ansible")
         return (
             process.returncode,
             stdout.decode() if stdout else "",
@@ -132,7 +132,7 @@ class AnsibleService:
         cmd = [
             "ansible-playbook", "-i", inventory,
             "--connection", connection,
-            "volttron.deployment.ad-hoc",
+            "volttron.deployment.ad_hoc",
             "-e", f"command='{command}'"
         ]
 
@@ -296,5 +296,5 @@ class AnsibleService:
 
 __ansible_service__ = AnsibleService()
 
-def get_ansible_service() -> AnsibleService:
+async def get_ansible_service() -> AnsibleService:
     return __ansible_service__
