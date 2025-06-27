@@ -32,6 +32,7 @@ from .thin_endpoint_wrappers import (
 from .thin_endpoint_wrappers import *
 import string, random, json, csv, yaml, re, io
 from copy import deepcopy
+from typing import Literal
 
 class AppState(rx.State):
     """The app state."""
@@ -1469,7 +1470,7 @@ class AgentConfigState(rx.State):
 class IndexPageState(rx.State):
     """State for the Index page"""
     selected_tool: str = ""
-    scanning_bacnet_ip: bool = False
+    scanning_bacnet_range: bool = False
     is_starting_proxy: bool = False
     proxy_up: bool = False
 
@@ -1514,10 +1515,21 @@ class IndexPageState(rx.State):
 
 
 class BacnetScanState(rx.State):
-    scanning_bacnet_ip: bool = False
+    selected_property_tab: Literal["read", "write"] = "read"  # Default to "read" tab
+    discovered_devices: list[dict[str, str]] = []  # Store discovered devices
+    selected_device: dict[str, str] | None = None  # Store the currently selected device
+    ip_detection_mode: Literal["", "local_ip", "windows_host_ip"] = ""  # "local_ip", "windows_host_ip" or ""
+
+    scanning_bacnet_range: bool = False
     is_starting_proxy: bool = False
     proxy_up: bool = False
     _open_accordion_items: list[str] = []
+    pinging_ip: bool = False
+    _is_write_property_valid: bool = False
+    _is_read_property_valid: bool = False
+    
+    # Fields
+    proxy_field_value: str = ""
 
     # Models
     request_who_is: RequestWhoIsModel = RequestWhoIsModel()
@@ -1526,6 +1538,10 @@ class BacnetScanState(rx.State):
     ping_ip: PingIPModel = PingIPModel()
     read_property: ReadPropertyModel = ReadPropertyModel()
     write_property: WritePropertyModel = WritePropertyModel()
+
+    # UI driven models
+    local_ip_info: LocalIPModel = LocalIPModel()
+    windows_host_ip_info: WindowsHostIPModel = WindowsHostIPModel()
 
     # Computed Vars
     @rx.var
@@ -1536,7 +1552,102 @@ class BacnetScanState(rx.State):
         self._open_accordion_items = []
         return self._open_accordion_items
     
+    @rx.var
+    def has_devices(self) -> bool:
+        """Check if any devices have been discovered."""
+        return len(self.discovered_devices) > 0
+    
+    @rx.var
+    def is_read_property_valid(self) -> bool:
+        for field, value in self.read_property.model_dump().items():
+            if field == "property_array_index":
+                break
+            if value == "":
+                self._is_read_property_valid = False
+                return self._is_read_property_valid
+        self._is_read_property_valid = True
+        return self._is_read_property_valid
+
+    @rx.var
+    def is_write_property_valid(self) -> bool:
+        for field, value in self.write_property.model_dump().items():
+            if field == "property_array_index":
+                break
+            if value == "":
+                self._is_write_property_valid = False
+                return self._is_write_property_valid
+        self._is_write_property_valid = True
+        return self._is_write_property_valid
+
     # Events
+    @rx.event
+    def handle_proxy_field_edit(self, value: str):
+        self.proxy_field_value = value 
+
+
+    @rx.event
+    def set_selected_property_tab(self, tab: str):
+        """Update the selected property tab."""
+        self.selected_property_tab = tab
+    
+    @rx.event
+    def handle_device_row_click(self, device_index: int):
+        """Handle when a device row is clicked."""
+        if 0 <= device_index < len(self.discovered_devices):
+            selected_device = self.discovered_devices[device_index]
+            self.selected_device = selected_device
+            
+            # Auto-fill the property operation fields with selected device info
+            device_address = selected_device.get("address", "")
+            device_id = selected_device.get("id", "")
+            
+            # Update read property form
+            self.read_property.device_address = device_address
+            self.read_property.object_identifier = f"{device_id}"
+            
+            # Update write property form
+            self.write_property.device_address = device_address
+            self.write_property.object_identifier = f"{device_id}"
+            
+            yield rx.toast.info(f"Selected device: {selected_device.get('name', '')}")
+    
+    @rx.event
+    def set_ip_detection_mode(self, mode: Literal["windows_host_ip", "local_ip"]):
+        """Switch between local IP and Windows host IP mode."""
+        self.ip_detection_mode = mode
+        yield BacnetScanState.get_network_info()
+
+    @rx.event
+    async def get_network_info(self):
+        """Get network information based on current detection mode."""
+        self.pinging_ip = True
+        yield rx.toast.info(f"Retrieving network information...")
+        
+        # TODO: Implement actual network info retrieval logic
+        import asyncio
+        await asyncio.sleep(2)
+        
+        if self.ip_detection_mode == "local_ip":
+            # Example response - replace with actual implementation
+            self.local_ip_info = LocalIPModel(
+                local_ip="172.18.229.191",
+                subnet_mask= "255.255.240.0",
+                cidr= "172.18.229.191/20"
+            )
+            # Auto-fill the network range input
+            self.scan_ip_range.network_string = self.local_ip_info.cidr
+            yield rx.toast.success("Retrieved Local Host IP")
+        else:
+            # Example response for Windows host IP
+            self.windows_host_ip_info = WindowsHostIPModel(
+                windows_host_ip = "130.20.125.77"
+            )
+            
+            self.scan_ip_range.network_string = self.windows_host_ip_info.windows_host_ip
+            yield rx.toast.success("Retrieved Windows Host IP")
+        self.pinging_ip = False
+        yield
+
     @rx.event
     def set_open_items(self, value):
         self._open_accordion_items = value
@@ -1573,14 +1684,21 @@ class BacnetScanState(rx.State):
     @rx.event
     async def handle_bacnet_scan(self):
         """Handle the BACnet scan button click"""
-        if self.scanning_bacnet_ip:
+        if self.scanning_bacnet_range:
             yield rx.toast.info("BACnet scan is already in progress.")
             return
-        self.scanning_bacnet_ip = True
-        yield rx.toast.success("Starting BACnet scan...")
+        self.scanning_bacnet_range = True
+        yield
         # TODO implement scan logic
         import asyncio
         await asyncio.sleep(2)
+        self.scanning_bacnet_range = False
+        self.discovered_devices=[
+            {"name": "Device Alpha", "id": "1234", "address": "192.168.1.10"},
+            {"name": "Device Beta", "id": "5678", "address": "192.168.1.12"},
+            {"name": "Device Gamma", "id": "9012", "address": "192.168.1.14"},
+        ]
+        yield
 
     # Handle inputs into model
     @rx.event
@@ -1602,16 +1720,14 @@ class BacnetScanState(rx.State):
             self.read_device_all.device_object_identifier = value
 
     @rx.event
-    def scan_ip_range_input(self, field: str, value: str):
+    def scan_ip_range_input(self, value: str):
         """Handle input changes for the Scan IP Range form."""
-        if field == "network_string":
-            self.scan_ip_range.network_string = value
+        self.scan_ip_range.network_string = value
 
     @rx.event
-    def ping_ip_input(self, field: str, value: str):
+    def ping_ip_input(self, value: str):
         """Handle input changes for the Ping IP form."""
-        if field == "ip_address":
-            self.ping_ip.ip_address = value
+        self.ping_ip.ip_address = value
 
     @rx.event
     def read_property_input(self, field: str, value: str):
