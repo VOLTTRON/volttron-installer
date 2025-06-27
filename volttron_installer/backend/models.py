@@ -717,6 +717,9 @@ class PlatformConfig(BaseModel):
     vip_address: str = "tcp://127.0.0.1:22916"
     message_bus: Literal["zmq"] = "zmq"
     options: list[KeyValuePair] = []
+    # TODO make this actually do something when we have all parts of the federation functionality
+    # completed
+    # enable_federation: bool = False
 
     @field_validator('vip_address')
     def validate_vip_address(cls, v):

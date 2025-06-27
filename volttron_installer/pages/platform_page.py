@@ -357,7 +357,7 @@ def configuration_tab_content() -> rx.Component:
                                     rx.vstack(
                                         rx.checkbox(
                                             size="3",
-                                            # Implement federation toggling logic here.
+                                            on_click = lambda: State.toggle_federation()
                                         ),
                                         justify="center",
                                         align="center",
