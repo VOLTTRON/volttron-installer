@@ -16,6 +16,7 @@ class Instance(rx.Base):
 
     # UI vars
     web_checked: bool = False
+    federation_checked: bool = False
     advanced_expanded: bool = False
     agent_configuration_expanded: bool = False
 
