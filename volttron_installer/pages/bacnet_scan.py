@@ -7,7 +7,7 @@ def scan_for_devices_card():
     return rx.box(
         rx.box(  # CardHeader
             rx.hstack(
-                rx.icon("search", size=25),  # Substitute with the correct icon name if available
+                rx.icon("search", size=25),
                 rx.text("Step 3: Scan for Devices", size="5", weight="bold"),
                 spacing="2",
                 align="center"
@@ -62,7 +62,6 @@ def scan_for_devices_card():
         border_radius=".5rem",
         box_shadow="0 4px 12px rgba(0,0,0,0.08)",
         padding="1.3rem",
-        # bg="white",
         max_width="400px"
     )
 
@@ -204,7 +203,6 @@ def property_operations_card():
                         rx.input(
                             id="read_device_address",
                             placeholder="e.g., 192.168.1.50",
-                            # read_only=True,
                             value=BacnetScanState.read_property.device_address,
                             on_change=lambda v: BacnetScanState.read_property_input("device_address", v),
                             width="100%",
@@ -216,7 +214,6 @@ def property_operations_card():
                         rx.input(
                             id="read_object_identifier",
                             placeholder="e.g., device,506892",
-                            # read_only=True,
                             value=BacnetScanState.read_property.object_identifier,
                             on_change=lambda v: BacnetScanState.read_property_input("object_identifier", v),
                             width="100%",
@@ -253,7 +250,7 @@ def property_operations_card():
                             True,
                             False
                         ),
-                        # on click read property
+                        # TODO on click read property
                     ),
                     spacing="3"
                 ),
@@ -269,7 +266,6 @@ def property_operations_card():
                             placeholder="e.g., 192.168.1.50",
                             value=BacnetScanState.write_property.device_address,
                             on_change=lambda v: BacnetScanState.write_property_input("device_address", v),
-                            # read_only=True,
                             width="100%",
                         ),
                         required_entry=True,
@@ -279,7 +275,6 @@ def property_operations_card():
                         rx.input(
                             id="write_object_identifier",
                             placeholder="e.g., device,506892",
-                            # read_only=True,
                             width="100%",
                             value=BacnetScanState.write_property.object_identifier,
                             on_change=lambda v: BacnetScanState.write_property_input("object_identifier", v),
@@ -339,7 +334,7 @@ def property_operations_card():
                             True,
                             False
                         )
-                        # onclick = write property
+                        # TODO onclick = write property
                     ),
                     spacing="3"
                 ),
@@ -359,7 +354,7 @@ def network_information_card() -> rx.Component:
     return rx.box(
         rx.box(  # CardHeader
             rx.hstack(
-                rx.icon("network", size=25),  # Substitute with the correct icon name if available
+                rx.icon("network", size=25),
                 rx.text("Step 2 (Optional): Network Information", size="5", weight="bold"),
                 spacing="2",
                 align="center"
@@ -538,20 +533,18 @@ def footer():
             rx.hstack(
                 rx.box(
                     rx.text("Proxy Status: "),
-                    # TODO: Replace with conditional rendering based on proxyStatus state
                     rx.cond(
                         BacnetScanState.proxy_up,
                         rx.text(
-                            "Running",  # or "Stopped"
+                            "Running",
                             class_name="text-green-500 font-medium",  # or "text-gray-500 font-medium"
                         ),
                         rx.text(
-                            "Offline",  # or "Stopped"
+                            "Offline",
                             class_name="text-red-500 font-medium",  # or "text-gray-500 font-medium"
                         ),
                     )
                 ),
-                # TODO: Replace with dynamic device count from devices state
                 rx.cond(
                     BacnetScanState.discovered_devices.length() == 0,
                     rx.text("No devices discovered"),
@@ -580,7 +573,6 @@ def bacnet_networking_grid() -> rx.Component:
 def bacnet_device_and_property_grid() -> rx.Component:
     return rx.grid(
         discovered_devices_card(),
-        # card_with_no_devices(),
         property_operations_card(),
         spacing="6",
         width="100%",
@@ -646,6 +638,7 @@ def render() -> rx.Component:
 
 @rx.page(
     route="/tools/bacnet_scan"
+    # TODO add this once we implement the backend tools structure
     #on_load=lambda: ToolState.start_tool("bacnet_scan_tool")
     )
 def bacnet_scan_page() -> rx.Component:
