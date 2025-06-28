@@ -16,21 +16,8 @@ from .utils import delete_file
 from loguru import logger
 from typing import Dict, Optional, List
 from .model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
-from .thin_endpoint_wrappers import ( 
-    get_agent_catalog, 
-    get_hosts, 
-    get_all_platforms, 
-    ping_resolvable_host, 
-    add_host, 
-    update_platform, 
-    create_platform, 
-    deploy_platform,
-    start_tool,
-    stop_tool,
-    tool_status
-)
 from .thin_endpoint_wrappers import *
-import string, random, json, csv, yaml, re, io
+import string, random, json, csv, yaml, re, io, asyncio
 from copy import deepcopy
 from typing import Literal
 
@@ -66,7 +53,7 @@ class ToolState(rx.State):
     """State for managing tool lifecycle."""
     
     # Track running tools
-    running_tools: dict[str, bool] = {}
+    _running_tools: dict[str, bool] = {}
     loading_tools: dict[str, bool] = {}
     error_message: Optional[str] = None
     
@@ -78,7 +65,27 @@ class ToolState(rx.State):
         ),
         # Add other tools as we go
     }
-    
+
+    # Computed var to make sure we are accessing running tool
+    @rx.var
+    async def running_tools(self) -> dict[str, bool]:
+        # for k, v in self._running_tools.items():
+        #     status = await tool_status(k)
+        #     self._running_tools[k] = status.tool_running
+        return self._running_tools
+
+    @rx.event(background=True)
+    async def monitor_tool_status(self, tool_id: str):
+        """Keep checking the tool status and restart if necessary."""
+        while True:
+            await asyncio.sleep(5)  # Check every 5 seconds
+            status = await tool_status(tool_id)
+            if not status.tool_running:
+                logger.debug(f"Tool {tool_id} exited, restarting...")
+                config = self.tool_configs[tool_id]
+                await start_tool(config)
+
+
     @rx.event
     async def start_tool(self, tool_id: str) -> None:
         """Start a specific tool service."""
@@ -88,17 +95,17 @@ class ToolState(rx.State):
             return
         
         # Check if already running
-        if self.running_tools.get(tool_id, False):
+        if self._running_tools.get(tool_id, False):
             logger.debug("tool is already running")
             return
         
         # Set loading state
+        logger.debug(f"setting tool to loading: {tool_id}")
         self.loading_tools[tool_id] = True
         
         try:
             # Get tool config
             config = self.tool_configs[tool_id]
-            
             logger.debug("calling api...")
             # Call API to start the tool
             await start_tool(config)
@@ -120,7 +127,7 @@ class ToolState(rx.State):
             return
         
         # Check if it's running
-        if not self.running_tools.get(tool_id, False):
+        if not self._running_tools.get(tool_id, False):
             logger.debug("tool is already not running")
             return
         
@@ -1531,7 +1538,6 @@ class BacnetScanState(rx.State):
     scanning_bacnet_range: bool = False
     is_starting_proxy: bool = False
     proxy_up: bool = False
-    _open_accordion_items: list[str] = []
     pinging_ip: bool = False
     _is_write_property_valid: bool = False
     _is_read_property_valid: bool = False
@@ -1551,15 +1557,19 @@ class BacnetScanState(rx.State):
     local_ip_info: LocalIPModel = LocalIPModel()
     windows_host_ip_info: WindowsHostIPModel = WindowsHostIPModel()
 
-    # Computed Vars
-    @rx.var
-    def open_accordion_items(self) -> list[str]:
-        """Get the currently open accordion items"""
-        if self.proxy_up:
-            return self._open_accordion_items
-        self._open_accordion_items = []
-        return self._open_accordion_items
-    
+    # important event, actually spins up the tool when the page loads.
+    @rx.event
+    async def start_tool(self, value):
+        await start_tool(
+            ToolRequest(
+                tool_name=value,
+                module_path="bacnet_scan_tool.main:app",
+                use_poetry=False
+            )
+        )
+
+
+    # Computed Vars    
     @rx.var
     def has_devices(self) -> bool:
         """Check if any devices have been discovered."""
@@ -1629,30 +1639,11 @@ class BacnetScanState(rx.State):
     async def get_network_info(self):
         """Get network information based on current detection mode."""
         self.pinging_ip = True
-        yield rx.toast.info(f"Retrieving network information...")
-        
-        # TODO: Implement actual network info retrieval logic
-        import asyncio
-        await asyncio.sleep(2)
-        
+        yield rx.toast.info(f"Retrieving network information...")        
         if self.ip_detection_mode == "local_ip":
-            # Example response - replace with actual implementation
-            self.local_ip_info = LocalIPModel(
-                local_ip="172.18.229.191",
-                subnet_mask= "255.255.240.0",
-                cidr= "172.18.229.191/20"
-            )
-            # Auto-fill the network range input
-            self.scan_ip_range.network_string = self.local_ip_info.cidr
-            yield rx.toast.success("Retrieved Local Host IP")
+            yield BacnetScanState.handle_get_local_ip()
         else:
-            # Example response for Windows host IP
-            self.windows_host_ip_info = WindowsHostIPModel(
-                windows_host_ip = "130.20.125.77"
-            )
-            
-            self.scan_ip_range.network_string = self.windows_host_ip_info.windows_host_ip
-            yield rx.toast.success("Retrieved Windows Host IP")
+            yield BacnetScanState.handle_get_windows_host_ip()
         self.pinging_ip = False
         yield
 
@@ -1664,8 +1655,7 @@ class BacnetScanState(rx.State):
     def toggle_proxy(self):
         """Toggle the proxy state"""
         if self.proxy_up:
-            self.proxy_up = False
-            yield rx.toast.success("Proxy stopped successfully.")
+            yield BacnetScanState.stop_proxy()
         else:
             yield rx.toast.info("Starting proxy...")
             yield BacnetScanState.start_proxy()
@@ -1678,16 +1668,30 @@ class BacnetScanState(rx.State):
             return
         self.is_starting_proxy = True
         yield
-        # TODO implement proxy start logic
-        import asyncio
-        await asyncio.sleep(2)
-        self.proxy_up = True
-        self.is_starting_proxy = False
-        yield rx.toast.success("Proxy started successfully.")
+        try:
+            ip_address = self.proxy_field_value if self.proxy_field_value != "" else None
+            logger.debug(f"this is the ip address we will start a proxy with: {ip_address}")
+            data = await start_bacnet_proxy(ip_address)
+            if data.get("status") == "error":
+                raise Exception(data)
+            self.proxy_field_value = data["address"]
+            self.proxy_up = True
+            self.is_starting_proxy = False
+            yield rx.toast.success("Proxy started successfully.")
+        except Exception as e:
+            logger.debug(e)
+            self.is_starting_proxy = False
+            yield rx.toast.error("There was an error starting up a BACnet proxy")
 
     @rx.event
     async def stop_proxy(self):
-        pass
+        try:
+            await stop_bacnet_proxy()
+            self.proxy_up = False
+            yield rx.toast.success("Proxy stopped successfully")
+        except Exception as e:
+            logger.debug(f"Error starting proxy: {e}")
+            yield rx.toast.error("There was an error stopping the BACnet proxy")
     
     @rx.event
     async def handle_bacnet_scan(self):
@@ -1861,3 +1865,21 @@ class BacnetScanState(rx.State):
         await asyncio.sleep(1)
         
         yield rx.toast.success("Write Property completed.")
+
+    @rx.event
+    async def handle_get_local_ip(self):
+        try:
+            self.local_ip_info = await get_bacnet_local_ip(self.local_ip_info)
+            self.scan_ip_range.network_string = self.local_ip_info.local_ip
+            yield rx.toast.success("Retrieved Local Host IP")
+        except Exception as e:
+            logger.debug(f"There was an error getting local ip info {e}")
+
+    @rx.event
+    async def handle_get_windows_host_ip(self):
+        try:
+            self.windows_host_ip_info = await get_windows_host_ip()
+            self.scan_ip_range.network_string = self.windows_host_ip_info.windows_host_ip
+            yield rx.toast.success("Retrieved Windows Host IP")
+        except Exception as e:
+            logger.debug(f"There was an error getting local ip info {e}")

@@ -6,6 +6,7 @@ from ..backend.models import AgentType, HostEntry, PlatformDefinition, \
     PlatformDeploymentStatus, CreateAgentRequest, ToolRequest, ToolStatusResponse, \
     BACnetReadDeviceAllRequest, BACnetDevice, BACnetReadPropertyRequest, BACnetScanResults, \
     BACnetWritePropertyRequest
+from ..models import WindowsHostIPModel, LocalIPModel
 from rxconfig import config
 
 API_BASE_URL = f"{config.api_url}"
@@ -182,12 +183,14 @@ async def tool_status(tool_name: str) -> ToolStatusResponse:
     """Get a tool's status."""
     return await get_request(f"{API_BASE_URL}{MANAGE_TOOLS_PREFIX}/tool_status/{tool_name}")
 
-async def get_bacnet_local_ip(target_ip: str = None) -> dict[str, str]:
+@with_model(LocalIPModel)
+async def get_bacnet_local_ip(target_ip: str = None) -> LocalIPModel:
     """Get local IP address for BACnet communication."""
-    params = {"target_ip": target_ip} if target_ip else None
+    params = {"target_ip": target_ip}
     return await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/get_local_ip", "GET", params=params)
 
-async def get_windows_host_ip() -> dict[str, str]:
+@with_model(WindowsHostIPModel)
+async def get_windows_host_ip() -> WindowsHostIPModel:
     """Get Windows host IP address for WSL2 users."""
     return await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/get_windows_host_ip", "GET")
 

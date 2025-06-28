@@ -1,5 +1,5 @@
 import reflex as rx
-from ..state import BacnetScanState
+from ..state import BacnetScanState, ToolState
 from ..components.form_components import form_entry
 from ..layouts import app_layout_sidebar
 
@@ -612,35 +612,57 @@ def proxy_down_warning() -> rx.Component:
     )
 
 def render() -> rx.Component:
-    return rx.box(
-        # Full page wrapper with scrolling
+    return (
         rx.box(
-            # Centered content container
-            rx.vstack(
-                bacnet_scan_tool_header(),
-                proxy_down_warning(),
-                bacnet_networking_grid(),
-                bacnet_device_and_property_grid(),
-                footer(),
-                spacing="6",
-                align_items="stretch",
+            # Full page wrapper with scrolling
+            rx.box(
+                # Centered content container
+                rx.vstack(
+                    rx.cond(
+                        ToolState.running_tools.contains("bacnet_scan_tool") == False,
+                        rx.fragment(
+                            rx.grid(
+                                rx.skeleton(width="100%"),
+                                rx.skeleton(width="100%"),
+                                spacing="6",
+                                width="100%",
+                                columns={ "base": "1", "md": "2" }
+                            ),
+                            rx.grid(
+                                rx.skeleton(width="100%"),
+                                rx.skeleton(width="100%"),
+                                rx.skeleton(width="100%"),
+                                spacing="6",
+                                width="100%",
+                                columns={ "base": "1", "md": "3" }      
+                            )
+                        ),
+                        rx.fragment(
+                            bacnet_scan_tool_header(),
+                            proxy_down_warning(),
+                            bacnet_networking_grid(),
+                            bacnet_device_and_property_grid(),
+                            footer(),
+                        ),
+                    ),
+                    spacing="6",
+                    align_items="stretch",
+                ),
+                max_width="1200px",
+                margin_left="auto",
+                margin_right="auto",
+                padding_y="1.5rem",
             ),
-            max_width="1200px",
-            margin_left="auto",
-            margin_right="auto",
-            padding_y="1.5rem",
+            height="100vh",  # Full viewport height
+            width="100%",    # Full width
+            overflow_y="auto", # Scrolling applied to full width
+            padding_x="16px"
         ),
-        height="100vh",  # Full viewport height
-        width="100%",    # Full width
-        overflow_y="auto", # Scrolling applied to full width
-        padding_x="16px"
+
     )
 
-@rx.page(
-    route="/tools/bacnet_scan"
-    # TODO add this once we implement the backend tools structure
-    #on_load=lambda: ToolState.start_tool("bacnet_scan_tool")
-    )
+
+@rx.page(route="/tools/bacnet_scan", on_load=ToolState.start_tool("bacnet_scan_tool"))
 def bacnet_scan_page() -> rx.Component:
     return app_layout_sidebar.app_layout_sidebar(
         render()

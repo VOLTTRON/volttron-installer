@@ -49,7 +49,7 @@ class ToolRequest(BaseModel):
 class ToolStatusResponse(BaseModel):
     tool_name: str
     tool_running: bool
-    port: int
+    port: int | None
 
 class ReachableResponse(BaseModel):
     reachable: bool = True

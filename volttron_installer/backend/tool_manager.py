@@ -131,7 +131,8 @@ class ToolManager:
                     stderr=subprocess.PIPE,
                     text=True,
                     cwd=cwd,
-                    env=env
+                    env=env,
+                    bufsize=1
                 )
                 
                 # Store the process and port
@@ -142,18 +143,31 @@ class ToolManager:
                 cls.record_tool_access(tool_name)
                 
                 # Print output for debugging
-                def log_output():
-                    for line in process.stdout:
-                        logger.debug(f"[{tool_name}] {line.strip()}")
-                    for line in process.stderr:
-                        logger.debug(f"[{tool_name} ERROR] {line.strip()}")
+                def log_output(pipe, prefix):
+                    for line in iter(pipe.readline, ''):
+                        if not line:
+                            break
+                        logger.debug(f"[{tool_name}{prefix}] {line.strip()}")
                 
                 # Start output logging thread
-                output_thread = threading.Thread(target=log_output, daemon=True)
-                output_thread.start()
-                
+                stdout_thread = threading.Thread(
+                    target=log_output, 
+                    args=(process.stdout, ""), 
+                    daemon=True
+                )
+                stderr_thread = threading.Thread(
+                    target=log_output, 
+                    args=(process.stderr, " ERROR"),
+                    daemon=True
+                )
+
+                stdout_thread.start()
+                stderr_thread.start()
                 # Monitor process and clean up when it exits
                 process.wait()
+                
+                stdout_thread.join(timeout=2)
+                stderr_thread.join(timeout=2)
                 
                 # Process has exited, clean up
                 if tool_name in cls._tool_processes and cls._tool_processes[tool_name] == process:

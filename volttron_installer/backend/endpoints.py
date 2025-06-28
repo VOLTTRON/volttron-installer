@@ -511,13 +511,18 @@ async def stop_tool(tool_name: str):
 async def tool_status(tool_name: str):
     """Check if a specific tool is running."""
     is_running = ToolManager.is_tool_running(tool_name)
-    port = ToolManager.get_tool_port(tool_name) if is_running else None
-    
-    return ToolStatusResponse(**{
-        "tool_name": tool_name,
-        "running": is_running,
-        "port": port
-    })
+    if is_running:
+        port = ToolManager.get_tool_port(tool_name) if is_running else None
+        return ToolStatusResponse(
+            tool_name= tool_name,
+            tool_running=is_running,
+            port=port
+        )
+    return ToolStatusResponse(
+        tool_name= tool_name,
+        tool_running=is_running,
+        port=None
+    )
 
 
 
