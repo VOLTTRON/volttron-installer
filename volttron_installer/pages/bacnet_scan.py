@@ -43,7 +43,7 @@ def scan_for_devices_card():
                     rx.icon("search", size=16)
                 ),
                 rx.text("Scan for Devices"),
-                on_click=BacnetScanState.handle_bacnet_scan,
+                on_click=BacnetScanState.handle_scan_ip_range,
                 disabled=rx.cond(
                     (BacnetScanState.proxy_up == False) |
                     (BacnetScanState.scanning_bacnet_range),

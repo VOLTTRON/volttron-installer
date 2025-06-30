@@ -1608,7 +1608,6 @@ class BacnetScanState(rx.State):
     def handle_proxy_field_edit(self, value: str):
         self.proxy_field_value = value 
 
-
     @rx.event
     def set_selected_property_tab(self, tab: str):
         """Update the selected property tab."""
@@ -1822,14 +1821,17 @@ class BacnetScanState(rx.State):
         if not self.proxy_up:
             yield rx.toast.error("Proxy must be started first.")
             return
-            
+        self.scanning_bacnet_range = True
         yield rx.toast.info(f"Scanning network: {self.scan_ip_range.network_string}")
         
-        # TODO: Implement actual scan logic here
-        import asyncio
-        await asyncio.sleep(2)
+        try:
+            scan_results: BACnetScanResults = await scan_bacnet_ip_range(self.scan_ip_range.network_string)
+            logger.debug(f"this is our scan results: {scan_results}")
+            yield rx.toast.success("IP Range scan completed.")
+        except Exception as e:
+            logger.debug(f"An error occured running scan: {e}")
         
-        yield rx.toast.success("IP Range scan completed.")
+        self.scanning_bacnet_range = False
     
     @rx.event
     async def handle_ping_ip(self):
