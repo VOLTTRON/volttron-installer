@@ -25,6 +25,24 @@ def scan_for_devices_card():
                     value=BacnetScanState.scan_ip_range.network_string,
                     on_change=BacnetScanState.scan_ip_range_input,
                 ),
+                # TODO tie this to a rx.cond, if contains '/' make sure network can sustain pings
+                # of the entire range 
+                rx.callout(
+                    "Make sure this network can sustain pings of the entire range",
+                    icon="triangle-alert",
+                    size="1",
+                    color_scheme="orange",
+                    role="alert",
+                    align="center"
+                ),
+                rx.text(
+                    "Be sure this network can sustain pings of the entire range",
+                    size="1",
+                    color="#ffa057",
+                    padding="8px 12px",
+                    border_radius="6px",
+                    background_color="#fe84389d"
+                ),
                 rx.text(
                     "Use the network information from Step 2 or enter manually",
                     size="1",
@@ -367,7 +385,7 @@ def network_information_card() -> rx.Component:
                 rx.text("Network Information", as_="label", html_for="local-ip"),
                 rx.cond(
                     BacnetScanState.ip_detection_mode=="",
-                    rx.text("Click one of the buttons to retrieve specific network information", size="2", color="gray"),
+                    rx.text("Click the button to retrieve specific network information", size="2", color="gray"),
                     rx.cond(
                         BacnetScanState.pinging_ip,
                         rx.hstack(
@@ -407,22 +425,22 @@ def network_information_card() -> rx.Component:
             margin_bottom="0.8rem"
         ),
         rx.hstack(  # CardFooter
-            rx.button(
-                rx.cond(
-                    (BacnetScanState.ip_detection_mode=="local_ip") & 
-                    (BacnetScanState.pinging_ip),
-                    rx.spinner(),    
-                    rx.icon("wifi", size=16),
-                ),
-                rx.text("Get Local IP"),
-                on_click=lambda: BacnetScanState.set_ip_detection_mode("local_ip"),
-                disabled=rx.cond(
-                    (BacnetScanState.pinging_ip) | (BacnetScanState.proxy_up == False),
-                    True,
-                    False
-                ),
-                variant="solid"
-            ),
+            # rx.button(
+            #     rx.cond(
+            #         (BacnetScanState.ip_detection_mode=="local_ip") & 
+            #         (BacnetScanState.pinging_ip),
+            #         rx.spinner(),    
+            #         rx.icon("wifi", size=16),
+            #     ),
+            #     rx.text("Get Local IP"),
+            #     on_click=lambda: BacnetScanState.set_ip_detection_mode("local_ip"),
+            #     disabled=rx.cond(
+            #         (BacnetScanState.pinging_ip) | (BacnetScanState.proxy_up == False),
+            #         True,
+            #         False
+            #     ),
+            #     variant="solid"
+            # ),
             rx.button(
                 rx.cond(
                     (BacnetScanState.ip_detection_mode=="windows_host_ip") & 
@@ -437,7 +455,9 @@ def network_information_card() -> rx.Component:
                     True,
                     False
                 ),
-                variant="solid"
+                variant="solid",
+                width="100%",
+                justify="center",
             ),
             justify="between",
             width="100%"
