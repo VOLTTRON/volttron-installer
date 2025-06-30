@@ -512,7 +512,7 @@ def configuration_tab_content() -> rx.Component:
                         ),
                         rx.dialog.content(
                             rx.dialog.title("Password Required"),
-                            rx.dialog.description("To deploy, please provide your password"),
+                            rx.dialog.description("To deploy, please provide your ssh password"),
                             rx.vstack(
                                 rx.vstack(
                                     form_entry.form_entry(
