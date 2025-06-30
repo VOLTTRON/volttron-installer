@@ -68,26 +68,23 @@ class ToolState(rx.State):
 
     # Computed var to make sure we are accessing running tool
     @rx.var
-    async def running_tools(self) -> dict[str, bool]:
-        # for k, v in self._running_tools.items():
-        #     status = await tool_status(k)
-        #     self._running_tools[k] = status.tool_running
+    def running_tools(self) -> dict[str, bool]:
         return self._running_tools
 
     @rx.event(background=True)
-    async def monitor_tool_status(self, tool_id: str):
-        """Keep checking the tool status and restart if necessary."""
+    async def monitor_all_tools(self):
         while True:
-            await asyncio.sleep(5)  # Check every 5 seconds
-            status = await tool_status(tool_id)
-            if not status.tool_running:
-                logger.debug(f"Tool {tool_id} exited, restarting...")
-                config = self.tool_configs[tool_id]
-                await start_tool(config)
-
+            await asyncio.sleep(5)
+            async with self:
+                for tool_id in self.tool_configs:
+                    try:
+                        status = await tool_status(tool_id)
+                        self._running_tools[tool_id] = status.tool_running
+                    except Exception as e:
+                        self._running_tools[tool_id] = False
 
     @rx.event
-    async def start_tool(self, tool_id: str) -> None:
+    async def start_tool(self, tool_id: str):
         """Start a specific tool service."""
         logger.debug(f"starting tool : {tool_id}")
         if tool_id not in self.tool_configs:
@@ -127,6 +124,8 @@ class ToolState(rx.State):
             return
         
         # Check if it's running
+        # if not self.is_tool_running(tool_id):
+        #     self._running_tools[tool_id] = False
         if not self._running_tools.get(tool_id, False):
             logger.debug("tool is already not running")
             return
@@ -159,7 +158,14 @@ class ToolState(rx.State):
         except Exception as e:
             logger.debug(f"Error checking tool status: {str(e)}")
 
-
+    @classmethod
+    async def is_tool_running(self, tool_name: str) -> bool:
+        try:
+            response: ToolStatusResponse = await tool_status(tool_name)
+            return response.tool_running
+        except Exception as e:
+            logger.debug(f"There was an error checking the tool status for `{tool_name}: {e}`")
+            return False
 
 settings = get_settings()
 
@@ -1870,7 +1876,7 @@ class BacnetScanState(rx.State):
     async def handle_get_local_ip(self):
         try:
             self.local_ip_info = await get_bacnet_local_ip(self.local_ip_info)
-            self.scan_ip_range.network_string = self.local_ip_info.local_ip
+            self.scan_ip_range.network_string = self.local_ip_info.cidr
             yield rx.toast.success("Retrieved Local Host IP")
         except Exception as e:
             logger.debug(f"There was an error getting local ip info {e}")

@@ -22,47 +22,58 @@ class ToolManager:
     @classmethod
     def is_tool_running(cls, tool_name: str) -> bool:
         """Check if a specific tool is currently running."""
-        if tool_name not in cls._tool_processes:
+        normalized_name = cls._normalize_tool_name(tool_name)
+        if normalized_name not in cls._tool_processes:
             return False
             
-        process = cls._tool_processes[tool_name]
+        process = cls._tool_processes[normalized_name]
         return process.poll() is None  # None means process is still running
     
     @classmethod
     def get_tool_port(cls, tool_name: str) -> Optional[int]:
         """Get the port a tool is running on."""
-        return cls._tool_ports.get(tool_name)
+        normalized_name = cls._normalize_tool_name(tool_name)
+        return cls._tool_ports.get(normalized_name)
     
     @classmethod
     def record_tool_access(cls, tool_name: str) -> None:
         """Record that a tool was accessed."""
-        if tool_name in cls._tool_processes:
-            cls._tool_last_access[tool_name] = time.time()
+        normalized_name = cls._normalize_tool_name(tool_name)
+        if normalized_name in cls._tool_processes:
+            cls._tool_last_access[normalized_name] = time.time()
             logger.debug(f"Tool access recorded: {tool_name} at {datetime.now().strftime('%H:%M:%S')}")
-    
+
+    @classmethod
+    def _normalize_tool_name(cls, name):
+        """Normalize tool names to avoid case/format mismatches"""
+        return str(name).lower().replace(" ", "_")
+
     @classmethod
     def start_tool_service(cls, 
-                          tool_name: str,
-                          module_path: str, 
-                          port: int = None, 
-                          use_poetry: bool = False,
-                          poetry_project_path: str = None) -> dict:
+                        tool_name: str,
+                        module_path: str, 
+                        port: int = None, 
+                        use_poetry: bool = False,
+                        poetry_project_path: str = None) -> dict:
         """
         Start a tool service on-demand.
         
         Returns:
             dict: Status information including success, port, and any error message
         """
+        # Normalize the tool name for consistent lookups
+        normalized_name = cls._normalize_tool_name(tool_name)
+        
         # Start inactivity monitor if not already running
         if not cls._inactivity_monitor_running:
             cls._start_inactivity_monitor()
         
         # If already running, record access and return the current port
-        if cls.is_tool_running(tool_name):
-            cls.record_tool_access(tool_name)
+        if cls.is_tool_running(normalized_name):
+            cls.record_tool_access(normalized_name)
             return {
                 "success": True,
-                "port": cls._tool_ports[tool_name],
+                "port": cls._tool_ports[normalized_name],
                 "message": f"Tool '{tool_name}' is already running"
             }
         
@@ -135,12 +146,12 @@ class ToolManager:
                     bufsize=1
                 )
                 
-                # Store the process and port
-                cls._tool_processes[tool_name] = process
-                cls._tool_ports[tool_name] = port
+                # Store the process and port using normalized name
+                cls._tool_processes[normalized_name] = process
+                cls._tool_ports[normalized_name] = port
                 
                 # Record initial access time
-                cls.record_tool_access(tool_name)
+                cls.record_tool_access(normalized_name)
                 
                 # Print output for debugging
                 def log_output(pipe, prefix):
@@ -160,7 +171,6 @@ class ToolManager:
                     args=(process.stderr, " ERROR"),
                     daemon=True
                 )
-
                 stdout_thread.start()
                 stderr_thread.start()
                 # Monitor process and clean up when it exits
@@ -170,12 +180,12 @@ class ToolManager:
                 stderr_thread.join(timeout=2)
                 
                 # Process has exited, clean up
-                if tool_name in cls._tool_processes and cls._tool_processes[tool_name] == process:
-                    del cls._tool_processes[tool_name]
-                    if tool_name in cls._tool_ports:
-                        del cls._tool_ports[tool_name]
-                    if tool_name in cls._tool_last_access:
-                        del cls._tool_last_access[tool_name]
+                if normalized_name in cls._tool_processes and cls._tool_processes[normalized_name] == process:
+                    del cls._tool_processes[normalized_name]
+                    if normalized_name in cls._tool_ports:
+                        del cls._tool_ports[normalized_name]
+                    if normalized_name in cls._tool_last_access:
+                        del cls._tool_last_access[normalized_name]
                     
                     logger.debug(f"Tool service '{tool_name}' has stopped")
                     
@@ -192,9 +202,11 @@ class ToolManager:
         time.sleep(2)
         
         # Check if the process is running
-        if cls.is_tool_running(tool_name):
+        if cls.is_tool_running(normalized_name):
+            # Debug info to help troubleshoot
+            logger.debug(f"Tool processes dictionary keys: {list(cls._tool_processes.keys())}")
+            logger.debug(f"Is tool '{normalized_name}' running? {cls.is_tool_running(normalized_name)}")
             
-            logger.debug(cls._tool_processes)
             return {
                 "success": True,
                 "port": port,
@@ -205,7 +217,7 @@ class ToolManager:
                 "success": False,
                 "message": f"Failed to start tool '{tool_name}'"
             }
-
+        
     @classmethod
     def stop_tool_service(cls, tool_name: str) -> dict:
         """
@@ -215,12 +227,13 @@ class ToolManager:
             dict: Status information including success and any message
         """
         from loguru import logger
-        
-        if tool_name not in cls._tool_processes:
-            return {"success": False, "message": f"Tool '{tool_name}' is not running"}
+        normalized_name = cls._normalize_tool_name(tool_name)
+
+        if normalized_name not in cls._tool_processes:
+            return {"success": False, "message": f"Tool '{normalized_name}' is not running"}
         
         try:
-            process = cls._tool_processes[tool_name]
+            process = cls._tool_processes[normalized_name]
             process.terminate()
             
             # Wait a moment for graceful shutdown
@@ -239,20 +252,20 @@ class ToolManager:
             # Clean up
             # Usually this check wont go through because when we kill the process, the function run_service() detects,
             # that we ended the process and will clean up there.
-            if tool_name in cls._tool_processes:
+            if normalized_name in cls._tool_processes:
                 # If not, we'll do it here
-                logger.debug(f"Cleaning up tool in stop_tool_service: {tool_name}")
-                del cls._tool_processes[tool_name]
-                if tool_name in cls._tool_ports:
-                    del cls._tool_ports[tool_name]
-                if tool_name in cls._tool_last_access:
-                    del cls._tool_last_access[tool_name]
+                logger.debug(f"Cleaning up tool in stop_tool_service: {normalized_name}")
+                del cls._tool_processes[normalized_name]
+                if normalized_name in cls._tool_ports:
+                    del cls._tool_ports[normalized_name]
+                if normalized_name in cls._tool_last_access:
+                    del cls._tool_last_access[normalized_name]
                 
             logger.debug(f"After cleanup: _tool_processes: {list(cls._tool_processes.keys())}")
-            return {"success": True, "message": f"Stopped tool '{tool_name}'"}
+            return {"success": True, "message": f"Stopped tool '{normalized_name}'"}
         except Exception as e:
-            logger.exception(f"Exception when stopping tool '{tool_name}'")
-            return {"success": False, "message": f"Error stopping tool '{tool_name}': {str(e)}"}
+            logger.exception(f"Exception when stopping tool '{normalized_name}'")
+            return {"success": False, "message": f"Error stopping tool '{normalized_name}': {str(e)}"}
     
     @classmethod
     def stop_all_tools(cls):
