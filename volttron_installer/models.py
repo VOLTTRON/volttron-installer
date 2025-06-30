@@ -9,6 +9,7 @@ class Instance(rx.Base):
     platform: PlatformModelView
 
     web_bind_address: str = "http://127.0.0.1:8080"
+    password: str = ""
 
     safe_host_entry: dict = {}
     uncaught: bool = False

@@ -484,30 +484,74 @@ def configuration_tab_content() -> rx.Component:
                         color_scheme="green",
                         on_click=lambda: State.handle_save(),
                         disabled=rx.cond(
-                                (State.instance_savable)
-                                & (State.instance_uncaught),
-                                # (working_platform.uncaught),
-                                False,
-                                True
-                            )
+                            (State.instance_savable)
+                            & (State.instance_uncaught),
+                            # (working_platform.uncaught),
+                            False,
+                            True
+                        )
+                    ),
+                    rx.dialog.root(
+                        rx.dialog.trigger(
+                            rx.button(
+                                rx.cond(
+                                    State.platform_deployed,
+                                    "Re-Deploy",
+                                    "Deploy"
+                                ), 
+                                size="4", 
+                                variant="surface", 
+                                color_scheme="blue",
+                                disabled=rx.cond(
+                                    (State.instance_uncaught == False)
+                                    & (State.instance_deployable==True),
+                                    False,
+                                    True
+                                )
+                            ),
                         ),
-                    rx.button(
-                        rx.cond(
-                            State.platform_deployed,
-                            "Re-Deploy",
-                            "Deploy"
-                        ), 
-                        size="4", 
-                        variant="surface", 
-                        color_scheme="blue",
-                        on_click=lambda: State.handle_deploy(),
-                        disabled=rx.cond(
-                                (working_platform.uncaught == False)
-                                & (working_platform.valid==True),
-                                False,
-                                True
+                        rx.dialog.content(
+                            rx.dialog.title("Password Required"),
+                            rx.dialog.description("To deploy, please provide your password"),
+                            rx.vstack(
+                                rx.vstack(
+                                    form_entry.form_entry(
+                                        "Password",
+                                        rx.input(
+                                            on_change=State.update_password_field,
+                                            value=State.password_field
+                                        ),
+                                        required_entry=True
+                                    ),
+                                    align="center",
+                                    justify="center"
+                                ),
+                                rx.hstack(
+                                    rx.dialog.close(
+                                        rx.button(
+                                            "Cancel",
+                                            variant="soft",
+                                            color_scheme="gray",
+                                        )
+                                    ),
+                                    rx.button(
+                                        "Submit",
+                                        on_click=lambda: State.handle_deploy(),
+                                        disabled=rx.cond(
+                                            State.password_field=="",
+                                            True,
+                                            False
+                                        )
+                                    ),
+                                    spacing="3",
+                                    justify="end",
+                                ),
+                                width="100%",
+                                padding_top="1rem",
+                                spacing="6"
                             )
-                        ),
+                        )
+                    ),
                     rx.button(
                             "Cancel", 
                             size="4", 
@@ -560,4 +604,3 @@ def agent_config_tile(text, left_component: rx.Component = False, right_componen
         spacing="2",
         align="center",
     )
-

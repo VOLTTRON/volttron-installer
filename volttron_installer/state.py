@@ -242,6 +242,15 @@ class PlatformPageState(rx.State):
 
     # === vars for platform details ===
     @rx.var
+    def password_field(self) -> str:
+        if self.current_uid == "":
+            return ""
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return ""
+        return working_platform.password
+
+    @rx.var
     def platform_deployed(self) -> bool:
         if self.current_uid == "":
             return False
@@ -368,7 +377,12 @@ class PlatformPageState(rx.State):
     
     @rx.var
     def instance_deployable(self) -> bool:
-        return True
+        if self.current_uid == "":
+            return False
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.check_instance_deployable(working_platform)
     # === end of instance validation bars ===
 
     # Events
@@ -546,6 +560,11 @@ class PlatformPageState(rx.State):
         working_platform.federation_checked = not working_platform.federation_checked
 
     @rx.event
+    def update_password_field(self, value: str):
+        working_platform_instance = self.platforms[self.current_uid]
+        working_platform_instance.password = value
+
+    @rx.event
     def update_detail(self, field: str, value):
         working_platform_instance = self.platforms[self.current_uid]
         if field == "id":
@@ -565,13 +584,14 @@ class PlatformPageState(rx.State):
     @rx.event
     async def handle_deploy(self):
         working_platform: Instance = self.platforms[self.current_uid]
-
-        if working_platform.uncaught != False and working_platform.valid:
-            working_platform.safe_host_entry = working_platform.host.to_dict()
-            working_platform.uncaught = False
-            await deploy_platform(working_platform.platform.config.instance_name)
+        try:
+            response = await deploy_platform(working_platform.platform.config.instance_name, working_platform.password)
+            logger.debug(f"response: {response.json()}")
             yield rx.toast.success("Deployed Successfully!")
-     
+        except Exception as e:
+            logger.debug(f"there was an error deploying platform {working_platform.platform.config.instance_name}. e: {e}")
+            yield rx.toast.error(f"There was an error deploying platform: {working_platform.platform.config.instance_name}")
+
     @rx.event
     async def handle_save(self):
         working_platform: Instance = self.platforms[self.current_uid]
@@ -729,6 +749,9 @@ class PlatformPageState(rx.State):
             savable = False
 
         return savable
+
+    def check_instance_deployable(self, working_platform: Instance) -> bool:
+        return True if self.check_instance_uncaught(working_platform) == False and working_platform.new_instance == False else False
 
     def connection_validity(self, working_platform: Instance) -> tuple[bool, dict[str, bool]]:
         valid = True
