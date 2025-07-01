@@ -518,6 +518,7 @@ def configuration_tab_content() -> rx.Component:
                                     form_entry.form_entry(
                                         "Password",
                                         rx.input(
+                                            type="password",
                                             on_change=State.update_password_field,
                                             value=State.password_field
                                         ),
