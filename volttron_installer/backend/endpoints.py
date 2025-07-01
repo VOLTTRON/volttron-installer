@@ -587,7 +587,8 @@ async def bacnet_scan_scan_ip_range(network_str: str) -> dict[str, str]:
         response = await ToolProxyFactory.request(
             url,
             "POST",
-            data=REQUEST
+            data=REQUEST,
+            timeout=600.0
         )
         data = response.json()
         return BACnetScanResults(

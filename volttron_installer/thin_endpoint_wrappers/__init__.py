@@ -220,7 +220,7 @@ async def scan_bacnet_ip_range(network_str: str) -> BACnetScanResults:
     return await proxy_request(
         f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/bacnet/scan_ip_range",
         "POST",
-        timeout=15.0,
+        timeout=600.0,
         params={"network_str": network_str}
     )
 

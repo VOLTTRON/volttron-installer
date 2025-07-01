@@ -77,7 +77,7 @@ async def proxy_to_tool(request: Request, tool_name: str, path: str):
     content = await request.body()
     
     # Create client
-    client = httpx.AsyncClient()
+    client = httpx.AsyncClient(timeout=300.0)  # 5 minutes
     async def close_client():
         await client.aclose()
         
@@ -99,6 +99,19 @@ async def proxy_to_tool(request: Request, tool_name: str, path: str):
             headers=dict(response.headers),
             background=BackgroundTask(close_client)
         )
+    except httpx.TimeoutException as e:
+        await client.aclose()
+        raise HTTPException(
+            status_code=504,  # Gateway Timeout is more appropriate for timeouts
+            detail=f"The operation timed out. {target_url} method may take longer than the allowed request time."
+        )
     except Exception as e:
+        import traceback
+        from loguru import logger
+        logger.debug(f"Error details: {str(e)}")
+        logger.debug(f"Target URL: {target_url}")
+        logger.debug(f"Request method: {request.method}")
+        logger.debug(f"Content: {content}")
+        logger.debug(traceback.format_exc())
         await client.aclose()
         raise HTTPException(status_code=500, detail=f"Error proxying to tool: {str(e)}")
