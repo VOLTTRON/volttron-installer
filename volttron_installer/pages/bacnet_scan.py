@@ -27,21 +27,16 @@ def scan_for_devices_card():
                 ),
                 # TODO tie this to a rx.cond, if contains '/' make sure network can sustain pings
                 # of the entire range 
-                rx.callout(
-                    "Make sure this network can sustain pings of the entire range",
-                    icon="triangle-alert",
-                    size="1",
-                    color_scheme="orange",
-                    role="alert",
-                    align="center"
-                ),
-                rx.text(
-                    "Be sure this network can sustain pings of the entire range",
-                    size="1",
-                    color="#ffa057",
-                    padding="8px 12px",
-                    border_radius="6px",
-                    background_color="#fe84389d"
+                rx.cond(
+                    BacnetScanState.warn_ping_range,
+                    rx.text(
+                        "Be sure this network can sustain pings of the entire range",
+                        size="1",
+                        color="#ffa057",
+                        padding="8px 12px",
+                        border_radius="6px",
+                        background_color="#66350c63"
+                    )
                 ),
                 rx.text(
                     "Use the network information from Step 2 or enter manually",
@@ -412,7 +407,7 @@ def network_information_card() -> rx.Component:
                                 ),
                                 # Windows Host IP info
                                 rx.fragment(
-                                    rx.text("Windows Host IP"),
+                                    rx.text("Host IP"),
                                     rx.text(BacnetScanState.windows_host_ip_info.windows_host_ip),
                                 )
                             ),
@@ -448,7 +443,7 @@ def network_information_card() -> rx.Component:
                     rx.spinner(),
                     rx.icon("settings", size=16),
                 ),
-                rx.text("Get Windows Host IP"),
+                rx.text("Get Host IP"),
                 on_click=lambda: BacnetScanState.set_ip_detection_mode("windows_host_ip"),
                 disabled=rx.cond(
                     (BacnetScanState.pinging_ip) | (BacnetScanState.proxy_up == False),
@@ -490,8 +485,8 @@ def bacnet_proxy_card():
                     id="local_ip",
                     placeholder="Auto-detect (recommended)",
                     width="100%",
-                    disabled=rx.cond(
-                            (BacnetScanState.proxy_up) | (BacnetScanState.is_starting_proxy),
+                    read_only=rx.cond(
+                            BacnetScanState.proxy_up,
                             True,
                             False
                         ),

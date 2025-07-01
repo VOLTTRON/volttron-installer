@@ -1547,6 +1547,7 @@ class BacnetScanState(rx.State):
     pinging_ip: bool = False
     _is_write_property_valid: bool = False
     _is_read_property_valid: bool = False
+    _warn_ping_range: bool = False
     
     # Fields
     proxy_field_value: str = ""
@@ -1575,7 +1576,12 @@ class BacnetScanState(rx.State):
         )
 
 
-    # Computed Vars    
+    # Computed Vars
+    @rx.var
+    def warn_ping_range(self) -> bool: 
+        self._warn_ping_range = "/" in self.scan_ip_range.network_string
+        return self._warn_ping_range
+
     @rx.var
     def has_devices(self) -> bool:
         """Check if any devices have been discovered."""
@@ -1887,7 +1893,7 @@ class BacnetScanState(rx.State):
     async def handle_get_windows_host_ip(self):
         try:
             self.windows_host_ip_info = await get_windows_host_ip()
-            self.scan_ip_range.network_string = self.windows_host_ip_info.windows_host_ip
-            yield rx.toast.success("Retrieved Windows Host IP")
+            self.scan_ip_range.network_string = self.windows_host_ip_info.windows_host_ip.rsplit('.', 1)[0] + ".0/24" # Split at the last period, max 1 split. tack it off with cidr range
+            yield rx.toast.success("Retrieved Host IP")
         except Exception as e:
             logger.debug(f"There was an error getting local ip info {e}")
