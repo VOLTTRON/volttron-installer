@@ -254,7 +254,10 @@ class PlatformPageState(rx.State):
     def platform_deployed(self) -> bool:
         if self.current_uid == "":
             return False
-        return False
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return ""
+        return working_platform.deployed
 
     # === end of platform detail vars ===
 
@@ -586,6 +589,7 @@ class PlatformPageState(rx.State):
         working_platform: Instance = self.platforms[self.current_uid]
         try:
             response = await deploy_platform(working_platform.platform.config.instance_name, working_platform.password)
+            working_platform.deployed = True
             logger.debug(f"response: {response.json()}")
             yield rx.toast.success("Deployed Successfully!")
         except Exception as e:
