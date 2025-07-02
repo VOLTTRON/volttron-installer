@@ -9,6 +9,7 @@ class Instance(rx.Base):
     platform: PlatformModelView
 
     web_bind_address: str = "http://127.0.0.1:8080"
+    password: str = ""
 
     safe_host_entry: dict = {}
     uncaught: bool = False
@@ -21,6 +22,7 @@ class Instance(rx.Base):
     agent_configuration_expanded: bool = False
 
     new_instance: bool = True
+    deployed: bool = False
 
     def has_uncaught_changes(self) -> bool:
         return self.host.to_dict() != self.safe_host_entry
@@ -42,6 +44,8 @@ class Instance(rx.Base):
         """
         self.new_instance = True
         self.platform.in_file = False
+        self.deployed = False
+        self.password = ""
         for agent in self.platform.agents.values():
             agent.in_file = False
             agent.selected_config_component_id = ""

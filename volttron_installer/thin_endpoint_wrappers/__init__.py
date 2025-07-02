@@ -1,5 +1,5 @@
 import httpx, asyncio
-from typing import Any, Optional, TypeVar, Type, Union, List, Dict
+from typing import Any, Literal, Optional, TypeVar, Type, Union, List, Dict
 
 from ..backend.models import AgentType, HostEntry, PlatformDefinition, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ReachableResponse, \
@@ -109,6 +109,24 @@ async def delete_request(url: str, params: Optional[dict[str, Any]] = None,
         except Exception as e:
             raise ApiError(500, str(e))
 
+async def request(url: str, method: Literal["POST", "GET", "PUT"] ="", timeout: float = DEFAULT_TIMEOUT, **kwargs) -> httpx.Response:
+    """Send an async POST request to the specified URL with optional JSON data."""
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        try:
+            response = await client.request(
+                    method=method,
+                    url=url, 
+                    **kwargs
+                )
+            response.raise_for_status()
+            return response
+        except httpx.TimeoutException:
+            raise ApiError(408, f"Request timed out connecting to {url}")
+        except httpx.HTTPStatusError as e:
+            raise ApiError(e.response.status_code, e.response.text)
+        except Exception as e:
+            raise ApiError(500, str(e))
+
 # Endpoints.
 # GET requests
 @with_model(HostEntry)
@@ -159,8 +177,8 @@ async def update_agent(platform_id: str, agent_id: str, agent: CreateAgentReques
 async def create_platform(platform: CreatePlatformRequest):
     await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/", data=platform.model_dump())
 
-async def deploy_platform(platform_id: str):
-    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/deploy/{platform_id}")
+async def deploy_platform(platform_id: str, password: str):
+    return await request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/deploy/{platform_id}", "POST", params={"password":password})
 
 async def add_host(host: CreateOrUpdateHostEntryRequest):
     await post_request(f"{API_BASE_URL}{HOSTS_PREFIX}", data=host.model_dump())
