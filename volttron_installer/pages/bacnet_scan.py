@@ -2,6 +2,7 @@ import reflex as rx
 from ..state import BacnetScanState, ToolState
 from ..components.form_components import form_entry
 from ..layouts import app_layout_sidebar
+from ..backend.models import BACnetDevice
 
 def scan_for_devices_card():
     return rx.box(
@@ -115,18 +116,117 @@ def card_with_no_devices():
         padding="1.3rem",
     )
 
-def show_device(device: dict[str, str], index: str) -> rx.Component:
-    return rx.table.row(
-        rx.table.cell(device["name"]),
-        rx.table.cell(device["id"]),
-        rx.table.cell(device["address"]),
-        class_name=rx.cond(
-            BacnetScanState.selected_device["id"] == device["id"],
-            "csv_data_cell active",
-            "csv_data_cell"
-        ),
-        on_click = lambda: BacnetScanState.handle_device_row_click(index)
+# def show_device(device: BACnetDevice, index: str) -> rx.Component:
+#     return rx.table.row(
+#         rx.table.cell(device.object_name),
+#         rx.table.cell(device.deviceIdentifier),
+#         rx.table.cell(device.scanned_ip_target),
+#         class_name=rx.cond(
+#             BacnetScanState.selected_device.object_name == device.object_name,
+#             "csv_data_cell active",
+#             "csv_data_cell"
+#         ),
+#         on_click = lambda: BacnetScanState.handle_device_row_click(index)
+#     )
+
+def true_writable_badge() -> rx.Component:
+    return rx.badge(
+        "TRUE",
+        color_scheme="blue",
+        padding=".25rem .5rem",
+        border_radius=".5rem"
     )
+
+def false_writable_badge() -> rx.Component:
+    return rx.badge(
+        "FALSE",
+        color_scheme="gray",
+        padding=".25rem .5rem",
+        border_radius=".5rem"
+    )
+
+def show_device_point() -> rx.Component:
+    return rx.table.row(
+        rx.table.cell()
+    )
+
+
+def show_device(device: BACnetDevice, index: int) -> rx.Component:
+    return rx.fragment(
+        rx.table.row(
+            rx.table.cell(device.object_name),
+            rx.table.cell(device.deviceIdentifier),
+            rx.table.cell(device.scanned_ip_target),
+            class_name=rx.cond(
+                device.device_instance == BacnetScanState.selected_device.device_instance,
+                "csv_data_cell active",
+                "csv_data_cell"
+            ),
+            on_click=lambda: BacnetScanState.handle_device_row_click(index)
+        ),
+        rx.cond(
+            device.device_instance == BacnetScanState.selected_device.device_instance,
+            rx.table.row(
+                rx.table.cell(
+                    rx.vstack(
+                        rx.text("Device Points", size="1", weight="bold"),
+                        # Add your expanded content here, e.g. a nested table of points
+                        # rx.table(...),
+                        rx.table.root(
+                            rx.table.header(
+                                rx.table.row(
+                                    rx.table.column_header_cell(
+                                        rx.hstack(
+                                            rx.checkbox(),
+                                            rx.text("VOLTTRON Point Name", weight="bold"),
+                                            spacing="4"
+                                        )
+                                    ),
+                                    rx.table.column_header_cell("Writable"),
+                                    rx.table.column_header_cell("Present Value"),
+                                )
+                            ),
+                            rx.table.body(
+                                # TODO move point rendering to a separate component
+                                rx.table.row(
+                                    rx.table.cell(
+                                        rx.hstack(
+                                            rx.checkbox(), 
+                                            rx.text("example point"),
+                                            spacing="4"
+                                        )
+                                    ),
+                                    rx.table.cell(true_writable_badge()),
+                                    rx.table.cell("24.5"),
+                                ),
+                                rx.table.row(
+                                    rx.table.cell(
+                                        rx.hstack(
+                                            rx.checkbox(), 
+                                            rx.text("example point bro"),
+                                            spacing="4"
+                                        )
+                                    ),
+                                    rx.table.cell(false_writable_badge()),
+                                    rx.table.cell("727"),
+                                )
+                            ),
+                            width="100%",
+                            border="1px solid",
+                            border_color="#272727FF",
+                            border_radius=".5rem",
+                        ),
+                        spacing="2",
+                        padding="1em",
+                        border_radius="6px",
+                    ),
+                    background_color="#1B1B1B8B",
+                    col_span=3
+                )
+            )
+        )
+    )
+
 
 def discovered_devices_card() -> rx.Component:
     return rx.box(
@@ -588,10 +688,11 @@ def bacnet_networking_grid() -> rx.Component:
 def bacnet_device_and_property_grid() -> rx.Component:
     return rx.grid(
         discovered_devices_card(),
-        property_operations_card(),
+        # property_operations_card(),
         spacing="6",
         width="100%",
-        columns={ "base": "1", "md": "2" }
+        columns="1"
+        # columns={ "base": "1", "md": "2" }
     )
 
 def bacnet_scan_tool_header() -> rx.Component:

@@ -7,7 +7,7 @@ from .utils.conversion_methods import json_string_to_csv_string, csv_string_to_j
 from .utils.validate_content import check_json, check_csv, check_path, check_yaml, check_regular_expression
 from .utils.create_csv_string import create_csv_string, create_and_validate_csv_string
 from .navigation.state import NavigationState
-from .backend.models import AgentType, HostEntry, PlatformConfig, PlatformDefinition, ConfigStoreEntry, AgentDefinition, CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ToolRequest
+from .backend.models import AgentType, HostEntry, PlatformConfig, PlatformDefinition, ConfigStoreEntry, AgentDefinition, CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ToolRequest, BACnetDevice
 from .utils.create_component_uid import generate_unique_uid
 from .utils.conversion_methods import csv_string_to_usable_dict
 from .utils.validate_content import check_json
@@ -1537,9 +1537,10 @@ class IndexPageState(rx.State):
 
 class BacnetScanState(rx.State):
     selected_property_tab: Literal["read", "write"] = "read"  # Default to "read" tab
-    discovered_devices: list[dict[str, str]] = []  # Store discovered devices
-    selected_device: dict[str, str] | None = None  # Store the currently selected device
+    discovered_devices: list[BACnetDevice] = []  # Store discovered devices
+    selected_device: BACnetDevice | None = None  # Store the currently selected device
     ip_detection_mode: Literal["", "local_ip", "windows_host_ip"] = ""  # "local_ip", "windows_host_ip" or ""
+    expanded_device_index: int = -1
 
     scanning_bacnet_range: bool = False
     is_starting_proxy: bool = False
@@ -1624,11 +1625,14 @@ class BacnetScanState(rx.State):
         """Handle when a device row is clicked."""
         if 0 <= device_index < len(self.discovered_devices):
             selected_device = self.discovered_devices[device_index]
+            if selected_device == self.selected_device:
+                self.selected_device = None
+                return
             self.selected_device = selected_device
             
             # Auto-fill the property operation fields with selected device info
-            device_address = selected_device.get("address", "")
-            device_id = selected_device.get("id", "")
+            device_address = selected_device.scanned_ip_target
+            device_id = selected_device.deviceIdentifier
             
             # Update read property form
             self.read_property.device_address = device_address
@@ -1638,7 +1642,7 @@ class BacnetScanState(rx.State):
             self.write_property.device_address = device_address
             self.write_property.object_identifier = f"{device_id}"
             
-            yield rx.toast.info(f"Selected device: {selected_device.get('name', '')}")
+            yield rx.toast.info(f"Selected device: {selected_device.object_name}")
     
     @rx.event
     def set_ip_detection_mode(self, mode: Literal["windows_host_ip", "local_ip"]):
@@ -1833,6 +1837,7 @@ class BacnetScanState(rx.State):
         try:
             scan_results: BACnetScanResults = await scan_bacnet_ip_range(self.scan_ip_range.network_string)
             logger.debug(f"this is our scan results: {scan_results}")
+            self.discovered_devices = scan_results.devices
             yield rx.toast.success("IP Range scan completed.")
         except:
             import traceback
