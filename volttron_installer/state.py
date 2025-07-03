@@ -1,6 +1,6 @@
 import reflex as rx
 from .settings import get_settings
-from .model_views import AgentModelView, ConfigStoreEntryModelView
+from .model_views import *
 from .utils.create_component_uid import generate_unique_uid
 from .models import *
 from .utils.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
@@ -15,7 +15,6 @@ from .utils.prettify import prettify_json
 from .utils import delete_file
 from loguru import logger
 from typing import Dict, Optional, List
-from .model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
 from .thin_endpoint_wrappers import *
 import string, random, json, csv, yaml, re, io, asyncio
 from copy import deepcopy
@@ -1537,8 +1536,8 @@ class IndexPageState(rx.State):
 
 class BacnetScanState(rx.State):
     selected_property_tab: Literal["read", "write"] = "read"  # Default to "read" tab
-    discovered_devices: list[BACnetDevice] = []  # Store discovered devices
-    selected_device: BACnetDevice | None = None  # Store the currently selected device
+    discovered_devices: list[BACnetDeviceModelView] = []  # Store discovered devices
+    selected_device: BACnetDeviceModelView | None = None  # Store the currently selected device
     ip_detection_mode: Literal["", "local_ip", "windows_host_ip"] = ""  # "local_ip", "windows_host_ip" or ""
     expanded_device_index: int = -1
 
@@ -1836,8 +1835,13 @@ class BacnetScanState(rx.State):
         
         try:
             scan_results: BACnetScanResults = await scan_bacnet_ip_range(self.scan_ip_range.network_string)
+            devices = [
+                BACnetDeviceModelView(
+                **device.model_dump()
+                ) for device in scan_results.devices
+            ]
             logger.debug(f"this is our scan results: {scan_results}")
-            self.discovered_devices = scan_results.devices
+            self.discovered_devices = devices
             yield rx.toast.success("IP Range scan completed.")
         except:
             import traceback

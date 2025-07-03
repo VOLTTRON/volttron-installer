@@ -179,3 +179,13 @@ class PlatformModelView(rx.Base):
             }
         }
     
+class BACnetDeviceModelView(rx.Base):
+    pduSource: str
+    deviceIdentifier: str
+    maxAPDULengthAccepted: int
+    segmentationSupported: str
+    vendorID: int
+    object_name: str
+    scanned_ip_target: str
+    device_instance: int
+    points: list[dict[str, str]] = []

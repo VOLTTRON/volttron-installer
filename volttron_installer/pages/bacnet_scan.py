@@ -2,7 +2,7 @@ import reflex as rx
 from ..state import BacnetScanState, ToolState
 from ..components.form_components import form_entry
 from ..layouts import app_layout_sidebar
-from ..backend.models import BACnetDevice
+from ..model_views import BACnetDeviceModelView
 
 def scan_for_devices_card():
     return rx.box(
@@ -116,19 +116,6 @@ def card_with_no_devices():
         padding="1.3rem",
     )
 
-# def show_device(device: BACnetDevice, index: str) -> rx.Component:
-#     return rx.table.row(
-#         rx.table.cell(device.object_name),
-#         rx.table.cell(device.deviceIdentifier),
-#         rx.table.cell(device.scanned_ip_target),
-#         class_name=rx.cond(
-#             BacnetScanState.selected_device.object_name == device.object_name,
-#             "csv_data_cell active",
-#             "csv_data_cell"
-#         ),
-#         on_click = lambda: BacnetScanState.handle_device_row_click(index)
-#     )
-
 def true_writable_badge() -> rx.Component:
     return rx.badge(
         "TRUE",
@@ -151,7 +138,7 @@ def show_device_point() -> rx.Component:
     )
 
 
-def show_device(device: BACnetDevice, index: int) -> rx.Component:
+def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
     return rx.fragment(
         rx.table.row(
             rx.table.cell(device.object_name),
@@ -165,6 +152,7 @@ def show_device(device: BACnetDevice, index: int) -> rx.Component:
             on_click=lambda: BacnetScanState.handle_device_row_click(index)
         ),
         rx.cond(
+            # TODO have a cond for if there are not points (for whatever--reason may help with debugging tbh)
             device.device_instance == BacnetScanState.selected_device.device_instance,
             rx.table.row(
                 rx.table.cell(
