@@ -238,7 +238,6 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
         )
     )
 
-
 def discovered_devices_card() -> rx.Component:
     return rx.box(
         rx.box(

@@ -130,6 +130,18 @@ async def proxy_request(
                 url=url, 
                 **kwargs
             )
+
+# TODO remove this function as it is a duplicate of proxy_request. this was required to make certain endpoint work when we didnt have some code
+# available
+async def request(url: str, method: Literal["POST", "GET", "PUT"] ="", timeout: float = DEFAULT_TIMEOUT, **kwargs) -> httpx.Response:
+    """Send an async POST request to the specified URL with optional JSON data."""
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        try:
+            response = await client.request(
+                    method=method,
+                    url=url, 
+                    **kwargs
+                )
             response.raise_for_status()
             return response
         except httpx.TimeoutException:
@@ -283,8 +295,8 @@ async def stop_bacnet_proxy() -> dict[str, str]:
 async def create_platform(platform: CreatePlatformRequest):
     await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/", data=platform.model_dump())
 
-async def deploy_platform(platform_id: str):
-    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/deploy/{platform_id}")
+async def deploy_platform(platform_id: str, password: str):
+    return await request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/deploy/{platform_id}", "POST", params={"password":password})
 
 async def add_host(host: CreateOrUpdateHostEntryRequest):
     await post_request(f"{API_BASE_URL}{HOSTS_PREFIX}", data=host.model_dump())
