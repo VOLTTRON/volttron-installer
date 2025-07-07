@@ -224,11 +224,12 @@ async def scan_bacnet_ip_range(network_str: str) -> BACnetScanResults:
         params={"network_str": network_str}
     )
 
-async def read_bacnet_property(request: BACnetReadPropertyRequest) -> dict[str, str]:
+async def read_bacnet_property(request: BACnetReadPropertyRequest, TIMEOUT: float=60.0):
     """Read a property from a BACnet device."""
     response = await proxy_request(
         f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/read_property",
         "POST",
+        timeout=TIMEOUT,
         json=request.model_dump()
     )
     return response.json()
@@ -247,15 +248,18 @@ async def write_bacnet_property(request: BACnetWritePropertyRequest) -> dict[str
 async def read_bacnet_device_all(request: BACnetReadDeviceAllRequest) -> dict:
     """Read all properties from a BACnet device."""
     try:
+        from loguru import logger
+        logger.debug(f'thin endpoint wrapper says: {request.model_dump()}')
         response = await proxy_request(
-            f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/bacnet_scan_tool/bacnet/read_device_all",  # Note: changed to TOOL_PROXY_PREFIX
+            f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/bacnet/read_device_all",
             "POST",
+            timeout=600.0,
             json=request.model_dump()
         )
         return response.json()
     except ApiError as e:
         # Log error but provide a response that won't break client code
-        print(f"Error in read_bacnet_device_all: {e}")
+        logger.debug(f"Error in read_bacnet_device_all: {e}")
         return {"status": "error", "message": str(e), "properties": ""}
 
 async def bacnet_who_is(device_instance_low: int, device_instance_high: int, dest: str) -> dict:

@@ -1564,6 +1564,65 @@ class BacnetScanState(rx.State):
     local_ip_info: LocalIPModel = LocalIPModel()
     windows_host_ip_info: WindowsHostIPModel = WindowsHostIPModel()
 
+    # For bacnet point stuff
+    writable_map = {
+        0: False,  # analog-input
+        1: True,   # analog-output
+        2: False,  # analog-value (temporarily set to False, but these are typically writable)
+        3: False,  # binary-input
+        4: True,   # binary-output
+        5: False,  # binary-value (temporarily set to False, but these are typically writable)
+        6: True,   # calendar
+        7: True,   # command
+        8: False,  # device
+        9: True,   # event-enrollment
+        10: True,  # file
+        11: True,  # group
+        12: True,  # loop
+        13: False, # multi-state-input
+        14: True,  # multi-state-output
+        15: True,  # notification-class
+        16: True,  # program
+        17: True,  # schedule
+        18: False, # averaging
+        19: False, # multi-state-value (temporarily set to False, but these are typically writable)
+        20: False, # trend-log
+        21: False, # life-safety-point
+        22: False, # life-safety-zone
+        23: False, # accumulator
+        24: False, # pulse-converter
+        25: False, # event-log
+        26: True,  # global-group
+        27: False, # trend-log-multiple
+        28: True,  # load-control
+        29: False, # structured-view
+        30: True,  # access-door
+        31: False, # unassigned
+        32: False, # access-credential
+        33: False, # access-point
+        34: True,  # access-rights
+        35: False, # access-user
+        36: False, # access-zone
+        37: False, # credentional-data-input
+        38: False, # network-security (removed)
+        39: False, # bitstring-value (temporarily set to False, but these are typically writable)
+        40: False, # characterstring-value (temporarily set to False, but these are typically writable)
+        41: False, # date-pattern-value (temporarily set to False, but these are typically writable)
+        42: False, # date-value (temporarily set to False, but these are typically writable)
+        43: False, # datetime-pattern-value (temporarily set to False, but these are typically writable)
+        44: False, # datetime-value (temporarily set to False, but these are typically writable)
+        45: False, # integer-value (temporarily set to False, but these are typically writable)
+        46: False, # large-analog-value (temporarily set to False, but these are typically writable)
+        47: False, # octetstring-value (temporarily set to False, but these are typically writable)
+        48: False, # positive-integer-value (temporarily set to False, but these are typically writable)
+        49: False, # time-pattern-value (temporarily set to False, but these are typically writable)
+        50: False, # time-value (temporarily set to False, but these are typically writable)
+        51: True,  # notification-forwarder
+        52: True,  # alert-enrollment
+        53: True,  # channel
+        54: True,  # lighting-output
+    }
+
     # important event, actually spins up the tool when the page loads.
     @rx.event
     async def start_tool(self, value):
@@ -1609,7 +1668,24 @@ class BacnetScanState(rx.State):
         self._is_write_property_valid = True
         return self._is_write_property_valid
 
+    @rx.var
+    def selected_points(self) -> list[BACnetDevicePointModelView]:
+        if self.selected_device is not None:
+            return [point for point in self.selected_device.points]
+        return []
+    
     # Events
+    @rx.event
+    def toggle_select_all_points(self, checked: bool):
+        self.selected_device.select_all_points = checked
+        for point in self.selected_device.points:
+            point.selected=checked
+
+    @rx.event
+    def handle_device_check(self, device_index: int, checked: bool):
+        self.selected_device.select_all_points = False
+        self.selected_device.points[device_index].selected = checked
+
     @rx.event
     def handle_proxy_field_edit(self, value: str):
         self.proxy_field_value = value 
@@ -1835,11 +1911,129 @@ class BacnetScanState(rx.State):
         
         try:
             scan_results: BACnetScanResults = await scan_bacnet_ip_range(self.scan_ip_range.network_string)
+            
+            # Get devices 
             devices = [
                 BACnetDeviceModelView(
-                **device.model_dump()
+                **device.model_dump(),
                 ) for device in scan_results.devices
             ]
+
+            # Read device all on each of our devices[]
+            for device in devices:
+                logger.debug(f"this is our device we are operating on: {device}")
+
+                try:            
+                    res = await read_bacnet_device_all(
+                            BACnetReadDeviceAllRequest(
+                                device_address=device.scanned_ip_target,
+                                device_object_identifier=device.deviceIdentifier
+                            )
+                        )
+                    if res.get("status") == "error":
+                        logger.debug(f"this is our res: {res}")
+                        raise Exception(f"Error occured calling api though thin endpoint wrapper")
+                except Exception as e:
+                    import traceback
+                    logger.debug(f"An error occured running scan: {traceback.format_exc()}")
+                    break
+
+                points: list = res["properties"]["object-list"]
+                logger.debug(f"we are going to go through {len(points) - 1}")
+                logger.debug(f"sike we only getting 50")
+                # go through each object-list item, skip the first one which is ours, then read property the stuff
+                for obj in points[1:21]:
+                    logger.debug(f"Processing object: {obj}")
+                    
+                    object_identifier: str = f"{obj[0]},{obj[1]}"
+                    logger.debug(f"Created object_identifier: {object_identifier}")
+                    
+                    writable: bool = self.writable_map[obj[0]]
+                    logger.debug(f"Object type {obj[0]} is writable: {writable}")
+                    
+                    # Getting point name
+                    logger.debug(f"Step 1: Getting point name for {object_identifier} at {device.scanned_ip_target}")
+                    point_name_response = await read_bacnet_property(
+                        BACnetReadPropertyRequest(
+                            device_address=device.scanned_ip_target,
+                            object_identifier=object_identifier,
+                            property_identifier="object-name"
+                        )
+                    )
+                    logger.debug(f"Point name response received: {point_name_response}")
+                    point_name = point_name_response["result"]["_value"]
+                    logger.debug(f"Point name extracted: {point_name}")
+                    
+                    # Getting units
+                    logger.debug(f"Step 2: Getting units for {object_identifier} at {device.scanned_ip_target}")
+                    try:
+                        units_response = await read_bacnet_property(
+                            BACnetReadPropertyRequest(
+                                device_address=device.scanned_ip_target,
+                                object_identifier=object_identifier,
+                                property_identifier="units"
+                            )
+                        )
+                        logger.debug(f"Units response received: {units_response}")
+                        units = units_response["result"]["_value"]
+                        logger.debug(f"Units extracted: {units}")
+                    except Exception as e:
+                        logger.error(f"Failed to get units: {e}")
+                        units = "unknown"
+                        logger.debug(f"Using default units: {units}")
+                    
+                    # Getting present value
+                    logger.debug(f"Step 3: Getting present value for {object_identifier} at {device.scanned_ip_target}")
+                    try:
+                        present_value_response = await read_bacnet_property(
+                            BACnetReadPropertyRequest(
+                                device_address=device.scanned_ip_target,
+                                object_identifier=object_identifier,
+                                property_identifier="present-value"
+                            )
+                        )
+                        logger.debug(f"Present value response received: {present_value_response}")
+                        present_value = present_value_response["result"]["_value"]
+                        logger.debug(f"Present value extracted: {present_value}")
+                    except Exception as e:
+                        logger.error(f"Failed to get present value: {e}")
+                        present_value = "N/A"
+                        logger.debug(f"Using default present value: {present_value}")
+                    
+                    # Getting Notes
+                    logger.debug(f"Step 4: Getting notes for {object_identifier} at {device.scanned_ip_target}")
+                    try:
+                        notes_value_response = await read_bacnet_property(
+                            BACnetReadPropertyRequest(
+                                device_address=device.scanned_ip_target,
+                                object_identifier=object_identifier,
+                                property_identifier="notes"
+                            ),
+                            timeout=4.0
+                        )
+                        logger.debug(f"Notes value response received: {notes_value_response}")
+                        notes_value = notes_value_response["result"]["_value"]
+                        logger.debug(f"Notes value extracted: {notes_value}")
+                    except Exception as e:
+                        logger.error(f"Failed to get notes value: {e}")
+                        notes_value = "N/A"
+                        logger.debug(f"Using default notes value: {notes_value}")
+
+                    # Create and add the point to device
+                    logger.debug(f"Step 5: Creating point model for {point_name}")
+                    point = BACnetDevicePointModelView(
+                        device_name=point_name,
+                        writable=writable,
+                        present_value=present_value,
+                        units=units,
+                        notes=notes_value
+                    )
+                    logger.debug(f"Point created: {point}")
+                    
+                    logger.debug(f"Step 5: Adding point to device {device}")
+                    device.points.append(point)
+                    logger.debug(f"Point added to device successfully. Device now has {len(device.points)} points.")
+
             logger.debug(f"this is our scan results: {scan_results}")
             self.discovered_devices = devices
             yield rx.toast.success("IP Range scan completed.")

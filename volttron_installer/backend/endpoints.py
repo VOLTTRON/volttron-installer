@@ -609,8 +609,8 @@ async def bacnet_scan_scan_ip_range(network_str: str) -> dict[str, str]:
     except ApiError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     
-@bacnet_scan_tool_router.post("/read_property", response_model=dict[str, str])
-async def bacnet_scan_read_property(request: BACnetReadPropertyRequest) -> dict[str, str]:
+@bacnet_scan_tool_router.post("/read_property", response_model=dict)
+async def bacnet_scan_read_property(request: BACnetReadPropertyRequest) -> dict:
     from .tool_proxy_factory import ApiError
 
     url=f"{os.environ.get('API_URL', 'http://localhost:8000')}/api/tool_proxy/bacnet_scan_tool/read_property"
@@ -618,8 +618,10 @@ async def bacnet_scan_read_property(request: BACnetReadPropertyRequest) -> dict[
             "device_address": request.device_address,
             "object_identifier": request.object_identifier,
             "property_identifier": request.property_identifier,
-            "property_array_index": request.property_array_index
+            # "property_array_index": request.property_array_index
         }
+    if request.property_array_index is not None:
+        REQUEST["property_array_index"] = request.property_array_index
     try:
         response = await ToolProxyFactory.request(
             url,
@@ -642,8 +644,10 @@ async def bacnet_scan_write_property(request: BACnetWritePropertyRequest) -> dic
             "property_identifier": request.property_identifier,
             "value": request.value,
             "priority": request.priority,
-            "property_array_index": request.property_array_index
+            # "property_array_index": request.property_array_index
         }
+    if request.property_array_index is not None:
+        REQUEST["property_array_index"] = request.property_array_index
     try:
         response = await ToolProxyFactory.request(
             url,
@@ -656,19 +660,24 @@ async def bacnet_scan_write_property(request: BACnetWritePropertyRequest) -> dic
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 @bacnet_scan_tool_router.post("/bacnet/read_device_all")
-async def bacnet_scan_read_device_all(request: BACnetReadDeviceAllRequest) -> dict[str, str]:
+async def bacnet_scan_read_device_all(request: BACnetReadDeviceAllRequest):
     from .tool_proxy_factory import ApiError
+    from loguru import logger
+    logger.debug(f"this is i, the endpiont getting: {request}")
 
     url=f"{os.environ.get('API_URL', 'http://localhost:8000')}/api/tool_proxy/bacnet_scan_tool/bacnet/read_device_all"
     REQUEST={
         "device_address": request.device_address,
         "device_object_identifier": request.device_object_identifier
         }
+    logger.debug(f"and this is my REQUEST: {REQUEST}")
+
     try:
         response = await ToolProxyFactory.request(
             url,
             "POST",
-            data=REQUEST
+            data=REQUEST,
+            timeout=600.0
         )
         data = response.json()
         return data

@@ -2,7 +2,7 @@ import reflex as rx
 from ..state import BacnetScanState, ToolState
 from ..components.form_components import form_entry
 from ..layouts import app_layout_sidebar
-from ..model_views import BACnetDeviceModelView
+from ..model_views import BACnetDeviceModelView, BACnetDevicePointModelView
 
 def scan_for_devices_card():
     return rx.box(
@@ -132,9 +132,28 @@ def false_writable_badge() -> rx.Component:
         border_radius=".5rem"
     )
 
-def show_device_point() -> rx.Component:
+def show_device_point(point: BACnetDevicePointModelView, index: int) -> rx.Component:
     return rx.table.row(
-        rx.table.cell()
+        rx.table.cell(
+            rx.hstack(
+                rx.checkbox(
+                    on_change=lambda checked: BacnetScanState.handle_device_check(index, checked), 
+                    checked=point.selected
+                ), 
+                rx.text(point.device_name),
+                spacing="4"
+            )
+        ),
+        rx.table.cell(
+            rx.cond(
+                point.writable,
+                true_writable_badge(),
+                false_writable_badge()
+            )
+        ),
+        rx.table.cell(point.present_value),
+        rx.table.cell(point.units),
+        rx.table.cell(point.notes),
     )
 
 
@@ -157,7 +176,25 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
             rx.table.row(
                 rx.table.cell(
                     rx.vstack(
-                        rx.text("Device Points", size="1", weight="bold"),
+                        # rx.hstack(
+                            rx.vstack(
+                                rx.text("Device Points", size="1", weight="bold"),
+                                rx.text(f"Select points to export or configure to a platform", size="1", color="gray"),
+                                spacing="1"
+                            ),
+                            # TODO make this a dialog trigger
+                            # rx.button(
+                            #     "Create a Registry Config File", 
+                            #     size="1",
+                            #     disabled=rx.cond(
+                            #         BacnetScanState.selected_points.length() > 0,
+                            #         False,
+                            #         True
+                            #     )
+                            # ),
+                            # justify="between",
+                            # width="100%"
+                        # ), make it bigger, 
                         # Add your expanded content here, e.g. a nested table of points
                         # rx.table(...),
                         rx.table.root(
@@ -165,39 +202,25 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
                                 rx.table.row(
                                     rx.table.column_header_cell(
                                         rx.hstack(
-                                            rx.checkbox(),
+                                            rx.checkbox(
+                                                checked=BacnetScanState.selected_device.select_all_points,
+                                                on_change=BacnetScanState.toggle_select_all_points
+                                            ),
                                             rx.text("VOLTTRON Point Name", weight="bold"),
                                             spacing="4"
                                         )
                                     ),
                                     rx.table.column_header_cell("Writable"),
                                     rx.table.column_header_cell("Present Value"),
+                                    rx.table.column_header_cell("Units"),
+                                    rx.table.column_header_cell("Notes"),
                                 )
                             ),
                             rx.table.body(
-                                # TODO move point rendering to a separate component
-                                rx.table.row(
-                                    rx.table.cell(
-                                        rx.hstack(
-                                            rx.checkbox(), 
-                                            rx.text("example point"),
-                                            spacing="4"
-                                        )
-                                    ),
-                                    rx.table.cell(true_writable_badge()),
-                                    rx.table.cell("24.5"),
+                                rx.foreach(
+                                    BacnetScanState.selected_device.points,
+                                    show_device_point
                                 ),
-                                rx.table.row(
-                                    rx.table.cell(
-                                        rx.hstack(
-                                            rx.checkbox(), 
-                                            rx.text("example point bro"),
-                                            spacing="4"
-                                        )
-                                    ),
-                                    rx.table.cell(false_writable_badge()),
-                                    rx.table.cell("727"),
-                                )
                             ),
                             width="100%",
                             border="1px solid",
@@ -223,7 +246,11 @@ def discovered_devices_card() -> rx.Component:
             rx.cond(
                 BacnetScanState.discovered_devices.length() == 0,
                 rx.text("No devices discovered yet", color="gray"),
-                rx.text(f"{BacnetScanState.discovered_devices.length()} BACnet devices found", color="gray")
+                rx.vstack(
+                    rx.text(f"{BacnetScanState.discovered_devices.length()} BACnet devices found", color="gray"),
+                    rx.text(f"Click on a device to select and view it's points", size="1", color="gray"),
+                    spacing="1"
+                )
             ),
             margin_bottom="1em",
         ),
@@ -248,7 +275,7 @@ def discovered_devices_card() -> rx.Component:
                             )
                         )
                     ),
-                    height="300px",
+                    height="1000px",
                     overflow_y="auto",
                 ),
             ),
@@ -268,10 +295,11 @@ def discovered_devices_card() -> rx.Component:
                         )
                     )
                 ),
-                height="300px",
+                height="1000px",
                 overflow_y="auto",
             ),
         ),
+        min_height="1000px",
         border="1px solid",
         border_color="grey",
         border_radius=".5rem",
