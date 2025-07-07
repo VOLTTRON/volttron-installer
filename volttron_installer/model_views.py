@@ -179,3 +179,26 @@ class PlatformModelView(rx.Base):
             }
         }
     
+class BACnetDevicePointModelView(rx.Base):
+    device_name: str
+    writable: bool
+    present_value: str
+    units: str | int
+    notes: str
+
+    # UI driven field
+    selected: bool = False
+
+class BACnetDeviceModelView(rx.Base):
+    pduSource: str
+    deviceIdentifier: str
+    maxAPDULengthAccepted: int
+    segmentationSupported: str
+    vendorID: int
+    object_name: str
+    scanned_ip_target: str
+    device_instance: int
+    points: list[BACnetDevicePointModelView] = []
+
+    # UI driven field
+    select_all_points: bool = False

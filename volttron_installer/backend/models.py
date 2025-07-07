@@ -1,4 +1,4 @@
-from typing import Literal, List, Optional
+from typing import Any, Literal, List, Optional
 from typing_extensions import Annotated
 import logging
 
@@ -40,6 +40,23 @@ class HostEntry(BaseModel):
             "host_configs_dir": "" if self.host_configs_dir is None else self.host_configs_dir,
             "name": "" if self.name is None else self.name
         }
+
+class ToolRequest(BaseModel):
+    # Tool name e.g "bacnet_scan_tool"
+    tool_name: str
+
+    # The module path to start a uvicorn app.
+    # e.g "bacnet_scan_tool.main:app"
+    module_path: str
+    
+    # TODO remove all functionality associated with this field within tool router and tool manager
+    # this guy causes nothing but errors and should never be true whether or not it needs poetry.
+    use_poetry: bool = False
+
+class ToolStatusResponse(BaseModel):
+    tool_name: str
+    tool_running: bool
+    port: int | None
 
 class ReachableResponse(BaseModel):
     reachable: bool = True
@@ -767,3 +784,35 @@ class DeployPlatformRequest(BaseModel):
 class PlatformDeplymentStatusRequest(BaseModel):
     """Request model for getting the state of a platform deployment"""
     platform_id: str
+
+class BACnetDevice(BaseModel):
+    pduSource: str
+    deviceIdentifier: str
+    maxAPDULengthAccepted: int
+    segmentationSupported: str
+    vendorID: int
+    object_name: str
+    scanned_ip_target: str
+    device_instance: int
+
+class BACnetScanResults(BaseModel):
+    status: str
+    devices: list[BACnetDevice]
+
+class BACnetReadPropertyRequest(BaseModel):
+    device_address: str
+    object_identifier: str
+    property_identifier: str
+    property_array_index: int | None = None
+
+class BACnetWritePropertyRequest(BaseModel):
+    device_address: str
+    object_identifier: str
+    property_identifier: str
+    value: Any
+    priority: int
+    property_array_index: int | None = None
+
+class BACnetReadDeviceAllRequest(BaseModel):
+    device_address: str
+    device_object_identifier: str

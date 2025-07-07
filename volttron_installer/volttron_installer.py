@@ -19,6 +19,9 @@ async def lifespan(app: FastAPI):
     # tear it down when the application is done.
 
     yield
+    # Shut down of the tools
+    from .backend.tool_manager import ToolManager
+    ToolManager.stop_all_tools()
     #await flet_fastapi.app_manager.shutdown()
 
 

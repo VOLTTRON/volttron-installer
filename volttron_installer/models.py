@@ -54,6 +54,11 @@ class Instance(rx.Base):
                 config.in_file = False
                 config.selected_cell = ""
 
+class Tool(rx.Base):
+    name: str = ""
+    module_path: str = ""
+    use_poetry: bool = False
+
 class RequestWhoIsModel(rx.Model):
     device_instance_low: str = ""
     device_instance_high: str = "" 

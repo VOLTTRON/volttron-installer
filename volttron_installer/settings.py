@@ -1,18 +1,6 @@
 from pathlib import Path
-from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-# Load dev environment variables if dev.env exists otherwise
-# load production .env file
-if Path(".env").exists():
-    load_dotenv()
-elif Path("dev.env").exists():
-    load_dotenv("dev.env")
-
-else:
-    raise FileNotFoundError("No .env nore dev.env file found")
-
 
 class _InstallerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="VI_")

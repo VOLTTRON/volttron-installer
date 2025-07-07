@@ -1,32 +1,22 @@
 import reflex as rx
 from .settings import get_settings
-from .model_views import AgentModelView, ConfigStoreEntryModelView
+from .model_views import *
 from .utils.create_component_uid import generate_unique_uid
 from .models import *
 from .utils.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
 from .utils.validate_content import check_json, check_csv, check_path, check_yaml, check_regular_expression
 from .utils.create_csv_string import create_csv_string, create_and_validate_csv_string
 from .navigation.state import NavigationState
-from .backend.models import AgentType, HostEntry, PlatformConfig, PlatformDefinition, ConfigStoreEntry, AgentDefinition, CreatePlatformRequest, CreateOrUpdateHostEntryRequest
+from .backend.models import AgentType, HostEntry, PlatformConfig, PlatformDefinition, ConfigStoreEntry, AgentDefinition, CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ToolRequest, BACnetDevice
 from .utils.create_component_uid import generate_unique_uid
 from .utils.conversion_methods import csv_string_to_usable_dict
 from .utils.validate_content import check_json
 from .utils.prettify import prettify_json
 from .utils import delete_file
 from loguru import logger
-from .model_views import HostEntryModelView, PlatformModelView, AgentModelView, ConfigStoreEntryModelView, PlatformConfigModelView
-from .thin_endpoint_wrappers import ( 
-    get_agent_catalog, 
-    get_hosts, 
-    get_all_platforms, 
-    ping_resolvable_host, 
-    add_host, 
-    update_platform, 
-    create_platform, 
-    deploy_platform
-)
+from typing import Dict, Optional, List
 from .thin_endpoint_wrappers import *
-import string, random, json, csv, yaml, re, io
+import string, random, json, csv, yaml, re, io, asyncio
 from copy import deepcopy
 from typing import Literal
 
@@ -46,6 +36,135 @@ class AppState(rx.State):
     def toggle_tool_dropdown(self, value: str):
         """Toggle the tool dropdown."""
         self.tool_accordion_value = value
+
+    @rx.event
+    def select_bacnet_scan(self):
+        self.sidebar_page_selected = "bacnet_scan"
+        # yield NavigationState.route_to_bacnet_scan()
+
+    @rx.event
+    def select_overview(self):
+        self.sidebar_page_selected = "overview"
+        # yield NavigationState.route_to_index()
+
+
+class ToolState(rx.State):
+    """State for managing tool lifecycle."""
+    
+    # Track running tools
+    _running_tools: dict[str, bool] = {}
+    loading_tools: dict[str, bool] = {}
+    error_message: Optional[str] = None
+    
+    # Tool configuration
+    tool_configs: dict[str, ToolRequest] = {
+        "bacnet_scan_tool": ToolRequest(
+            tool_name="bacnet_scan_tool",
+            module_path="bacnet_scan_tool.main:app",
+        ),
+        # Add other tools as we go
+    }
+
+    # Computed var to make sure we are accessing running tool
+    @rx.var
+    def running_tools(self) -> dict[str, bool]:
+        return self._running_tools
+
+    @rx.event(background=True)
+    async def monitor_all_tools(self):
+        while True:
+            await asyncio.sleep(5)
+            async with self:
+                for tool_id in self.tool_configs:
+                    try:
+                        status = await tool_status(tool_id)
+                        self._running_tools[tool_id] = status.tool_running
+                    except Exception as e:
+                        self._running_tools[tool_id] = False
+
+    @rx.event
+    async def start_tool(self, tool_id: str):
+        """Start a specific tool service."""
+        logger.debug(f"starting tool : {tool_id}")
+        if tool_id not in self.tool_configs:
+            logger.debug(f"Unknown tool: {tool_id}")
+            return
+        
+        # Check if already running
+        if self._running_tools.get(tool_id, False):
+            logger.debug("tool is already running")
+            return
+        
+        # Set loading state
+        logger.debug(f"setting tool to loading: {tool_id}")
+        self.loading_tools[tool_id] = True
+        
+        try:
+            # Get tool config
+            config = self.tool_configs[tool_id]
+            logger.debug("calling api...")
+            # Call API to start the tool
+            await start_tool(config)
+            self.running_tools[tool_id] = True
+            logger.debug("tool started")
+            
+        except Exception as e:
+            logger.debug(f"Error starting tool: {str(e)}")
+        finally:
+            # Clear loading state
+            self.loading_tools[tool_id] = False
+    
+    @rx.event
+    async def stop_tool(self, tool_id: str) -> None:
+        """Stop a specific tool service."""
+        logger.debug(f"stopping tool : {tool_id}")
+        if tool_id not in self.tool_configs:
+            logger.debug(f"Unknown tool: {tool_id}")
+            return
+        
+        # Check if it's running
+        # if not self.is_tool_running(tool_id):
+        #     self._running_tools[tool_id] = False
+        if not self._running_tools.get(tool_id, False):
+            logger.debug("tool is already not running")
+            return
+        
+        # Set loading state
+        self.loading_tools[tool_id] = True
+        
+        try:           
+            # Call API to stop the tool
+            await stop_tool(tool_id)
+            self.running_tools[tool_id] = False
+            logger.debug("tool stopped")
+
+        except Exception as e:
+            logger.debug(f"Error stopping tool: {str(e)}")
+        finally:
+            # Clear loading state
+            self.loading_tools[tool_id] = False
+    
+    @rx.event
+    async def check_tool_status(self, tool_id: str) -> None:
+        """Check if a specific tool is running."""
+        if tool_id not in self.tool_configs:
+            return
+        
+        try:
+            # Call API to get tool status
+            tool_status: ToolStatusResponse = await tool_status(tool_id)
+            self.running_tools[tool_id] = tool_status.tool_running
+        except Exception as e:
+            logger.debug(f"Error checking tool status: {str(e)}")
+
+    @classmethod
+    async def is_tool_running(self, tool_name: str) -> bool:
+        try:
+            response: ToolStatusResponse = await tool_status(tool_name)
+            return response.tool_running
+        except Exception as e:
+            logger.debug(f"There was an error checking the tool status for `{tool_name}: {e}`")
+            return False
 
 settings = get_settings()
 
@@ -1443,17 +1562,18 @@ class IndexPageState(rx.State):
 
 class BacnetScanState(rx.State):
     selected_property_tab: Literal["read", "write"] = "read"  # Default to "read" tab
-    discovered_devices: list[dict[str, str]] = []  # Store discovered devices
-    selected_device: dict[str, str] | None = None  # Store the currently selected device
+    discovered_devices: list[BACnetDeviceModelView] = []  # Store discovered devices
+    selected_device: BACnetDeviceModelView | None = None  # Store the currently selected device
     ip_detection_mode: Literal["", "local_ip", "windows_host_ip"] = ""  # "local_ip", "windows_host_ip" or ""
+    expanded_device_index: int = -1
 
     scanning_bacnet_range: bool = False
     is_starting_proxy: bool = False
     proxy_up: bool = False
-    _open_accordion_items: list[str] = []
     pinging_ip: bool = False
     _is_write_property_valid: bool = False
     _is_read_property_valid: bool = False
+    _warn_ping_range: bool = False
     
     # Fields
     proxy_field_value: str = ""
@@ -1470,15 +1590,83 @@ class BacnetScanState(rx.State):
     local_ip_info: LocalIPModel = LocalIPModel()
     windows_host_ip_info: WindowsHostIPModel = WindowsHostIPModel()
 
+    # For bacnet point stuff
+    writable_map = {
+        0: False,  # analog-input
+        1: True,   # analog-output
+        2: False,  # analog-value (temporarily set to False, but these are typically writable)
+        3: False,  # binary-input
+        4: True,   # binary-output
+        5: False,  # binary-value (temporarily set to False, but these are typically writable)
+        6: True,   # calendar
+        7: True,   # command
+        8: False,  # device
+        9: True,   # event-enrollment
+        10: True,  # file
+        11: True,  # group
+        12: True,  # loop
+        13: False, # multi-state-input
+        14: True,  # multi-state-output
+        15: True,  # notification-class
+        16: True,  # program
+        17: True,  # schedule
+        18: False, # averaging
+        19: False, # multi-state-value (temporarily set to False, but these are typically writable)
+        20: False, # trend-log
+        21: False, # life-safety-point
+        22: False, # life-safety-zone
+        23: False, # accumulator
+        24: False, # pulse-converter
+        25: False, # event-log
+        26: True,  # global-group
+        27: False, # trend-log-multiple
+        28: True,  # load-control
+        29: False, # structured-view
+        30: True,  # access-door
+        31: False, # unassigned
+        32: False, # access-credential
+        33: False, # access-point
+        34: True,  # access-rights
+        35: False, # access-user
+        36: False, # access-zone
+        37: False, # credentional-data-input
+        38: False, # network-security (removed)
+        39: False, # bitstring-value (temporarily set to False, but these are typically writable)
+        40: False, # characterstring-value (temporarily set to False, but these are typically writable)
+        41: False, # date-pattern-value (temporarily set to False, but these are typically writable)
+        42: False, # date-value (temporarily set to False, but these are typically writable)
+        43: False, # datetime-pattern-value (temporarily set to False, but these are typically writable)
+        44: False, # datetime-value (temporarily set to False, but these are typically writable)
+        45: False, # integer-value (temporarily set to False, but these are typically writable)
+        46: False, # large-analog-value (temporarily set to False, but these are typically writable)
+        47: False, # octetstring-value (temporarily set to False, but these are typically writable)
+        48: False, # positive-integer-value (temporarily set to False, but these are typically writable)
+        49: False, # time-pattern-value (temporarily set to False, but these are typically writable)
+        50: False, # time-value (temporarily set to False, but these are typically writable)
+        51: True,  # notification-forwarder
+        52: True,  # alert-enrollment
+        53: True,  # channel
+        54: True,  # lighting-output
+    }
+
+    # important event, actually spins up the tool when the page loads.
+    @rx.event
+    async def start_tool(self, value):
+        await start_tool(
+            ToolRequest(
+                tool_name=value,
+                module_path="bacnet_scan_tool.main:app",
+                use_poetry=False
+            )
+        )
+
+
     # Computed Vars
     @rx.var
-    def open_accordion_items(self) -> list[str]:
-        """Get the currently open accordion items"""
-        if self.proxy_up:
-            return self._open_accordion_items
-        self._open_accordion_items = []
-        return self._open_accordion_items
-    
+    def warn_ping_range(self) -> bool: 
+        self._warn_ping_range = "/" in self.scan_ip_range.network_string
+        return self._warn_ping_range
+
     @rx.var
     def has_devices(self) -> bool:
         """Check if any devices have been discovered."""
@@ -1506,11 +1694,27 @@ class BacnetScanState(rx.State):
         self._is_write_property_valid = True
         return self._is_write_property_valid
 
+    @rx.var
+    def selected_points(self) -> list[BACnetDevicePointModelView]:
+        if self.selected_device is not None:
+            return [point for point in self.selected_device.points]
+        return []
+    
     # Events
+    @rx.event
+    def toggle_select_all_points(self, checked: bool):
+        self.selected_device.select_all_points = checked
+        for point in self.selected_device.points:
+            point.selected=checked
+
+    @rx.event
+    def handle_device_check(self, device_index: int, checked: bool):
+        self.selected_device.select_all_points = False
+        self.selected_device.points[device_index].selected = checked
+
     @rx.event
     def handle_proxy_field_edit(self, value: str):
         self.proxy_field_value = value 
-
 
     @rx.event
     def set_selected_property_tab(self, tab: str):
@@ -1522,11 +1726,14 @@ class BacnetScanState(rx.State):
         """Handle when a device row is clicked."""
         if 0 <= device_index < len(self.discovered_devices):
             selected_device = self.discovered_devices[device_index]
+            if selected_device == self.selected_device:
+                self.selected_device = None
+                return
             self.selected_device = selected_device
             
             # Auto-fill the property operation fields with selected device info
-            device_address = selected_device.get("address", "")
-            device_id = selected_device.get("id", "")
+            device_address = selected_device.scanned_ip_target
+            device_id = selected_device.deviceIdentifier
             
             # Update read property form
             self.read_property.device_address = device_address
@@ -1536,7 +1743,7 @@ class BacnetScanState(rx.State):
             self.write_property.device_address = device_address
             self.write_property.object_identifier = f"{device_id}"
             
-            yield rx.toast.info(f"Selected device: {selected_device.get('name', '')}")
+            yield rx.toast.info(f"Selected device: {selected_device.object_name}")
     
     @rx.event
     def set_ip_detection_mode(self, mode: Literal["windows_host_ip", "local_ip"]):
@@ -1548,30 +1755,12 @@ class BacnetScanState(rx.State):
     async def get_network_info(self):
         """Get network information based on current detection mode."""
         self.pinging_ip = True
-        yield rx.toast.info(f"Retrieving network information...")
-        
-        # TODO: Implement actual network info retrieval logic
-        import asyncio
-        await asyncio.sleep(2)
-        
+        yield rx.toast.info(f"Retrieving network information...")        
         if self.ip_detection_mode == "local_ip":
-            # Example response - replace with actual implementation
-            self.local_ip_info = LocalIPModel(
-                local_ip="172.18.229.191",
-                subnet_mask= "255.255.240.0",
-                cidr= "172.18.229.191/20"
-            )
-            # Auto-fill the network range input
-            self.scan_ip_range.network_string = self.local_ip_info.cidr
-            yield rx.toast.success("Retrieved Local Host IP")
+            yield BacnetScanState.handle_get_local_ip()
         else:
-            # Example response for Windows host IP
-            self.windows_host_ip_info = WindowsHostIPModel(
-                windows_host_ip = "130.20.125.77"
-            )
-            
-            self.scan_ip_range.network_string = self.windows_host_ip_info.windows_host_ip
-            yield rx.toast.success("Retrieved Windows Host IP")
+            yield BacnetScanState.handle_get_windows_host_ip()
+
         self.pinging_ip = False
         yield
 
@@ -1583,8 +1772,7 @@ class BacnetScanState(rx.State):
     def toggle_proxy(self):
         """Toggle the proxy state"""
         if self.proxy_up:
-            self.proxy_up = False
-            yield rx.toast.success("Proxy stopped successfully.")
+            yield BacnetScanState.stop_proxy()
         else:
             yield rx.toast.info("Starting proxy...")
             yield BacnetScanState.start_proxy()
@@ -1597,16 +1785,30 @@ class BacnetScanState(rx.State):
             return
         self.is_starting_proxy = True
         yield
-        # TODO implement proxy start logic
-        import asyncio
-        await asyncio.sleep(2)
-        self.proxy_up = True
-        self.is_starting_proxy = False
-        yield rx.toast.success("Proxy started successfully.")
+        try:
+            ip_address = self.proxy_field_value if self.proxy_field_value != "" else None
+            logger.debug(f"this is the ip address we will start a proxy with: {ip_address}")
+            data = await start_bacnet_proxy(ip_address)
+            if data.get("status") == "error":
+                raise Exception(data)
+            self.proxy_field_value = data["address"]
+            self.proxy_up = True
+            self.is_starting_proxy = False
+            yield rx.toast.success("Proxy started successfully.")
+        except Exception as e:
+            logger.debug(e)
+            self.is_starting_proxy = False
+            yield rx.toast.error("There was an error starting up a BACnet proxy")
 
     @rx.event
     async def stop_proxy(self):
-        pass
+        try:
+            await stop_bacnet_proxy()
+            self.proxy_up = False
+            yield rx.toast.success("Proxy stopped successfully")
+        except Exception as e:
+            logger.debug(f"Error starting proxy: {e}")
+            yield rx.toast.error("There was an error stopping the BACnet proxy")
     
     @rx.event
     async def handle_bacnet_scan(self):
@@ -1731,14 +1933,142 @@ class BacnetScanState(rx.State):
         if not self.proxy_up:
             yield rx.toast.error("Proxy must be started first.")
             return
-            
+        self.scanning_bacnet_range = True
         yield rx.toast.info(f"Scanning network: {self.scan_ip_range.network_string}")
         
-        # TODO: Implement actual scan logic here
-        import asyncio
-        await asyncio.sleep(2)
+        try:
+            scan_results: BACnetScanResults = await scan_bacnet_ip_range(self.scan_ip_range.network_string)
+            
+            # Get devices 
+            devices = [
+                BACnetDeviceModelView(
+                **device.model_dump(),
+                ) for device in scan_results.devices
+            ]
+
+            # Read device all on each of our devices[]
+            for device in devices:
+                logger.debug(f"this is our device we are operating on: {device}")
+
+                try:            
+                    res = await read_bacnet_device_all(
+                            BACnetReadDeviceAllRequest(
+                                device_address=device.scanned_ip_target,
+                                device_object_identifier=device.deviceIdentifier
+                            )
+                        )
+                    if res.get("status") == "error":
+                        logger.debug(f"this is our res: {res}")
+                        raise Exception(f"Error occured calling api though thin endpoint wrapper")
+                except Exception as e:
+                    import traceback
+                    logger.debug(f"An error occured running scan: {traceback.format_exc()}")
+                    break
+
+                points: list = res["properties"]["object-list"]
+                logger.debug(f"we are going to go through {len(points) - 1}")
+                logger.debug(f"sike we only getting 50")
+                # go through each object-list item, skip the first one which is ours, then read property the stuff
+                for obj in points[1:21]:
+                    logger.debug(f"Processing object: {obj}")
+                    
+                    object_identifier: str = f"{obj[0]},{obj[1]}"
+                    logger.debug(f"Created object_identifier: {object_identifier}")
+                    
+                    writable: bool = self.writable_map[obj[0]]
+                    logger.debug(f"Object type {obj[0]} is writable: {writable}")
+                    
+                    # Getting point name
+                    logger.debug(f"Step 1: Getting point name for {object_identifier} at {device.scanned_ip_target}")
+                    point_name_response = await read_bacnet_property(
+                        BACnetReadPropertyRequest(
+                            device_address=device.scanned_ip_target,
+                            object_identifier=object_identifier,
+                            property_identifier="object-name"
+                        )
+                    )
+                    logger.debug(f"Point name response received: {point_name_response}")
+                    point_name = point_name_response["result"]["_value"]
+                    logger.debug(f"Point name extracted: {point_name}")
+                    
+                    # Getting units
+                    logger.debug(f"Step 2: Getting units for {object_identifier} at {device.scanned_ip_target}")
+                    try:
+                        units_response = await read_bacnet_property(
+                            BACnetReadPropertyRequest(
+                                device_address=device.scanned_ip_target,
+                                object_identifier=object_identifier,
+                                property_identifier="units"
+                            )
+                        )
+                        logger.debug(f"Units response received: {units_response}")
+                        units = units_response["result"]["_value"]
+                        logger.debug(f"Units extracted: {units}")
+                    except Exception as e:
+                        logger.error(f"Failed to get units: {e}")
+                        units = "unknown"
+                        logger.debug(f"Using default units: {units}")
+                    
+                    # Getting present value
+                    logger.debug(f"Step 3: Getting present value for {object_identifier} at {device.scanned_ip_target}")
+                    try:
+                        present_value_response = await read_bacnet_property(
+                            BACnetReadPropertyRequest(
+                                device_address=device.scanned_ip_target,
+                                object_identifier=object_identifier,
+                                property_identifier="present-value"
+                            )
+                        )
+                        logger.debug(f"Present value response received: {present_value_response}")
+                        present_value = present_value_response["result"]["_value"]
+                        logger.debug(f"Present value extracted: {present_value}")
+                    except Exception as e:
+                        logger.error(f"Failed to get present value: {e}")
+                        present_value = "N/A"
+                        logger.debug(f"Using default present value: {present_value}")
+                    
+                    # Getting Notes
+                    logger.debug(f"Step 4: Getting notes for {object_identifier} at {device.scanned_ip_target}")
+                    try:
+                        notes_value_response = await read_bacnet_property(
+                            BACnetReadPropertyRequest(
+                                device_address=device.scanned_ip_target,
+                                object_identifier=object_identifier,
+                                property_identifier="notes"
+                            ),
+                            timeout=4.0
+                        )
+                        logger.debug(f"Notes value response received: {notes_value_response}")
+                        notes_value = notes_value_response["result"]["_value"]
+                        logger.debug(f"Notes value extracted: {notes_value}")
+                    except Exception as e:
+                        logger.error(f"Failed to get notes value: {e}")
+                        notes_value = "N/A"
+                        logger.debug(f"Using default notes value: {notes_value}")
+
+                    # Create and add the point to device
+                    logger.debug(f"Step 5: Creating point model for {point_name}")
+                    point = BACnetDevicePointModelView(
+                        device_name=point_name,
+                        writable=writable,
+                        present_value=present_value,
+                        units=units,
+                        notes=notes_value
+                    )
+                    logger.debug(f"Point created: {point}")
+                    
+                    logger.debug(f"Step 5: Adding point to device {device}")
+                    device.points.append(point)
+                    logger.debug(f"Point added to device successfully. Device now has {len(device.points)} points.")
+
+            logger.debug(f"this is our scan results: {scan_results}")
+            self.discovered_devices = devices
+            yield rx.toast.success("IP Range scan completed.")
+        except:
+            import traceback
+            logger.debug(f"An error occured running scan: {traceback.format_exc()}")
         
-        yield rx.toast.success("IP Range scan completed.")
+        self.scanning_bacnet_range = False
     
     @rx.event
     async def handle_ping_ip(self):
@@ -1780,3 +2110,21 @@ class BacnetScanState(rx.State):
         await asyncio.sleep(1)
         
         yield rx.toast.success("Write Property completed.")
+
+    @rx.event
+    async def handle_get_local_ip(self):
+        try:
+            self.local_ip_info = await get_bacnet_local_ip(self.local_ip_info)
+            self.scan_ip_range.network_string = self.local_ip_info.cidr
+            yield rx.toast.success("Retrieved Local Host IP")
+        except Exception as e:
+            logger.debug(f"There was an error getting local ip info {e}")
+
+    @rx.event
+    async def handle_get_windows_host_ip(self):
+        try:
+            self.windows_host_ip_info = await get_windows_host_ip()
+            self.scan_ip_range.network_string = self.windows_host_ip_info.windows_host_ip.rsplit('.', 1)[0] + ".0/24" # Split at the last period, max 1 split. tack it off with cidr range
+            yield rx.toast.success("Retrieved Host IP")
+        except Exception as e:
+            logger.debug(f"There was an error getting local ip info {e}")

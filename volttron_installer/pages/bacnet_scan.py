@@ -1,7 +1,8 @@
 import reflex as rx
-from ..state import BacnetScanState
+from ..state import BacnetScanState, ToolState
 from ..components.form_components import form_entry
 from ..layouts import app_layout_sidebar
+from ..model_views import BACnetDeviceModelView, BACnetDevicePointModelView
 
 def scan_for_devices_card():
     return rx.box(
@@ -25,6 +26,19 @@ def scan_for_devices_card():
                     value=BacnetScanState.scan_ip_range.network_string,
                     on_change=BacnetScanState.scan_ip_range_input,
                 ),
+                # TODO tie this to a rx.cond, if contains '/' make sure network can sustain pings
+                # of the entire range 
+                rx.cond(
+                    BacnetScanState.warn_ping_range,
+                    rx.text(
+                        "Be sure this network can sustain pings of the entire range",
+                        size="1",
+                        color="#ffa057",
+                        padding="8px 12px",
+                        border_radius="6px",
+                        background_color="#66350c63"
+                    )
+                ),
                 rx.text(
                     "Use the network information from Step 2 or enter manually",
                     size="1",
@@ -43,7 +57,7 @@ def scan_for_devices_card():
                     rx.icon("search", size=16)
                 ),
                 rx.text("Scan for Devices"),
-                on_click=BacnetScanState.handle_bacnet_scan,
+                on_click=BacnetScanState.handle_scan_ip_range,
                 disabled=rx.cond(
                     (BacnetScanState.proxy_up == False) |
                     (BacnetScanState.scanning_bacnet_range),
@@ -102,17 +116,126 @@ def card_with_no_devices():
         padding="1.3rem",
     )
 
-def show_device(device: dict[str, str], index: str) -> rx.Component:
+def true_writable_badge() -> rx.Component:
+    return rx.badge(
+        "TRUE",
+        color_scheme="blue",
+        padding=".25rem .5rem",
+        border_radius=".5rem"
+    )
+
+def false_writable_badge() -> rx.Component:
+    return rx.badge(
+        "FALSE",
+        color_scheme="gray",
+        padding=".25rem .5rem",
+        border_radius=".5rem"
+    )
+
+def show_device_point(point: BACnetDevicePointModelView, index: int) -> rx.Component:
     return rx.table.row(
-        rx.table.cell(device["name"]),
-        rx.table.cell(device["id"]),
-        rx.table.cell(device["address"]),
-        class_name=rx.cond(
-            BacnetScanState.selected_device["id"] == device["id"],
-            "csv_data_cell active",
-            "csv_data_cell"
+        rx.table.cell(
+            rx.hstack(
+                rx.checkbox(
+                    on_change=lambda checked: BacnetScanState.handle_device_check(index, checked), 
+                    checked=point.selected
+                ), 
+                rx.text(point.device_name),
+                spacing="4"
+            )
         ),
-        on_click = lambda: BacnetScanState.handle_device_row_click(index)
+        rx.table.cell(
+            rx.cond(
+                point.writable,
+                true_writable_badge(),
+                false_writable_badge()
+            )
+        ),
+        rx.table.cell(point.present_value),
+        rx.table.cell(point.units),
+        rx.table.cell(point.notes),
+    )
+
+
+def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
+    return rx.fragment(
+        rx.table.row(
+            rx.table.cell(device.object_name),
+            rx.table.cell(device.deviceIdentifier),
+            rx.table.cell(device.scanned_ip_target),
+            class_name=rx.cond(
+                device.device_instance == BacnetScanState.selected_device.device_instance,
+                "csv_data_cell active",
+                "csv_data_cell"
+            ),
+            on_click=lambda: BacnetScanState.handle_device_row_click(index)
+        ),
+        rx.cond(
+            # TODO have a cond for if there are not points (for whatever--reason may help with debugging tbh)
+            device.device_instance == BacnetScanState.selected_device.device_instance,
+            rx.table.row(
+                rx.table.cell(
+                    rx.vstack(
+                        # rx.hstack(
+                            rx.vstack(
+                                rx.text("Device Points", size="1", weight="bold"),
+                                rx.text(f"Select points to export or configure to a platform", size="1", color="gray"),
+                                spacing="1"
+                            ),
+                            # TODO make this a dialog trigger
+                            # rx.button(
+                            #     "Create a Registry Config File", 
+                            #     size="1",
+                            #     disabled=rx.cond(
+                            #         BacnetScanState.selected_points.length() > 0,
+                            #         False,
+                            #         True
+                            #     )
+                            # ),
+                            # justify="between",
+                            # width="100%"
+                        # ), make it bigger, 
+                        # Add your expanded content here, e.g. a nested table of points
+                        # rx.table(...),
+                        rx.table.root(
+                            rx.table.header(
+                                rx.table.row(
+                                    rx.table.column_header_cell(
+                                        rx.hstack(
+                                            rx.checkbox(
+                                                checked=BacnetScanState.selected_device.select_all_points,
+                                                on_change=BacnetScanState.toggle_select_all_points
+                                            ),
+                                            rx.text("VOLTTRON Point Name", weight="bold"),
+                                            spacing="4"
+                                        )
+                                    ),
+                                    rx.table.column_header_cell("Writable"),
+                                    rx.table.column_header_cell("Present Value"),
+                                    rx.table.column_header_cell("Units"),
+                                    rx.table.column_header_cell("Notes"),
+                                )
+                            ),
+                            rx.table.body(
+                                rx.foreach(
+                                    BacnetScanState.selected_device.points,
+                                    show_device_point
+                                ),
+                            ),
+                            width="100%",
+                            border="1px solid",
+                            border_color="#272727FF",
+                            border_radius=".5rem",
+                        ),
+                        spacing="2",
+                        padding="1em",
+                        border_radius="6px",
+                    ),
+                    background_color="#1B1B1B8B",
+                    col_span=3
+                )
+            )
+        )
     )
 
 def discovered_devices_card() -> rx.Component:
@@ -122,7 +245,11 @@ def discovered_devices_card() -> rx.Component:
             rx.cond(
                 BacnetScanState.discovered_devices.length() == 0,
                 rx.text("No devices discovered yet", color="gray"),
-                rx.text(f"{BacnetScanState.discovered_devices.length()} BACnet devices found", color="gray")
+                rx.vstack(
+                    rx.text(f"{BacnetScanState.discovered_devices.length()} BACnet devices found", color="gray"),
+                    rx.text(f"Click on a device to select and view it's points", size="1", color="gray"),
+                    spacing="1"
+                )
             ),
             margin_bottom="1em",
         ),
@@ -147,7 +274,7 @@ def discovered_devices_card() -> rx.Component:
                             )
                         )
                     ),
-                    height="300px",
+                    height="1000px",
                     overflow_y="auto",
                 ),
             ),
@@ -167,10 +294,11 @@ def discovered_devices_card() -> rx.Component:
                         )
                     )
                 ),
-                height="300px",
+                height="1000px",
                 overflow_y="auto",
             ),
         ),
+        min_height="1000px",
         border="1px solid",
         border_color="grey",
         border_radius=".5rem",
@@ -367,7 +495,7 @@ def network_information_card() -> rx.Component:
                 rx.text("Network Information", as_="label", html_for="local-ip"),
                 rx.cond(
                     BacnetScanState.ip_detection_mode=="",
-                    rx.text("Click one of the buttons to retrieve specific network information", size="2", color="gray"),
+                    rx.text("Click the button to retrieve specific network information", size="2", color="gray"),
                     rx.cond(
                         BacnetScanState.pinging_ip,
                         rx.hstack(
@@ -394,7 +522,7 @@ def network_information_card() -> rx.Component:
                                 ),
                                 # Windows Host IP info
                                 rx.fragment(
-                                    rx.text("Windows Host IP"),
+                                    rx.text("Host IP"),
                                     rx.text(BacnetScanState.windows_host_ip_info.windows_host_ip),
                                 )
                             ),
@@ -407,22 +535,22 @@ def network_information_card() -> rx.Component:
             margin_bottom="0.8rem"
         ),
         rx.hstack(  # CardFooter
-            rx.button(
-                rx.cond(
-                    (BacnetScanState.ip_detection_mode=="local_ip") & 
-                    (BacnetScanState.pinging_ip),
-                    rx.spinner(),    
-                    rx.icon("wifi", size=16),
-                ),
-                rx.text("Get Local IP"),
-                on_click=lambda: BacnetScanState.set_ip_detection_mode("local_ip"),
-                disabled=rx.cond(
-                    (BacnetScanState.pinging_ip) | (BacnetScanState.proxy_up == False),
-                    True,
-                    False
-                ),
-                variant="solid"
-            ),
+            # rx.button(
+            #     rx.cond(
+            #         (BacnetScanState.ip_detection_mode=="local_ip") & 
+            #         (BacnetScanState.pinging_ip),
+            #         rx.spinner(),    
+            #         rx.icon("wifi", size=16),
+            #     ),
+            #     rx.text("Get Local IP"),
+            #     on_click=lambda: BacnetScanState.set_ip_detection_mode("local_ip"),
+            #     disabled=rx.cond(
+            #         (BacnetScanState.pinging_ip) | (BacnetScanState.proxy_up == False),
+            #         True,
+            #         False
+            #     ),
+            #     variant="solid"
+            # ),
             rx.button(
                 rx.cond(
                     (BacnetScanState.ip_detection_mode=="windows_host_ip") & 
@@ -430,14 +558,16 @@ def network_information_card() -> rx.Component:
                     rx.spinner(),
                     rx.icon("settings", size=16),
                 ),
-                rx.text("Get Windows Host IP"),
+                rx.text("Get Host IP"),
                 on_click=lambda: BacnetScanState.set_ip_detection_mode("windows_host_ip"),
                 disabled=rx.cond(
                     (BacnetScanState.pinging_ip) | (BacnetScanState.proxy_up == False),
                     True,
                     False
                 ),
-                variant="solid"
+                variant="solid",
+                width="100%",
+                justify="center",
             ),
             justify="between",
             width="100%"
@@ -470,8 +600,8 @@ def bacnet_proxy_card():
                     id="local_ip",
                     placeholder="Auto-detect (recommended)",
                     width="100%",
-                    disabled=rx.cond(
-                            (BacnetScanState.proxy_up) | (BacnetScanState.is_starting_proxy),
+                    read_only=rx.cond(
+                            BacnetScanState.proxy_up,
                             True,
                             False
                         ),
@@ -573,10 +703,11 @@ def bacnet_networking_grid() -> rx.Component:
 def bacnet_device_and_property_grid() -> rx.Component:
     return rx.grid(
         discovered_devices_card(),
-        property_operations_card(),
+        # property_operations_card(),
         spacing="6",
         width="100%",
-        columns={ "base": "1", "md": "2" }
+        columns="1"
+        # columns={ "base": "1", "md": "2" }
     )
 
 def bacnet_scan_tool_header() -> rx.Component:
@@ -612,35 +743,57 @@ def proxy_down_warning() -> rx.Component:
     )
 
 def render() -> rx.Component:
-    return rx.box(
-        # Full page wrapper with scrolling
+    return (
         rx.box(
-            # Centered content container
-            rx.vstack(
-                bacnet_scan_tool_header(),
-                proxy_down_warning(),
-                bacnet_networking_grid(),
-                bacnet_device_and_property_grid(),
-                footer(),
-                spacing="6",
-                align_items="stretch",
+            # Full page wrapper with scrolling
+            rx.box(
+                # Centered content container
+                rx.vstack(
+                    rx.cond(
+                        ToolState.running_tools.contains("bacnet_scan_tool") == False,
+                        rx.fragment(
+                            rx.grid(
+                                rx.skeleton(width="100%"),
+                                rx.skeleton(width="100%"),
+                                spacing="6",
+                                width="100%",
+                                columns={ "base": "1", "md": "2" }
+                            ),
+                            rx.grid(
+                                rx.skeleton(width="100%"),
+                                rx.skeleton(width="100%"),
+                                rx.skeleton(width="100%"),
+                                spacing="6",
+                                width="100%",
+                                columns={ "base": "1", "md": "3" }      
+                            )
+                        ),
+                        rx.fragment(
+                            bacnet_scan_tool_header(),
+                            proxy_down_warning(),
+                            bacnet_networking_grid(),
+                            bacnet_device_and_property_grid(),
+                            footer(),
+                        ),
+                    ),
+                    spacing="6",
+                    align_items="stretch",
+                ),
+                max_width="1200px",
+                margin_left="auto",
+                margin_right="auto",
+                padding_y="1.5rem",
             ),
-            max_width="1200px",
-            margin_left="auto",
-            margin_right="auto",
-            padding_y="1.5rem",
+            height="100vh",  # Full viewport height
+            width="100%",    # Full width
+            overflow_y="auto", # Scrolling applied to full width
+            padding_x="16px"
         ),
-        height="100vh",  # Full viewport height
-        width="100%",    # Full width
-        overflow_y="auto", # Scrolling applied to full width
-        padding_x="16px"
+
     )
 
-@rx.page(
-    route="/tools/bacnet_scan"
-    # TODO add this once we implement the backend tools structure
-    #on_load=lambda: ToolState.start_tool("bacnet_scan_tool")
-    )
+
+@rx.page(route="/tools/bacnet_scan", on_load=ToolState.start_tool("bacnet_scan_tool"))
 def bacnet_scan_page() -> rx.Component:
     return app_layout_sidebar.app_layout_sidebar(
         render()
