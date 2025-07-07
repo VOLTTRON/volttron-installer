@@ -1,8 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
-from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Optional
-import json
-from pathlib import Path
+from ..utils import get_api_url
 import os, asyncio
 
 from volttron_installer.backend.tool_manager import ToolManager
@@ -12,16 +10,6 @@ from volttron_installer.backend.services.platform_service import PlatformService
 from volttron_installer.backend.models import AgentCatalog
 
 from volttron_installer.backend.tool_proxy_factory import ToolProxyFactory
-from dotenv import load_dotenv
-from pathlib import Path
-import os
-
-if Path("dev.env").exists():
-    load_dotenv("dev.env")
-elif Path(".env").exists():
-    load_dotenv()
-else:
-    raise FileNotFoundError("No .env nore dev.env file found")
 
 from .models import (
     CreateOrUpdateHostEntryRequest,
@@ -531,7 +519,7 @@ async def bacnet_scan_get_local_ip(target_ip: str = None) -> dict[str, str]:
     # OPTIONAL
     from .tool_proxy_factory import ApiError
 
-    url=f"{os.environ.get('API_URL', 'http://localhost:8000')}/api/tool_proxy/bacnet_scan_tool/get_local_ip"
+    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/get_local_ip")
     REQUEST = {"target_ip" : target_ip}
     try:
         response = await ToolProxyFactory.request(
@@ -548,7 +536,7 @@ async def bacnet_scan_get_local_ip(target_ip: str = None) -> dict[str, str]:
 async def bacnet_scan_start_proxy(local_device_address: str | None = None) -> dict[str, str]:
     from .tool_proxy_factory import ApiError
 
-    url=f"{os.environ.get('API_URL', 'http://localhost:8000')}/api/tool_proxy/bacnet_scan_tool/start_proxy"
+    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/start_proxy")
     REQUEST = {"local_device_address" : local_device_address}
     try:
         response = await ToolProxyFactory.request(
@@ -566,7 +554,7 @@ async def bacnet_scan_get_windows_host_ip() -> dict[str, str]:
     # OPTIONAL, for WSL2 users
     from .tool_proxy_factory import ApiError
 
-    url=f"{os.environ.get('API_URL', 'http://localhost:8000')}/api/tool_proxy/bacnet_scan_tool/get_windows_host_ip"
+    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/get_windows_host_ip")
     try:
         response = await ToolProxyFactory.request(
             url,
@@ -581,7 +569,7 @@ async def bacnet_scan_get_windows_host_ip() -> dict[str, str]:
 async def bacnet_scan_scan_ip_range(network_str: str) -> dict[str, str]:
     from .tool_proxy_factory import ApiError
 
-    url=f"{os.environ.get('API_URL', 'http://localhost:8000')}/api/tool_proxy/bacnet_scan_tool/bacnet/scan_ip_range"
+    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/bacnet/scan_ip_range")
     REQUEST={"network_str": network_str}
     try:
         response = await ToolProxyFactory.request(
@@ -612,8 +600,7 @@ async def bacnet_scan_scan_ip_range(network_str: str) -> dict[str, str]:
 @bacnet_scan_tool_router.post("/read_property", response_model=dict)
 async def bacnet_scan_read_property(request: BACnetReadPropertyRequest) -> dict:
     from .tool_proxy_factory import ApiError
-
-    url=f"{os.environ.get('API_URL', 'http://localhost:8000')}/api/tool_proxy/bacnet_scan_tool/read_property"
+    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/read_property")
     REQUEST = {
             "device_address": request.device_address,
             "object_identifier": request.object_identifier,
@@ -637,7 +624,7 @@ async def bacnet_scan_read_property(request: BACnetReadPropertyRequest) -> dict:
 async def bacnet_scan_write_property(request: BACnetWritePropertyRequest) -> dict[str, str]:
     from .tool_proxy_factory import ApiError
 
-    url=f"{os.environ.get('API_URL', 'http://localhost:8000')}/api/tool_proxy/bacnet_scan_tool/write_property"
+    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/write_property")
     REQUEST = {
             "device_address": request.device_address,
             "object_identifier": request.object_identifier,
@@ -665,7 +652,7 @@ async def bacnet_scan_read_device_all(request: BACnetReadDeviceAllRequest):
     from loguru import logger
     logger.debug(f"this is i, the endpiont getting: {request}")
 
-    url=f"{os.environ.get('API_URL', 'http://localhost:8000')}/api/tool_proxy/bacnet_scan_tool/bacnet/read_device_all"
+    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/bacnet/read_device_all")
     REQUEST={
         "device_address": request.device_address,
         "device_object_identifier": request.device_object_identifier
@@ -692,7 +679,7 @@ async def bacnet_scan_who_is(
     ) -> dict[str, str]:
     from .tool_proxy_factory import ApiError
 
-    url=f"{os.environ.get('API_URL', 'http://localhost:8000')}/api/tool_proxy/bacnet_scan_tool/bacnet/who_is"
+    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/bacnet/who_is")
     REQUEST={
         "device_instance_low": device_instance_low,
         "device_instance_high": device_instance_high,
@@ -713,7 +700,7 @@ async def bacnet_scan_who_is(
 async def bacnet_scan_stop_proxy() -> dict[str, str]:
     from .tool_proxy_factory import ApiError
 
-    url=f"{os.environ.get('API_URL', 'http://localhost:8000')}/api/tool_proxy/bacnet_scan_tool/stop_proxy"
+    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/stop_proxy")
     try:
         response = await ToolProxyFactory.request(
             url,
