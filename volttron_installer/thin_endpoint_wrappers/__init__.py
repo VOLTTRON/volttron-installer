@@ -130,6 +130,14 @@ async def proxy_request(
                 url=url, 
                 **kwargs
             )
+            response.raise_for_status()
+            return response
+        except httpx.TimeoutException:
+            raise ApiError(408, f"Request timed out connecting to {url}")
+        except httpx.HTTPStatusError as e:
+            raise ApiError(e.response.status_code, e.response.text)
+        except Exception as e:
+            raise ApiError(500, str(e))
 
 # TODO remove this function as it is a duplicate of proxy_request. this was required to make certain endpoint work when we didnt have some code
 # available
