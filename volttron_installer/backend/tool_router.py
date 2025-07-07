@@ -3,16 +3,7 @@ from fastapi import APIRouter, Request, HTTPException
 from starlette.background import BackgroundTask
 from starlette.responses import StreamingResponse
 from .tool_manager import ToolManager
-from dotenv import load_dotenv
-from pathlib import Path
 import os
-
-if Path("dev.env").exists():
-    load_dotenv("dev.env")
-elif Path(".env").exists():
-    load_dotenv()
-else:
-    raise FileNotFoundError("No .env nore dev.env file found")
 
 # Create a router for dynamic proxying
 tool_router = APIRouter(prefix="/tool_proxy", tags=["tool proxy"])
