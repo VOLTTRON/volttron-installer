@@ -42,8 +42,15 @@ class HostEntry(BaseModel):
         }
 
 class ToolRequest(BaseModel):
+    # Tool name e.g "bacnet_scan_tool"
     tool_name: str
+
+    # The module path to start a uvicorn app.
+    # e.g "bacnet_scan_tool.main:app"
     module_path: str
+    
+    # TODO remove all functionality associated with this field within tool router and tool manager
+    # this guy causes nothing but errors and should never be true whether or not it needs poetry.
     use_poetry: bool = False
 
 class ToolStatusResponse(BaseModel):
