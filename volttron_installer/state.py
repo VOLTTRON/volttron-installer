@@ -108,6 +108,7 @@ class ToolState(rx.State):
             self.running_tools[tool_id] = True
             logger.debug("tool started")
             
+            yield ToolState.monitor_all_tools()
         except Exception as e:
             logger.debug(f"Error starting tool: {str(e)}")
         finally:
