@@ -1978,14 +1978,14 @@ class BacnetScanState(rx.State):
 
     @rx.event
     def cancel_device_point_present_value_edit(self, index: int):
-        index = self.get_absolute_index(index)
-        self.selected_device.points[index].present_value = self.selected_device.points[index].safe_point["present_value"]
+        absolute_index = self.get_absolute_index(index)
+        self.selected_device.points[index].present_value = self.selected_device.points[absolute_index].safe_point["present_value"]
         yield BacnetScanState.disable_device_point_present_value_edit(index)
 
     @rx.event
     def save_device_point_present_value_edit(self, index: int):
-        index = self.get_absolute_index(index)
-        self.selected_device.points[index].safe_point = self.selected_device.points[index].to_dict()
+        absolute_index = self.get_absolute_index(index)
+        self.selected_device.points[index].safe_point = self.selected_device.points[absolute_index].to_dict()
         yield BacnetScanState.disable_device_point_present_value_edit(index)
         # yield method to write to point
 
@@ -2235,33 +2235,33 @@ class BacnetScanState(rx.State):
             The absolute index in the full list of points (within self.discovered_device.points)
         """
         # Log initial state
-        logger.debug(f"Converting relative_index={relative_index} to absolute index")
+        # logger.debug(f"Converting relative_index={relative_index} to absolute index")
         
         # Safety check - if no device is selected or no points exist
         if self.selected_device is None:
-            logger.debug("No device selected, returning index 0")
+            # logger.debug("No device selected, returning index 0")
             return 0
         
         if not self.selected_device.points:
-            logger.debug("Selected device has no points, returning index 0")
+            # logger.debug("Selected device has no points, returning index 0")
             return 0
         
         total_points = len(self.selected_device.points)
-        logger.debug(f"Total points in selected device: {total_points}")
+        # logger.debug(f"Total points in selected device: {total_points}")
         
         # Calculate the start index for the current page
         page_start_index = (self.points_table_page_number - 1) * self._point_per_page_limit
-        logger.debug(f"Current page: {self.points_table_page_number}, Start index: {page_start_index}")
+        # logger.debug(f"Current page: {self.points_table_page_number}, Start index: {page_start_index}")
         
         # Calculate the absolute index
         absolute_index = page_start_index + relative_index
-        logger.debug(f"Calculated absolute_index: {absolute_index}")
+        # logger.debug(f"Calculated absolute_index: {absolute_index}")
         
         # Ensure the index doesn't exceed the bounds of the list
         if absolute_index >= total_points:
-            logger.debug(f"Absolute index {absolute_index} exceeds total points {total_points}, clamping to {total_points-1}")
+            # logger.debug(f"Absolute index {absolute_index} exceeds total points {total_points}, clamping to {total_points-1}")
             # If out of bounds, return the last valid index
             return total_points - 1
         
-        logger.debug(f"Final absolute_index: {absolute_index}")
+        # logger.debug(f"Final absolute_index: {absolute_index}")
         return absolute_index
