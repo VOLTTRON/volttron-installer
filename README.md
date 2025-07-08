@@ -1,26 +1,147 @@
-# volttron-installer
-### Installing Prerequisites
-1. Ensure that Python version 3.10[^1] is installed by running `python3.10 --version`
-   - If Python 3.10 is not installed, add the deadsnakes PPA by running `sudo add-apt-repository ppa:deadsnakes/ppa`
-   - Run `sudo apt update` to refresh the cache
-   - Install Python 3.10 by running `sudo apt install python3.10`
-   - Validate that Python 3.10 was installed by running `python3.10 --version`
-2. Ensure that curl is installed on the system by running `curl --version`
-   - If curl is not installed, run `sudo apt install curl` to install it
-### Running the Script
-1. Run the command `python3 <(curl -sSL https://raw.githubusercontent.com/VOLTTRON/volttron-installer/develop/web.py)`
-   - Installs the ansible, git, pexpect, pip and python3.10-venv packages if they are not already installed
-   - Creates and activates a virtual environment in the directory where the script was ran
-   - Installs the volttron-ansible collection
-   - Prompts user to choose the amount of instances they want installed (maximum of 5)
-   - Starts a web server and opens the default browser, pointing to 'http://localhost:8080'
-2. Navigating the Web Page - 1 instance
-   - Enter password then click 'Install Base Requirements' to install what is needed for volttron
-   - After the base requirements have been installed, click 'Create Instance' to create and run the instance
-   - After installation, pick whatever services are needed for the instance and click 'Install Services'
-   - Start and stop buttons for the instance are show on the bottom of the page
-3. Navigating the Web Page - Multiple Instances
-   - Pick what services are needed for each instance and click 'Configure Instance'
-   - Navigate to the bottom of the page to enter your password, then click 'Install All Instances'
-   - Start and stop buttons are provided under 'Configure Instance' for each instance
-[^1]: Any version of Python greater than 3.8 will work
+# VOLTTRON Installer
+
+The VOLTTRON Installer is a tool designed to simplify the installation and configuration of the VOLTTRON platform, an open-source distributed control system platform for integrating with building systems and devices.
+
+## Overview
+
+The VOLTTRON Installer provides:
+- Easy installation of the core VOLTTRON platform
+- Automated configuration of various platform components
+- Support for both development and production deployments
+- Integration with building systems and IoT devices
+
+## System Requirements
+
+### Base System Requirements
+
+When running on bare metal, ensure your system has:
+
+- **Python**: 3.10 or above
+- **System Dependencies**:
+  ```bash
+  sudo apt update
+  sudo apt install -y build-essential libffi-dev libssl-dev git python3-dev python3-venv unzip
+  ```
+
+## Installation Options
+
+### Option 1: Direct Installation with Pip
+
+1. **Create a Virtual Environment** (recommended)
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+
+2. **Install VOLTTRON Installer**
+   ```bash
+   pip install git+https://github.com/VOLTTRON/volttron-installer.git@develop
+   ```
+
+3. **Run the Installer**
+   ```bash
+   volttron-installer
+   ```
+
+### Option 2: Development Installation
+
+1. **Clone the Repository**
+   ```bash
+   git clone https://github.com/VOLTTRON/volttron-installer.git
+   cd volttron-installer
+   ```
+
+2. **Create and Activate Virtual Environment**
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+
+3. **Install in Development Mode**
+   ```bash
+   pip install -r requirements.txt
+   pip install -e .
+   ```
+
+4. **Run the Installer**
+   ```bash
+   volttron-installer
+   ```
+
+### Option 3: Using VS Code Dev Containers
+
+The repository includes a Dev Container configuration that allows you to develop and test the project in a consistent environment.
+
+#### Prerequisites
+
+- [VS Code](https://code.visualstudio.com/download)
+- [Docker](https://docs.docker.com/get-docker/)
+- [VS Code Remote - Containers Extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+
+#### Steps
+
+1. **Clone the Repository**
+   ```bash
+   git clone https://github.com/VOLTTRON/volttron-installer.git
+   cd volttron-installer
+   ```
+
+2. **Open in VS Code**
+   ```bash
+   code .
+   ```
+
+3. **Reopen in Container**
+   When prompted by VS Code, click "Reopen in Container" or use the command palette (F1) and select "Remote-Containers: Reopen in Container".
+
+4. **Testing Pull Requests**
+   Once the container is running, you can test pull requests using the included script:
+   ```bash
+   test-pr [PR-NUMBER]
+   ```
+
+5. **Clean Up After Testing**
+   When finished testing, clean up using:
+   ```bash
+   cleanup-pr
+   ```
+
+## Usage
+
+After installation, run the VOLTTRON Installer:
+
+```bash
+volttron-installer
+```
+
+Follow the interactive prompts to configure your VOLTTRON installation.
+
+## Configuration Options
+
+The installer supports various configuration options:
+
+- Platform installation path
+- Message bus configuration
+- Agent selection and configuration
+- Security settings
+- Historian database configuration
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+Copyright 2025 Battelle Memorial Institute
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this file except in compliance with the License. You may obtain a copy
+of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+    
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+License for the specific language governing permissions and limitations
+under the License.
