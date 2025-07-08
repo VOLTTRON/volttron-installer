@@ -188,6 +188,17 @@ class BACnetDevicePointModelView(rx.Base):
 
     # UI driven field
     selected: bool = False
+    present_value_editing: bool = False
+    safe_point: dict = {}
+    
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "device_name": self.device_name,
+            "writable": self.writable,
+            "present_value": self.present_value,
+            "units": self.units,
+            "notes": self.notes
+        }
 
 class BACnetDeviceModelView(rx.Base):
     pduSource: str

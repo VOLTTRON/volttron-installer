@@ -132,6 +132,42 @@ def false_writable_badge() -> rx.Component:
         border_radius=".5rem"
     )
 
+def present_value_cell(point: BACnetDevicePointModelView, index: int) -> rx.Component:
+    return rx.table.cell(
+        rx.hstack(
+            rx.cond(
+                point.present_value_editing,
+                rx.fragment(
+                    rx.text_field(
+                        value=point.present_value,
+                        size="1",
+                        on_change=lambda v: BacnetScanState.handle_present_value_edit(index, v)
+                    ),
+                    rx.button(
+                        rx.icon("save", size=12),
+                        size="1",
+                        on_click=lambda: BacnetScanState.save_device_point_present_value_edit(index)
+                    ),
+                    rx.button(
+                        rx.icon("x", size=12),
+                        size="1",
+                        color_scheme="red",
+                        on_click=lambda: BacnetScanState.cancel_device_point_present_value_edit(index)
+                    )
+                ),
+                rx.fragment(
+                    rx.text(point.present_value),
+                    rx.button(
+                        rx.icon("pencil", size=12),
+                        size="1",
+                        on_click=lambda: BacnetScanState.enable_device_point_present_value_edit(index)
+                    )
+                )
+            ),
+            spacing="2"
+        )
+    )
+
 def show_device_point(point: BACnetDevicePointModelView, index: int) -> rx.Component:
     return rx.table.row(
         rx.table.cell(
@@ -151,7 +187,7 @@ def show_device_point(point: BACnetDevicePointModelView, index: int) -> rx.Compo
                 false_writable_badge()
             )
         ),
-        rx.table.cell(point.present_value),
+        present_value_cell(point, index),
         rx.table.cell(point.units),
         rx.table.cell(point.notes),
     )

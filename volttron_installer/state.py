@@ -1894,6 +1894,29 @@ class BacnetScanState(rx.State):
         """Handle input change for the main IP address field."""
         self.ip_address = value
 
+    # Handle Device Point editing
+    @rx.event
+    def handle_present_value_edit(self, index: int, value: str):
+        self.selected_device.points[index].present_value = value
+
+    @rx.event
+    def enable_device_point_present_value_edit(self, index: int):
+        self.selected_device.points[index].present_value_editing = True
+    
+    @rx.event
+    def disable_device_point_present_value_edit(self, index: int):
+        self.selected_device.points[index].present_value_editing = False
+
+    @rx.event
+    def cancel_device_point_present_value_edit(self, index: int):
+        self.selected_device.points[index].present_value = self.selected_device.points[index].safe_point["present_value"]
+        yield BacnetScanState.disable_device_point_present_value_edit(index)
+
+    @rx.event
+    def save_device_point_present_value_edit(self, index: int):
+        self.selected_device.points[index].safe_point = self.selected_device.points[index].to_dict()
+        yield BacnetScanState.disable_device_point_present_value_edit(index)
+        # yield method to write to point
 
     # Handle the actual endpoint actions/functionality
     @rx.event
@@ -2056,6 +2079,7 @@ class BacnetScanState(rx.State):
                         units=units,
                         notes=notes_value
                     )
+                    point.safe_point = point.to_dict()
                     logger.debug(f"Point created: {point}")
                     
                     logger.debug(f"Step 5: Adding point to device {device}")
