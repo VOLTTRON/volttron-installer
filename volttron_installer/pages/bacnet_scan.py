@@ -131,6 +131,32 @@ def present_value_cell(point: BACnetDevicePointModelView, index: int) -> rx.Comp
         )
     )
 
+def device_point_table_pagination() -> rx.Component:
+    return rx.hstack(
+        rx.button(
+            rx.icon(
+                "chevron-left",
+                size=20
+            ),
+            disabled=~BacnetScanState.prev_page_allowed,
+            on_click=lambda: BacnetScanState.prev_point_page(),
+            size="1"
+        ),
+        rx.text(f"Page {BacnetScanState.points_table_page_number}/{BacnetScanState.total_pages}"),
+        rx.button(
+            rx.icon(
+                "chevron-right",
+                size=20
+            ),
+            disabled=~BacnetScanState.next_page_allowed,
+            on_click=lambda: BacnetScanState.next_point_page(),
+            size="1"
+        ),
+        width="100%",
+        justify="center",
+        align="center"
+        ),
+
 def show_device_point(point: BACnetDevicePointModelView, index: int) -> rx.Component:
     return rx.table.row(
         rx.table.cell(
@@ -216,7 +242,7 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
                             ),
                             rx.table.body(
                                 rx.foreach(
-                                    BacnetScanState.selected_device.points,
+                                    BacnetScanState.points_to_load,
                                     show_device_point
                                 ),
                             ),
@@ -225,6 +251,7 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
                             border_color="#272727FF",
                             border_radius=".5rem",
                         ),
+                        device_point_table_pagination(),
                         spacing="2",
                         padding="1em",
                         border_radius="6px",

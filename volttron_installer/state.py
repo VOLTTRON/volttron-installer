@@ -16,7 +16,7 @@ from .utils import delete_file
 from loguru import logger
 from typing import Dict, Optional, List
 from .thin_endpoint_wrappers import *
-import string, random, json, csv, yaml, re, io, asyncio
+import string, random, json, csv, yaml, re, io, asyncio, math
 from copy import deepcopy
 from typing import Literal
 
@@ -1575,7 +1575,9 @@ class BacnetScanState(rx.State):
     _is_write_property_valid: bool = False
     _is_read_property_valid: bool = False
     _warn_ping_range: bool = False
-    
+    _point_per_page_limit: int = 20
+    _points_table_page_number: int = 1
+
     # Fields
     proxy_field_value: str = ""
 
@@ -1664,6 +1666,51 @@ class BacnetScanState(rx.State):
 
     # Computed Vars
     @rx.var
+    def total_pages(self) -> int:
+        """Calculate the total number of pages based on points count."""
+        if self.selected_device is None or not self.selected_device.points:
+            return 1
+        
+        total_points = len(self.selected_device.points)
+        return max(1, math.ceil(total_points / self._point_per_page_limit))
+
+    @rx.var
+    def points_table_page_number(self) -> int:
+        """Current page number, clamped to valid range."""
+        # Ensure page number is within bounds
+        if self._points_table_page_number < 1:
+            return 1
+        elif self._points_table_page_number > self.total_pages:
+            return self.total_pages
+        return self._points_table_page_number
+
+    @rx.var
+    def next_page_allowed(self) -> bool:
+        """Whether there's a next page available."""
+        return self.points_table_page_number < self.total_pages
+
+    @rx.var
+    def prev_page_allowed(self) -> bool:
+        """Whether there's a previous page available."""
+        return self.points_table_page_number > 1
+
+    @rx.var
+    def points_to_load(self) -> list[BACnetDevicePointModelView]:
+        """Get the points for the current page."""
+        if self.selected_device is None or not self.selected_device.points:
+            return []
+        
+        page_view_low = (self.points_table_page_number - 1) * self._point_per_page_limit
+        page_view_high = min(page_view_low + self._point_per_page_limit, len(self.selected_device.points))
+        
+        # Safety check to prevent out-of-bounds errors
+        if page_view_low >= len(self.selected_device.points):
+            page_view_low = 0
+            page_view_high = min(self._point_per_page_limit, len(self.selected_device.points))
+        
+        return self.selected_device.points[page_view_low:page_view_high]
+
+    @rx.var
     def warn_ping_range(self) -> bool: 
         self._warn_ping_range = "/" in self.scan_ip_range.network_string
         return self._warn_ping_range
@@ -1702,6 +1749,25 @@ class BacnetScanState(rx.State):
         return []
     
     # Events
+    @rx.event
+    def next_point_page(self):
+        """Go to the next page if available."""
+        if self.next_page_allowed:
+            self._points_table_page_number += 1
+
+    @rx.event
+    def prev_point_page(self):
+        """Go to the previous page if available."""
+        if self.prev_page_allowed:
+            self._points_table_page_number -= 1
+    
+    # May use one day
+    @rx.event
+    def go_to_point_page(self, page_number: int):
+        """Go to a specific page."""
+        if 1 <= page_number <= self.total_pages:
+            self._points_table_page_number = page_number
+
     @rx.event
     def toggle_select_all_points(self, checked: bool):
         self.selected_device.select_all_points = checked
@@ -1897,23 +1963,28 @@ class BacnetScanState(rx.State):
     # Handle Device Point editing
     @rx.event
     def handle_present_value_edit(self, index: int, value: str):
+        index = self.get_absolute_index(index)
         self.selected_device.points[index].present_value = value
 
     @rx.event
     def enable_device_point_present_value_edit(self, index: int):
+        index = self.get_absolute_index(index)
         self.selected_device.points[index].present_value_editing = True
     
     @rx.event
     def disable_device_point_present_value_edit(self, index: int):
+        index = self.get_absolute_index(index)
         self.selected_device.points[index].present_value_editing = False
 
     @rx.event
     def cancel_device_point_present_value_edit(self, index: int):
+        index = self.get_absolute_index(index)
         self.selected_device.points[index].present_value = self.selected_device.points[index].safe_point["present_value"]
         yield BacnetScanState.disable_device_point_present_value_edit(index)
 
     @rx.event
     def save_device_point_present_value_edit(self, index: int):
+        index = self.get_absolute_index(index)
         self.selected_device.points[index].safe_point = self.selected_device.points[index].to_dict()
         yield BacnetScanState.disable_device_point_present_value_edit(index)
         # yield method to write to point
@@ -1993,7 +2064,7 @@ class BacnetScanState(rx.State):
                 logger.debug(f"we are going to go through {len(points) - 1}")
                 logger.debug(f"sike we only getting 50")
                 # go through each object-list item, skip the first one which is ours, then read property the stuff
-                for obj in points[1:21]:
+                for obj in points[1:32]:
                     logger.debug(f"Processing object: {obj}")
                     
                     object_identifier: str = f"{obj[0]},{obj[1]}"
@@ -2153,3 +2224,44 @@ class BacnetScanState(rx.State):
             yield rx.toast.success("Retrieved Host IP")
         except Exception as e:
             logger.debug(f"There was an error getting local ip info {e}")
+
+    def get_absolute_index(self, relative_index: int) -> int:
+        """Convert a relative index (on the current points page) to an absolute index.
+        
+        Args:
+            relative_index: The index of the item on the current page
+            
+        Returns:
+            The absolute index in the full list of points (within self.discovered_device.points)
+        """
+        # Log initial state
+        logger.debug(f"Converting relative_index={relative_index} to absolute index")
+        
+        # Safety check - if no device is selected or no points exist
+        if self.selected_device is None:
+            logger.debug("No device selected, returning index 0")
+            return 0
+        
+        if not self.selected_device.points:
+            logger.debug("Selected device has no points, returning index 0")
+            return 0
+        
+        total_points = len(self.selected_device.points)
+        logger.debug(f"Total points in selected device: {total_points}")
+        
+        # Calculate the start index for the current page
+        page_start_index = (self.points_table_page_number - 1) * self._point_per_page_limit
+        logger.debug(f"Current page: {self.points_table_page_number}, Start index: {page_start_index}")
+        
+        # Calculate the absolute index
+        absolute_index = page_start_index + relative_index
+        logger.debug(f"Calculated absolute_index: {absolute_index}")
+        
+        # Ensure the index doesn't exceed the bounds of the list
+        if absolute_index >= total_points:
+            logger.debug(f"Absolute index {absolute_index} exceeds total points {total_points}, clamping to {total_points-1}")
+            # If out of bounds, return the last valid index
+            return total_points - 1
+        
+        logger.debug(f"Final absolute_index: {absolute_index}")
+        return absolute_index
