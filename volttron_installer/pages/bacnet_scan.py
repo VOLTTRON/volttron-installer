@@ -79,43 +79,6 @@ def scan_for_devices_card():
         max_width="400px"
     )
 
-def card_with_no_devices():
-    return rx.box(
-        rx.box(
-            rx.text("Discovered Devices", size="5", weight="bold"),
-            rx.text("No devices discovered yet", color="gray"),
-            margin_bottom="1em",
-        ),
-        rx.box(
-            rx.box(
-                rx.table.root(
-                    rx.table.header(
-                        rx.table.row(
-                            rx.table.column_header_cell("Device Name"),
-                            rx.table.column_header_cell("Object ID"),
-                            rx.table.column_header_cell("IP Address"),
-                        )
-                    ),
-                    rx.table.body(
-                        rx.table.row(
-                            rx.table.cell(
-                                rx.text("No devices found. Run a scan to discover BACnet devices.", text_align="center", color="gray"),
-                                col_span=3,
-                            )
-                        )
-                    )
-                ),
-                height="300px",
-                overflow_y="auto",
-            ),
-        ),
-        border="1px solid",
-        border_color="grey",
-        border_radius=".5rem",
-        box_shadow="0 4px 12px rgba(0,0,0,0.08)",
-        padding="1.3rem",
-    )
-
 def true_writable_badge() -> rx.Component:
     return rx.badge(
         "TRUE",
@@ -191,7 +154,6 @@ def show_device_point(point: BACnetDevicePointModelView, index: int) -> rx.Compo
         rx.table.cell(point.units),
         rx.table.cell(point.notes),
     )
-
 
 def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
     return rx.fragment(
