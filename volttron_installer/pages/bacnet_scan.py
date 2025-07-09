@@ -955,20 +955,30 @@ def render() -> rx.Component:
                     rx.cond(
                         ToolState.running_tools.contains("bacnet_scan_tool") == False,
                         rx.fragment(
-                            rx.grid(
-                                rx.skeleton(width="100%"),
-                                rx.skeleton(width="100%"),
-                                spacing="6",
-                                width="100%",
-                                columns={ "base": "1", "md": "2" }
+                            rx.hstack(
+                                rx.hstack(
+                                    rx.skeleton(height="50px", width="50px", border_radius=".5rem"),
+                                    rx.skeleton(height="30px", width="200px", border_radius=".5rem"),
+                                    align="center"
+                                ),
+                                rx.skeleton(height="25px", width="100px", border_radius=".5rem"),
+                                justify="between",
+                                align="center",
+                                width="100%"
                             ),
                             rx.grid(
-                                rx.skeleton(width="100%"),
-                                rx.skeleton(width="100%"),
-                                rx.skeleton(width="100%"),
+                                rx.skeleton(width="100%", height="250px", border_radius=".5rem"),
+                                rx.skeleton(width="100%", height="250px", border_radius=".5rem"),
+                                rx.skeleton(width="100%", height="250px", border_radius=".5rem"),
                                 spacing="6",
                                 width="100%",
-                                columns={ "base": "1", "md": "3" }      
+                                columns={ "base": "1", "md": "3" }
+                            ),
+                            rx.grid(
+                                rx.skeleton(width="100%", height="1300px", border_radius=".5rem"),
+                                spacing="6",
+                                width="100%",
+                                columns="1"
                             )
                         ),
                         rx.fragment(
