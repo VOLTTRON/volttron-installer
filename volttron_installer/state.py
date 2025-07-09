@@ -1575,8 +1575,14 @@ class BacnetScanState(rx.State):
     _is_write_property_valid: bool = False
     _is_read_property_valid: bool = False
     _warn_ping_range: bool = False
+
+    # For all points pagination
     _point_per_page_limit: int = 20
     _points_table_page_number: int = 1
+    
+    # For selected points pagination
+    _selected_points_per_page_limit: int = 15
+    _selected_points_page_number: int = 1
 
     # Fields
     proxy_field_value: str = ""
@@ -1665,6 +1671,8 @@ class BacnetScanState(rx.State):
 
 
     # Computed Vars
+
+    # For point pagination
     @rx.var
     def total_pages(self) -> int:
         """Calculate the total number of pages based on points count."""
@@ -1742,13 +1750,66 @@ class BacnetScanState(rx.State):
         self._is_write_property_valid = True
         return self._is_write_property_valid
 
+    # For selected points pagination
     @rx.var
     def selected_points(self) -> list[BACnetDevicePointModelView]:
         if self.selected_device is not None:
-            return [point for point in self.selected_device.points]
+            return [point for point in self.selected_device.points if point.selected]
         return []
     
+    @rx.var
+    def selected_points_total(self) -> int:
+        """Get the total count of selected points."""
+        return len(self.selected_points)
+
+    @rx.var
+    def selected_points_total_pages(self) -> int:
+        """Calculate the total number of pages for selected points."""
+        if not self.selected_points:
+            return 1
+        return max(1, math.ceil(self.selected_points_total / self._selected_points_per_page_limit))
+
+    @rx.var
+    def selected_points_page_number(self) -> int:
+        """Get the current page number for selected points, with bounds checking."""
+        # Ensure page number is within bounds
+        if self._selected_points_page_number < 1:
+            return 1
+        elif self._selected_points_page_number > self.selected_points_total_pages:
+            return self.selected_points_total_pages
+        return self._selected_points_page_number
+
+    @rx.var
+    def paginated_selected_points(self) -> list[BACnetDevicePointModelView]:
+        """Get the selected points for the current page only."""
+        all_selected = self.selected_points
+        
+        if not all_selected:
+            return []
+        
+        start_idx = (self.selected_points_page_number - 1) * self._selected_points_per_page_limit
+        end_idx = min(start_idx + self._selected_points_per_page_limit, len(all_selected))
+        
+        # Safety check
+        if start_idx >= len(all_selected):
+            start_idx = 0
+            end_idx = min(self._selected_points_per_page_limit, len(all_selected))
+        
+        return all_selected[start_idx:end_idx]
+
+    @rx.var
+    def selected_points_has_next_page(self) -> bool:
+        """Whether there's a next page available for selected points."""
+        return self.selected_points_page_number < self.selected_points_total_pages
+
+    @rx.var
+    def selected_points_has_prev_page(self) -> bool:
+        """Whether there's a previous page available for selected points."""
+        return self.selected_points_page_number > 1
+
+
     # Events
+    # For points pagination
     @rx.event
     def next_point_page(self):
         """Go to the next page if available."""
@@ -1768,16 +1829,47 @@ class BacnetScanState(rx.State):
         if 1 <= page_number <= self.total_pages:
             self._points_table_page_number = page_number
 
+    # For selected points pagination
+    @rx.event
+    def selected_points_next_page(self):
+        """Go to the next page of selected points if available."""
+        if self.selected_points_has_next_page:
+            self._selected_points_page_number += 1
+
+    @rx.event
+    def selected_points_prev_page(self):
+        """Go to the previous page of selected points if available."""
+        if self.selected_points_has_prev_page:
+            self._selected_points_page_number -= 1
+            
+    @rx.event
+    def selected_points_go_to_page(self, page: int):
+        """Go to a specific page of selected points."""
+        if 1 <= page <= self.selected_points_total_pages:
+            self._selected_points_page_number = page
+
+    @rx.event
+    def on_selected_points_dialog_close(self):
+        self._selected_points_page_number = 1
+
+
     @rx.event
     def toggle_select_all_points(self, checked: bool):
         self.selected_device.select_all_points = checked
         for point in self.selected_device.points:
             point.selected=checked
 
+        # Reset to first page when selections change
+        self._selected_points_page_number = 1
+
     @rx.event
     def handle_device_check(self, device_index: int, checked: bool):
+        device_index = self.get_absolute_index(device_index)
         self.selected_device.select_all_points = False
         self.selected_device.points[device_index].selected = checked
+        
+        # Reset to first page when selections change
+        self._selected_points_page_number = 1
 
     @rx.event
     def handle_proxy_field_edit(self, value: str):

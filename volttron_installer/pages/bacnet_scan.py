@@ -4,6 +4,184 @@ from ..components.form_components import form_entry
 from ..layouts import app_layout_sidebar
 from ..model_views import BACnetDeviceModelView, BACnetDevicePointModelView
 
+def device_point_table_headers() -> rx.Component:
+    return rx.fragment(
+        rx.table.column_header_cell("Writable"),
+        rx.table.column_header_cell("Present Value"),
+        rx.table.column_header_cell("Units"),
+        rx.table.column_header_cell("Notes"),
+    )
+
+def selected_points_pagination() -> rx.Component:
+    return rx.hstack(
+        rx.button(
+            rx.icon(
+                "chevron-left",
+                size=20
+            ),
+            disabled=~BacnetScanState.selected_points_has_prev_page,
+            on_click=lambda: BacnetScanState.selected_points_prev_page(),
+            size="1"
+        ),
+        rx.text(f"Page {BacnetScanState.selected_points_page_number}/{BacnetScanState.selected_points_total_pages}"),
+        rx.button(
+            rx.icon(
+                "chevron-right",
+                size=20
+            ),
+            disabled=~BacnetScanState.selected_points_has_next_page,
+            on_click=lambda: BacnetScanState.selected_points_next_page(),
+            size="1"
+        ),
+        width="100%",
+        justify="center",
+        align="center"
+    )
+
+def show_selected_points_table() -> rx.Component:
+    def show_row(point: BACnetDevicePointModelView) -> rx.Component:
+        return rx.table.row(
+            rx.table.cell(point.device_name),
+            rx.table.cell(
+                rx.cond(
+                    point.writable,
+                    true_writable_badge(),
+                    false_writable_badge()
+                )
+            ),
+            rx.table.cell(point.present_value),
+            rx.table.cell(point.units),
+            rx.table.cell(point.notes)
+        )
+    
+    return rx.table.root(
+        rx.table.header(
+            rx.table.row(
+                rx.table.column_header_cell("VOLTTRON Point Name"),
+                device_point_table_headers(),
+            ),
+        ),
+        rx.table.body(
+            rx.foreach(
+                BacnetScanState.paginated_selected_points,
+                show_row
+            )
+        )
+    )
+
+def export_points_dialog() -> rx.Component:
+    return rx.dialog.root(
+            rx.dialog.trigger(
+                rx.button(
+                    rx.hstack(
+                        rx.icon("upload", size=15),
+                        rx.text("Export"),
+                        align="center",
+                        justify="center",
+                        spacing="2"
+                    ), 
+                    size="1",
+                    disabled=rx.cond(
+                        BacnetScanState.selected_points.length() == 0,
+                        True,
+                        False
+                    )
+                )
+            ),
+            rx.dialog.content(
+                rx.dialog.title("Export Contents"),
+                rx.dialog.description(f"{BacnetScanState.selected_points.length()} points selected for exporting."),
+                rx.inset(
+                    show_selected_points_table(),
+                    side="x",
+                    margin_top="24px",
+                    margin_bottom="24px",
+                ),
+                rx.vstack(
+                    selected_points_pagination(),
+                    rx.hstack(
+                        rx.dialog.close(
+                            rx.button(
+                                "Close",
+                                color_scheme="gray",
+                                variant="soft",
+                                size="2"
+                            ),
+                        ),
+                        rx.dialog.close(
+                            rx.button(
+                                "Export",
+                                variant="soft",
+                                size="2"
+                            ),
+                        ),
+                        width="100%",
+                        justify="end",
+                        spacing="2"
+                    ),
+                    spacing="6",
+                    width="100%"
+                ),
+                on_close_auto_focus=lambda: BacnetScanState.on_selected_points_dialog_close
+            )
+        )
+
+def add_to_registry_config_file_dialog() -> rx.Component:
+    return rx.dialog.root(
+            rx.dialog.trigger(
+                rx.button(
+                    rx.hstack(
+                        rx.icon("settings", size=15),
+                        rx.text("Create a Registry Config File"),
+                        align="center",
+                        spacing="2"
+                    ), 
+                    size="1",
+                    disabled=rx.cond(
+                        BacnetScanState.selected_points.length() == 0,
+                        True,
+                        False
+                    )
+                )
+            ),
+            rx.dialog.content(
+                rx.dialog.title("Registry Config File Contents"),
+                rx.dialog.description(f"{BacnetScanState.selected_points.length()} points are to be added to a registry config file."),
+                rx.inset(
+                    show_selected_points_table(),
+                    side="x",
+                    margin_top="24px",
+                    margin_bottom="24px",
+                ),
+                rx.vstack(
+                    selected_points_pagination(),
+                    rx.hstack(
+                        rx.dialog.close(
+                            rx.button(
+                                "Close",
+                                color_scheme="gray",
+                                variant="soft",
+                                size="2"
+                            ),
+                        ),
+                        rx.dialog.close(
+                            rx.button(
+                                "Add to Registry Config File",
+                                variant="soft",
+                                size="2"
+                            ),
+                        ),
+                        width="100%",
+                        justify="end",
+                        spacing="2"
+                    ),
+                    spacing="6",
+                    width="100%"
+                ),
+                on_close_auto_focus=lambda: BacnetScanState.on_selected_points_dialog_close
+            )
+        )
+
 def scan_for_devices_card():
     return rx.box(
         rx.box(  # CardHeader
@@ -155,7 +333,7 @@ def device_point_table_pagination() -> rx.Component:
         width="100%",
         justify="center",
         align="center"
-        ),
+    )
 
 def show_device_point(point: BACnetDevicePointModelView, index: int) -> rx.Component:
     return rx.table.row(
@@ -200,27 +378,22 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
             rx.table.row(
                 rx.table.cell(
                     rx.vstack(
-                        # rx.hstack(
-                            rx.vstack(
-                                rx.text("Device Points", size="1", weight="bold"),
-                                rx.text(f"Select points to export or configure to a platform", size="1", color="gray"),
-                                spacing="1"
+                        rx.vstack(
+                            rx.text("Device Points", size="1", weight="bold"),
+                            rx.text(f"Select points to export or configure to a platform", size="1", color="gray"),
+                            rx.text(f"{BacnetScanState.selected_points.length()} points selected", size="1", color="gray"),
+                            spacing="1"
+                        ),
+                        rx.hstack(
+                            rx.box(),
+                            rx.hstack(
+                                export_points_dialog(),
+                                add_to_registry_config_file_dialog(),
+                                spacing="2"
                             ),
-                            # TODO make this a dialog trigger
-                            # rx.button(
-                            #     "Create a Registry Config File", 
-                            #     size="1",
-                            #     disabled=rx.cond(
-                            #         BacnetScanState.selected_points.length() > 0,
-                            #         False,
-                            #         True
-                            #     )
-                            # ),
-                            # justify="between",
-                            # width="100%"
-                        # ), make it bigger, 
-                        # Add your expanded content here, e.g. a nested table of points
-                        # rx.table(...),
+                            width="100%",
+                            justify="between"
+                        ),
                         rx.table.root(
                             rx.table.header(
                                 rx.table.row(
@@ -234,10 +407,7 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
                                             spacing="4"
                                         )
                                     ),
-                                    rx.table.column_header_cell("Writable"),
-                                    rx.table.column_header_cell("Present Value"),
-                                    rx.table.column_header_cell("Units"),
-                                    rx.table.column_header_cell("Notes"),
+                                    device_point_table_headers(),
                                 )
                             ),
                             rx.table.body(
@@ -319,11 +489,11 @@ def discovered_devices_card() -> rx.Component:
                         )
                     )
                 ),
-                height="1000px",
+                height="1300px",
                 overflow_y="auto",
             ),
         ),
-        min_height="1000px",
+        min_height="1400px",
         border="1px solid",
         border_color="grey",
         border_radius=".5rem",
