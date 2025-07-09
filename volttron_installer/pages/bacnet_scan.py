@@ -382,10 +382,18 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
                             rx.text("Device Points", size="1", weight="bold"),
                             rx.text(f"Select points to export or configure to a platform", size="1", color="gray"),
                             rx.text(f"{BacnetScanState.selected_points.length()} points selected", size="1", color="gray"),
-                            spacing="1"
+                            spacing="1",
+                            margin_bottom="12px"
                         ),
                         rx.hstack(
-                            rx.box(),
+                            rx.input(
+                                rx.input.slot(
+                                    rx.icon("search", size=15)
+                                ),
+                                placeholder="Search",
+                                variant="surface",
+                                size="1"
+                            ),
                             rx.hstack(
                                 export_points_dialog(),
                                 add_to_registry_config_file_dialog(),

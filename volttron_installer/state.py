@@ -2072,7 +2072,6 @@ class BacnetScanState(rx.State):
     def cancel_device_point_present_value_edit(self, index: int):
         absolute_index = self.get_absolute_index(index)
         yield BacnetScanState.disable_device_point_present_value_edit(index)
-        logger.debug(f"this is the safe point: {self.selected_device.points[absolute_index].safe_point}")
         yield
         self.selected_device.points[absolute_index].present_value = self.selected_device.points[absolute_index].safe_point['present_value']
         yield
@@ -2081,7 +2080,6 @@ class BacnetScanState(rx.State):
     def save_device_point_present_value_edit(self, index: int):
         absolute_index = self.get_absolute_index(index)
         yield BacnetScanState.disable_device_point_present_value_edit(index)
-        logger.debug(f"this is the safe point: {self.selected_device.points[absolute_index].safe_point}")
         yield
         self.selected_device.points[absolute_index].safe_point = self.selected_device.points[absolute_index].to_dict()
         yield
