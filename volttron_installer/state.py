@@ -2258,7 +2258,7 @@ class BacnetScanState(rx.State):
             yield rx.toast.success("IP Range scan completed.")
         except:
             import traceback
-            logger.debug(f"An error occured running scan: {traceback.format_exc()}")
+            logger.debug(f"An error occurred running scan: {traceback.format_exc()}")
         
         self.scanning_bacnet_range = False
     

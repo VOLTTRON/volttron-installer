@@ -4,6 +4,104 @@ from ..components.form_components import form_entry
 from ..layouts import app_layout_sidebar
 from ..model_views import BACnetDeviceModelView, BACnetDevicePointModelView
 
+def point_table_view_filter_dialog() -> rx.Component:
+    return rx.dialog.root(
+            rx.dialog.trigger(
+                rx.button(
+                        rx.hstack(
+                            rx.icon("sliders-horizontal", size=15),
+                            rx.text("Filter Table View"),
+                            align="center",
+                            spacing="2"
+                        ), 
+                        size="1",
+                    )
+            ),
+            rx.dialog.content(
+                rx.dialog.title("Filter Points Table View"),
+                rx.dialog.description(f"Select columns to display or hide."),
+                rx.form(
+                    rx.vstack(
+                        rx.vstack(
+                            form_entry.form_entry(
+                                "Writable",
+                                rx.vstack(
+                                    rx.checkbox(
+                                        name="writable"
+                                    ),
+                                    justify="center",
+                                    align="center",
+                                    width="100%"
+                                ),
+                            ),
+                            form_entry.form_entry(
+                                "Present Value",
+                                rx.vstack(
+                                    rx.checkbox(
+                                        name="present_value"
+                                    ),
+                                    justify="center",
+                                    align="center",
+                                    width="100%"
+                                ),
+                            ),
+                            form_entry.form_entry(
+                                "Units",
+                                rx.vstack(
+                                    rx.checkbox(
+                                        name="units"
+                                    ),
+                                    justify="center",
+                                    align="center",
+                                    width="100%"
+                                ),
+                            ),
+                            form_entry.form_entry(
+                                "Notes",
+                                rx.vstack(
+                                    rx.checkbox(
+                                        name="notes"
+                                    ),
+                                    justify="center",
+                                    align="center",
+                                    width="100%"
+                                ),
+                            ),
+                            margin_top="24px",
+                            spacing="3",
+                            height="100%",
+                            justify="center",
+                            align="center",
+                            width="100%"
+                        ),
+                        rx.hstack(
+                            rx.dialog.close(
+                                rx.button(
+                                    "Close",
+                                    color_scheme="gray",
+                                    variant="soft",
+                                    size="2"
+                                ),
+                            ),
+                            rx.dialog.close(
+                                rx.button(
+                                    "Save",
+                                    variant="soft",
+                                    size="2"
+                                ),
+                            ),
+                            width="100%",
+                            justify="between",
+                            spacing="2"
+                        ),
+                        spacing="6",
+                        width="100%"
+                    )
+                ),
+                on_close_auto_focus=lambda: BacnetScanState.on_selected_points_dialog_close
+            )
+        )
+
 def device_point_table_headers() -> rx.Component:
     return rx.fragment(
         rx.table.column_header_cell("Writable"),
@@ -131,7 +229,7 @@ def add_to_registry_config_file_dialog() -> rx.Component:
             rx.dialog.trigger(
                 rx.button(
                     rx.hstack(
-                        rx.icon("settings", size=15),
+                        rx.icon("plus", size=15),
                         rx.text("Create a Registry Config File"),
                         align="center",
                         spacing="2"
@@ -146,7 +244,7 @@ def add_to_registry_config_file_dialog() -> rx.Component:
             ),
             rx.dialog.content(
                 rx.dialog.title("Registry Config File Contents"),
-                rx.dialog.description(f"{BacnetScanState.selected_points.length()} points are to be added to a registry config file."),
+                rx.dialog.description(f"{BacnetScanState.selected_points.length()} points selected to create a registry config file."),
                 rx.inset(
                     show_selected_points_table(),
                     side="x",
@@ -386,14 +484,18 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
                             margin_bottom="12px"
                         ),
                         rx.hstack(
-                            rx.input(
-                                rx.input.slot(
-                                    rx.icon("search", size=15)
+                            rx.hstack(
+                                rx.input(
+                                    rx.input.slot(
+                                        rx.icon("search", size=15)
+                                    ),
+                                    placeholder="Search",
+                                    variant="surface",
+                                    size="1"
                                 ),
-                                placeholder="Search",
-                                variant="surface",
-                                size="1"
+                                spacing="2"
                             ),
+                            point_table_view_filter_dialog(),
                             rx.hstack(
                                 export_points_dialog(),
                                 add_to_registry_config_file_dialog(),
