@@ -95,3 +95,10 @@ class LocalIPModel(rx.Base):
     local_ip: str = ""
     subnet_mask: str = ""
     cidr: str = ""
+
+class BACnetPointFilters(rx.Base):
+    units: bool = True
+    writable: bool = True
+    present_value: bool = True
+    index: bool = True
+    notes: bool = True

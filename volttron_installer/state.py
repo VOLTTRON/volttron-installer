@@ -1576,6 +1576,9 @@ class BacnetScanState(rx.State):
     _is_read_property_valid: bool = False
     _warn_ping_range: bool = False
 
+    # Device Points page filter
+    point_table_filters: BACnetPointFilters = BACnetPointFilters()
+
     # For all points pagination
     _point_per_page_limit: int = 20
     _points_table_page_number: int = 1
@@ -1717,6 +1720,20 @@ class BacnetScanState(rx.State):
             page_view_high = min(self._point_per_page_limit, len(self.selected_device.points))
         
         return self.selected_device.points[page_view_low:page_view_high]
+
+    @rx.event
+    def save_point_table_filters(self, form_data: dict):
+        # Update filters based on form data
+        filters = {
+            "units": form_data.get("units") == "on",
+            "present_value": form_data.get("present_value") == "on",
+            "writable": form_data.get("writable") == "on",
+            "index": form_data.get("index") == "on",
+            "notes": form_data.get("notes") == "on",
+        }
+        logger.debug(f"Checkbox filters: {filters}")
+        self.point_table_filters=BACnetPointFilters(**filters)
+        logger.debug(f"this is our table filters now: {self.point_table_filters}")
 
     @rx.var
     def warn_ping_range(self) -> bool: 
@@ -2237,19 +2254,39 @@ class BacnetScanState(rx.State):
                         notes_value = "N/A"
                         logger.debug(f"Using default notes value: {notes_value}")
 
+                    logger.debug(f"Step 5: Getting index for {object_identifier} at {device.scanned_ip_target}")
+                    try:
+                        index_value_response = await read_bacnet_property(
+                            BACnetReadPropertyRequest(
+                                device_address=device.scanned_ip_target,
+                                object_identifier=object_identifier,
+                                property_identifier="index"
+                            ),
+                            timeout=4.0
+                        )
+                        logger.debug(f"Index value response received: {index_value_response}")
+                        index_value = notes_value_response["result"]["_value"]
+                        logger.debug(f"Index value extracted: {index_value}")
+                    except Exception as e:
+                        logger.error(f"Failed to get index value: {e}")
+                        index_value = "N/A"
+                        logger.debug(f"Using default index value: {index_value}")
+
+
                     # Create and add the point to device
-                    logger.debug(f"Step 5: Creating point model for {point_name}")
+                    logger.debug(f"Step 6: Creating point model for {point_name}")
                     point = BACnetDevicePointModelView(
                         device_name=point_name,
                         writable=writable,
                         present_value=present_value,
                         units=units,
-                        notes=notes_value
+                        notes=notes_value,
+                        index=index_value
                     )
                     point.safe_point = point.to_dict()
                     logger.debug(f"Point created: {point}")
                     
-                    logger.debug(f"Step 5: Adding point to device {device}")
+                    logger.debug(f"Step 7: Adding point to device {device}")
                     device.points.append(point)
                     logger.debug(f"Point added to device successfully. Device now has {len(device.points)} points.")
 
@@ -2320,6 +2357,11 @@ class BacnetScanState(rx.State):
             yield rx.toast.success("Retrieved Host IP")
         except Exception as e:
             logger.debug(f"There was an error getting local ip info {e}")
+
+    # Resetting methods:
+    @rx.event
+    def reset_point_table_filters(self):
+        self.point_table_filters = BACnetPointFilters()
 
     def get_absolute_index(self, relative_index: int) -> int:
         """Convert a relative index (on the current points page) to an absolute index.

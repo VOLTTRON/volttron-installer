@@ -184,6 +184,7 @@ class BACnetDevicePointModelView(rx.Base):
     writable: bool
     present_value: str
     units: str | int
+    index: str | int # should really only be an int but who knows
     notes: str
 
     # UI driven field

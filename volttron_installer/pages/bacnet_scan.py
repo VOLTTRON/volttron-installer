@@ -24,10 +24,10 @@ def point_table_view_filter_dialog() -> rx.Component:
                     rx.vstack(
                         rx.vstack(
                             form_entry.form_entry(
-                                "Writable",
+                                "Units",
                                 rx.vstack(
                                     rx.checkbox(
-                                        name="writable"
+                                        name="units", default_checked=BacnetScanState.point_table_filters.units
                                     ),
                                     justify="center",
                                     align="center",
@@ -38,7 +38,7 @@ def point_table_view_filter_dialog() -> rx.Component:
                                 "Present Value",
                                 rx.vstack(
                                     rx.checkbox(
-                                        name="present_value"
+                                        name="present_value", default_checked=BacnetScanState.point_table_filters.present_value
                                     ),
                                     justify="center",
                                     align="center",
@@ -46,10 +46,21 @@ def point_table_view_filter_dialog() -> rx.Component:
                                 ),
                             ),
                             form_entry.form_entry(
-                                "Units",
+                                "Writable",
                                 rx.vstack(
                                     rx.checkbox(
-                                        name="units"
+                                        name="writable", default_checked=BacnetScanState.point_table_filters.writable
+                                    ),
+                                    justify="center",
+                                    align="center",
+                                    width="100%"
+                                ),
+                            ),
+                            form_entry.form_entry(
+                                "Index",
+                                rx.vstack(
+                                    rx.checkbox(
+                                        name="index", default_checked=BacnetScanState.point_table_filters.index
                                     ),
                                     justify="center",
                                     align="center",
@@ -60,7 +71,7 @@ def point_table_view_filter_dialog() -> rx.Component:
                                 "Notes",
                                 rx.vstack(
                                     rx.checkbox(
-                                        name="notes"
+                                        name="notes", default_checked=BacnetScanState.point_table_filters.notes
                                     ),
                                     justify="center",
                                     align="center",
@@ -87,7 +98,8 @@ def point_table_view_filter_dialog() -> rx.Component:
                                 rx.button(
                                     "Save",
                                     variant="soft",
-                                    size="2"
+                                    size="2",
+                                    type="submit"
                                 ),
                             ),
                             width="100%",
@@ -96,7 +108,8 @@ def point_table_view_filter_dialog() -> rx.Component:
                         ),
                         spacing="6",
                         width="100%"
-                    )
+                    ),
+                    on_submit=BacnetScanState.save_point_table_filters
                 ),
                 on_close_auto_focus=lambda: BacnetScanState.on_selected_points_dialog_close
             )
@@ -104,10 +117,26 @@ def point_table_view_filter_dialog() -> rx.Component:
 
 def device_point_table_headers() -> rx.Component:
     return rx.fragment(
-        rx.table.column_header_cell("Writable"),
-        rx.table.column_header_cell("Present Value"),
-        rx.table.column_header_cell("Units"),
-        rx.table.column_header_cell("Notes"),
+        rx.cond(
+            BacnetScanState.point_table_filters.units,
+            rx.table.column_header_cell("Units")
+        ),
+        rx.cond(
+            BacnetScanState.point_table_filters.present_value,
+            rx.table.column_header_cell("Present Value")
+        ),
+        rx.cond(
+            BacnetScanState.point_table_filters.writable,
+            rx.table.column_header_cell("Writable")
+        ),
+        rx.cond(
+            BacnetScanState.point_table_filters.index,
+            rx.table.column_header_cell("Index")
+        ),
+        rx.cond(
+            BacnetScanState.point_table_filters.notes,
+            rx.table.column_header_cell("Notes"),
+        )
     )
 
 def selected_points_pagination() -> rx.Component:
@@ -444,17 +473,33 @@ def show_device_point(point: BACnetDevicePointModelView, index: int) -> rx.Compo
                 rx.text(point.device_name),
                 spacing="4"
             )
+        ),        
+        rx.cond(
+            BacnetScanState.point_table_filters.units,
+            rx.table.cell(point.units)
         ),
-        rx.table.cell(
-            rx.cond(
-                point.writable,
-                true_writable_badge(),
-                false_writable_badge()
+        rx.cond(
+            BacnetScanState.point_table_filters.present_value,
+            present_value_cell(point, index)
+        ),
+        rx.cond(
+            BacnetScanState.point_table_filters.writable,
+            rx.table.cell(
+                rx.cond(
+                    point.writable,
+                    true_writable_badge(),
+                    false_writable_badge()
+                )
             )
         ),
-        present_value_cell(point, index),
-        rx.table.cell(point.units),
-        rx.table.cell(point.notes),
+        rx.cond(
+            BacnetScanState.point_table_filters.index,
+            rx.table.cell(point.index)
+        ),
+        rx.cond(
+            BacnetScanState.point_table_filters.notes,
+            rx.table.cell(point.notes)
+        ),
     )
 
 def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
