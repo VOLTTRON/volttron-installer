@@ -2389,10 +2389,10 @@ class BacnetScanState(rx.State):
                     }} catch (err) {{
                         // Check if this is an abort error (user canceled)
                         if (err.name === 'AbortError') {{
-                            console.log('User canceled the save dialog');
+                            // console.log('User canceled the save dialog');
                             return false;  // User canceled
                         }} else {{
-                            console.error('Save As failed:', err);
+                            // console.error('Save As failed:', err);
                             return false;  // Other error
                         }}
                     }}
@@ -2411,7 +2411,7 @@ class BacnetScanState(rx.State):
                     document.body.removeChild(link);
                     URL.revokeObjectURL(link.href);
                 }} catch (err) {{
-                    console.error('Fallback save method failed:', err);
+                   // console.error('Fallback save method failed:', err);
                 }}
             }}
         """
