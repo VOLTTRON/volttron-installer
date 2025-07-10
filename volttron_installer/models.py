@@ -98,7 +98,13 @@ class LocalIPModel(rx.Base):
 
 class BACnetPointFilters(rx.Base):
     units: bool = True
+    object_type: bool = True
     writable: bool = True
     present_value: bool = True
     index: bool = True
     notes: bool = True
+
+class BACnetObjectType(rx.Base):
+    value: int
+    type_name: str
+    writable: bool

@@ -182,6 +182,7 @@ class PlatformModelView(rx.Base):
 class BACnetDevicePointModelView(rx.Base):
     device_name: str
     writable: bool
+    object_type: str
     present_value: str
     units: str | int
     index: str | int # should really only be an int but who knows
@@ -195,9 +196,11 @@ class BACnetDevicePointModelView(rx.Base):
     def to_dict(self) -> dict[str, Any]:
         return {
             "device_name": self.device_name,
-            "writable": self.writable,
-            "present_value": self.present_value,
             "units": self.units,
+            "object_type": self.object_type,
+            "present_value": self.present_value,
+            "writable": self.writable,
+            "index": self.index,
             "notes": self.notes
         }
 

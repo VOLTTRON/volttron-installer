@@ -1603,62 +1603,62 @@ class BacnetScanState(rx.State):
     windows_host_ip_info: WindowsHostIPModel = WindowsHostIPModel()
 
     # For bacnet point stuff
-    writable_map = {
-        0: False,  # analog-input
-        1: True,   # analog-output
-        2: False,  # analog-value (temporarily set to False, but these are typically writable)
-        3: False,  # binary-input
-        4: True,   # binary-output
-        5: False,  # binary-value (temporarily set to False, but these are typically writable)
-        6: True,   # calendar
-        7: True,   # command
-        8: False,  # device
-        9: True,   # event-enrollment
-        10: True,  # file
-        11: True,  # group
-        12: True,  # loop
-        13: False, # multi-state-input
-        14: True,  # multi-state-output
-        15: True,  # notification-class
-        16: True,  # program
-        17: True,  # schedule
-        18: False, # averaging
-        19: False, # multi-state-value (temporarily set to False, but these are typically writable)
-        20: False, # trend-log
-        21: False, # life-safety-point
-        22: False, # life-safety-zone
-        23: False, # accumulator
-        24: False, # pulse-converter
-        25: False, # event-log
-        26: True,  # global-group
-        27: False, # trend-log-multiple
-        28: True,  # load-control
-        29: False, # structured-view
-        30: True,  # access-door
-        31: False, # unassigned
-        32: False, # access-credential
-        33: False, # access-point
-        34: True,  # access-rights
-        35: False, # access-user
-        36: False, # access-zone
-        37: False, # credentional-data-input
-        38: False, # network-security (removed)
-        39: False, # bitstring-value (temporarily set to False, but these are typically writable)
-        40: False, # characterstring-value (temporarily set to False, but these are typically writable)
-        41: False, # date-pattern-value (temporarily set to False, but these are typically writable)
-        42: False, # date-value (temporarily set to False, but these are typically writable)
-        43: False, # datetime-pattern-value (temporarily set to False, but these are typically writable)
-        44: False, # datetime-value (temporarily set to False, but these are typically writable)
-        45: False, # integer-value (temporarily set to False, but these are typically writable)
-        46: False, # large-analog-value (temporarily set to False, but these are typically writable)
-        47: False, # octetstring-value (temporarily set to False, but these are typically writable)
-        48: False, # positive-integer-value (temporarily set to False, but these are typically writable)
-        49: False, # time-pattern-value (temporarily set to False, but these are typically writable)
-        50: False, # time-value (temporarily set to False, but these are typically writable)
-        51: True,  # notification-forwarder
-        52: True,  # alert-enrollment
-        53: True,  # channel
-        54: True,  # lighting-output
+    writable_map: Dict[int, BACnetObjectType] = {
+        0: BACnetObjectType(value=0, type_name="analog-input", writable=False),
+        1: BACnetObjectType(value=1, type_name="analog-output", writable=True),
+        2: BACnetObjectType(value=2, type_name="analog-value", writable=False),
+        3: BACnetObjectType(value=3, type_name="binary-input", writable=False),
+        4: BACnetObjectType(value=4, type_name="binary-output", writable=True),
+        5: BACnetObjectType(value=5, type_name="binary-value", writable=False),
+        6: BACnetObjectType(value=6, type_name="calendar", writable=True),
+        7: BACnetObjectType(value=7, type_name="command", writable=True),
+        8: BACnetObjectType(value=8, type_name="device", writable=False),
+        9: BACnetObjectType(value=9, type_name="event-enrollment", writable=True),
+        10: BACnetObjectType(value=10, type_name="file", writable=True),
+        11: BACnetObjectType(value=11, type_name="group", writable=True),
+        12: BACnetObjectType(value=12, type_name="loop", writable=True),
+        13: BACnetObjectType(value=13, type_name="multi-state-input", writable=False),
+        14: BACnetObjectType(value=14, type_name="multi-state-output", writable=True),
+        15: BACnetObjectType(value=15, type_name="notification-class", writable=True),
+        16: BACnetObjectType(value=16, type_name="program", writable=True),
+        17: BACnetObjectType(value=17, type_name="schedule", writable=True),
+        18: BACnetObjectType(value=18, type_name="averaging", writable=False),
+        19: BACnetObjectType(value=19, type_name="multi-state-value", writable=False),
+        20: BACnetObjectType(value=20, type_name="trend-log", writable=False),
+        21: BACnetObjectType(value=21, type_name="life-safety-point", writable=False),
+        22: BACnetObjectType(value=22, type_name="life-safety-zone", writable=False),
+        23: BACnetObjectType(value=23, type_name="accumulator", writable=False),
+        24: BACnetObjectType(value=24, type_name="pulse-converter", writable=False),
+        25: BACnetObjectType(value=25, type_name="event-log", writable=False),
+        26: BACnetObjectType(value=26, type_name="global-group", writable=True),
+        27: BACnetObjectType(value=27, type_name="trend-log-multiple", writable=False),
+        28: BACnetObjectType(value=28, type_name="load-control", writable=True),
+        29: BACnetObjectType(value=29, type_name="structured-view", writable=False),
+        30: BACnetObjectType(value=30, type_name="access-door", writable=True),
+        31: BACnetObjectType(value=31, type_name="unassigned", writable=False),
+        32: BACnetObjectType(value=32, type_name="access-credential", writable=False),
+        33: BACnetObjectType(value=33, type_name="access-point", writable=False),
+        34: BACnetObjectType(value=34, type_name="access-rights", writable=True),
+        35: BACnetObjectType(value=35, type_name="access-user", writable=False),
+        36: BACnetObjectType(value=36, type_name="access-zone", writable=False),
+        37: BACnetObjectType(value=37, type_name="credentional-data-input", writable=False),
+        38: BACnetObjectType(value=38, type_name="network-security", writable=False),
+        39: BACnetObjectType(value=39, type_name="bitstring-value", writable=False),
+        40: BACnetObjectType(value=40, type_name="characterstring-value", writable=False),
+        41: BACnetObjectType(value=41, type_name="date-pattern-value", writable=False),
+        42: BACnetObjectType(value=42, type_name="date-value", writable=False),
+        43: BACnetObjectType(value=43, type_name="datetime-pattern-value", writable=False),
+        44: BACnetObjectType(value=44, type_name="datetime-value", writable=False),
+        45: BACnetObjectType(value=45, type_name="integer-value", writable=False),
+        46: BACnetObjectType(value=46, type_name="large-analog-value", writable=False),
+        47: BACnetObjectType(value=47, type_name="octetstring-value", writable=False),
+        48: BACnetObjectType(value=48, type_name="positive-integer-value", writable=False),
+        49: BACnetObjectType(value=49, type_name="time-pattern-value", writable=False),
+        50: BACnetObjectType(value=50, type_name="time-value", writable=False),
+        51: BACnetObjectType(value=51, type_name="notification-forwarder", writable=True),
+        52: BACnetObjectType(value=52, type_name="alert-enrollment", writable=True),
+        53: BACnetObjectType(value=53, type_name="channel", writable=True),
+        54: BACnetObjectType(value=54, type_name="lighting-output", writable=True),
     }
 
     # important event, actually spins up the tool when the page loads.
@@ -1726,14 +1726,13 @@ class BacnetScanState(rx.State):
         # Update filters based on form data
         filters = {
             "units": form_data.get("units") == "on",
+            "object_type": form_data.get("object_type") == "on",
             "present_value": form_data.get("present_value") == "on",
             "writable": form_data.get("writable") == "on",
             "index": form_data.get("index") == "on",
             "notes": form_data.get("notes") == "on",
         }
-        logger.debug(f"Checkbox filters: {filters}")
         self.point_table_filters=BACnetPointFilters(**filters)
-        logger.debug(f"this is our table filters now: {self.point_table_filters}")
 
     @rx.var
     def warn_ping_range(self) -> bool: 
@@ -2167,10 +2166,10 @@ class BacnetScanState(rx.State):
                         )
                     if res.get("status") == "error":
                         logger.debug(f"this is our res: {res}")
-                        raise Exception(f"Error occured calling api though thin endpoint wrapper")
+                        raise Exception(f"Error occurred calling api though thin endpoint wrapper")
                 except Exception as e:
                     import traceback
-                    logger.debug(f"An error occured running scan: {traceback.format_exc()}")
+                    logger.debug(f"An error occurred running scan: {traceback.format_exc()}")
                     break
 
                 points: list = res["properties"]["object-list"]
@@ -2183,7 +2182,7 @@ class BacnetScanState(rx.State):
                     object_identifier: str = f"{obj[0]},{obj[1]}"
                     logger.debug(f"Created object_identifier: {object_identifier}")
                     
-                    writable: bool = self.writable_map[obj[0]]
+                    writable: bool = self.writable_map[obj[0]].writable
                     logger.debug(f"Object type {obj[0]} is writable: {writable}")
                     
                     # Getting point name
@@ -2251,42 +2250,45 @@ class BacnetScanState(rx.State):
                         logger.debug(f"Notes value extracted: {notes_value}")
                     except Exception as e:
                         logger.error(f"Failed to get notes value: {e}")
-                        notes_value = "N/A"
+                        notes_value = ""
                         logger.debug(f"Using default notes value: {notes_value}")
 
                     logger.debug(f"Step 5: Getting index for {object_identifier} at {device.scanned_ip_target}")
                     try:
-                        index_value_response = await read_bacnet_property(
-                            BACnetReadPropertyRequest(
-                                device_address=device.scanned_ip_target,
-                                object_identifier=object_identifier,
-                                property_identifier="index"
-                            ),
-                            timeout=4.0
-                        )
-                        logger.debug(f"Index value response received: {index_value_response}")
-                        index_value = notes_value_response["result"]["_value"]
+                        index_value = obj[1]
+                        logger.debug(f"Index value response received: {index_value}")
                         logger.debug(f"Index value extracted: {index_value}")
                     except Exception as e:
                         logger.error(f"Failed to get index value: {e}")
                         index_value = "N/A"
                         logger.debug(f"Using default index value: {index_value}")
 
+                    logger.debug(f"Step 6: Getting object type for {object_identifier} at {device.scanned_ip_target}")
+                    try:
+                        object_type = self.writable_map[obj[0]].type_name
+                        logger.debug(f"Index value response received: {object_type}")
+                        logger.debug(f"Index value extracted: {object_type}")
+                    except Exception as e:
+                        logger.error(f"Failed to get index value: {e}")
+                        object_type = "N/A"
+                        logger.debug(f"Using default index value: {object_type}")
+
 
                     # Create and add the point to device
-                    logger.debug(f"Step 6: Creating point model for {point_name}")
+                    logger.debug(f"Step 7: Creating point model for {point_name}")
                     point = BACnetDevicePointModelView(
                         device_name=point_name,
                         writable=writable,
                         present_value=present_value,
                         units=units,
                         notes=notes_value,
-                        index=index_value
+                        index=index_value,
+                        object_type=object_type
                     )
                     point.safe_point = point.to_dict()
                     logger.debug(f"Point created: {point}")
                     
-                    logger.debug(f"Step 7: Adding point to device {device}")
+                    logger.debug(f"Step 8: Adding point to device {device}")
                     device.points.append(point)
                     logger.debug(f"Point added to device successfully. Device now has {len(device.points)} points.")
 
@@ -2358,7 +2360,64 @@ class BacnetScanState(rx.State):
         except Exception as e:
             logger.debug(f"There was an error getting local ip info {e}")
 
-    # Resetting methods:
+    # Exporting
+    @rx.event
+    def export_to_csv(self):
+        csv_data = self._convert_selected_points_to_csv()
+
+        escaped_csv_data = csv_data.replace("'", "\\'")  # Escape single quotes in CSV content
+        
+        # JavaScript code for invoking the "Save As" dialog
+        js_code = f"""
+            if (window.showSaveFilePicker) {{
+                // Use File System Access API for explicit Save As dialog
+                async function saveFile() {{
+                    try {{
+                        const options = {{
+                            types: [{{
+                                description: 'CSV file',
+                                accept: {{
+                                    'text/csv': ['.csv']
+                                }}
+                            }}]
+                        }};
+                        const fileHandle = await window.showSaveFilePicker(options);
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(`{escaped_csv_data}`);
+                        await writable.close();
+                        return true;  // Indicate success
+                    }} catch (err) {{
+                        // Check if this is an abort error (user canceled)
+                        if (err.name === 'AbortError') {{
+                            console.log('User canceled the save dialog');
+                            return false;  // User canceled
+                        }} else {{
+                            console.error('Save As failed:', err);
+                            return false;  // Other error
+                        }}
+                    }}
+                }}
+                
+                saveFile();  // We don't need to catch here as we already handle errors inside
+            }} else {{
+                // Fallback to Blob saving
+                try {{
+                    const blob = new Blob([`{escaped_csv_data}`], {{ type: 'text/csv;charset=utf-8' }});
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = 'bacnet_points.csv';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(link.href);
+                }} catch (err) {{
+                    console.error('Fallback save method failed:', err);
+                }}
+            }}
+        """
+        return rx.call_script(js_code)
+
+    # Resetting methods
     @rx.event
     def reset_point_table_filters(self):
         self.point_table_filters = BACnetPointFilters()
@@ -2403,3 +2462,36 @@ class BacnetScanState(rx.State):
         
         # logger.debug(f"Final absolute_index: {absolute_index}")
         return absolute_index
+    
+    def _convert_selected_points_to_csv(self) -> str:
+        """Convert selected_points to CSV string with mapped column names."""
+        # Define the CSV columns and their mapping to model fields
+        columns = [
+            ("VOLTTRON Point Name", "device_name"),
+            ("Units", "units"),
+            ("BACnet Object Type", "object_type"),
+            ("Property", "present_value"),
+            ("Writable", "writable"),
+            ("Index", "index"),
+            ("Notes", "notes"),
+        ]
+        fieldnames = [field for _, field in columns]
+        header = [col for col, _ in columns]
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(header)
+
+        for point in self.selected_points:
+            point_dict = point.dict() if hasattr(point, "dict") else point.__dict__
+            row = []
+            for _, field in columns:
+                value = point_dict.get(field, "")
+                if isinstance(value, bool):
+                    value = "TRUE" if value else "FALSE"
+                row.append(value)
+            writer.writerow(row)
+
+        csv_data = output.getvalue()
+        output.close()
+        return csv_data

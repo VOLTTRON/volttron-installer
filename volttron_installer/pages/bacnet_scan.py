@@ -35,6 +35,17 @@ def point_table_view_filter_dialog() -> rx.Component:
                                 ),
                             ),
                             form_entry.form_entry(
+                                "Object Type",
+                                rx.vstack(
+                                    rx.checkbox(
+                                        name="object_type", default_checked=BacnetScanState.point_table_filters.object_type
+                                    ),
+                                    justify="center",
+                                    align="center",
+                                    width="100%"
+                                ),
+                            ),
+                            form_entry.form_entry(
                                 "Present Value",
                                 rx.vstack(
                                     rx.checkbox(
@@ -115,11 +126,25 @@ def point_table_view_filter_dialog() -> rx.Component:
             )
         )
 
+def device_point_dialog_table_headers() -> rx.Component:
+    return rx.fragment(
+        rx.table.column_header_cell("Units"),
+        rx.table.column_header_cell("BACnet Object Type"),
+        rx.table.column_header_cell("Present Value"),
+        rx.table.column_header_cell("Writable"),
+        rx.table.column_header_cell("Index"),
+        rx.table.column_header_cell("Notes"),
+    )
+
 def device_point_table_headers() -> rx.Component:
     return rx.fragment(
         rx.cond(
             BacnetScanState.point_table_filters.units,
             rx.table.column_header_cell("Units")
+        ),
+        rx.cond(
+            BacnetScanState.point_table_filters.object_type,
+            rx.table.column_header_cell("BACnet Object Type")
         ),
         rx.cond(
             BacnetScanState.point_table_filters.present_value,
@@ -169,6 +194,9 @@ def show_selected_points_table() -> rx.Component:
     def show_row(point: BACnetDevicePointModelView) -> rx.Component:
         return rx.table.row(
             rx.table.cell(point.device_name),
+            rx.table.cell(point.units),
+            rx.table.cell(point.object_type),
+            rx.table.cell(point.present_value),
             rx.table.cell(
                 rx.cond(
                     point.writable,
@@ -176,8 +204,7 @@ def show_selected_points_table() -> rx.Component:
                     false_writable_badge()
                 )
             ),
-            rx.table.cell(point.present_value),
-            rx.table.cell(point.units),
+            rx.table.cell(point.index),
             rx.table.cell(point.notes)
         )
     
@@ -185,7 +212,7 @@ def show_selected_points_table() -> rx.Component:
         rx.table.header(
             rx.table.row(
                 rx.table.column_header_cell("VOLTTRON Point Name"),
-                device_point_table_headers(),
+                device_point_dialog_table_headers(),
             ),
         ),
         rx.table.body(
@@ -202,7 +229,7 @@ def export_points_dialog() -> rx.Component:
                 rx.button(
                     rx.hstack(
                         rx.icon("upload", size=15),
-                        rx.text("Export"),
+                        rx.text("Export to CSV"),
                         align="center",
                         justify="center",
                         spacing="2"
@@ -216,7 +243,7 @@ def export_points_dialog() -> rx.Component:
                 )
             ),
             rx.dialog.content(
-                rx.dialog.title("Export Contents"),
+                rx.dialog.title("CSV Contents"),
                 rx.dialog.description(f"{BacnetScanState.selected_points.length()} points selected for exporting."),
                 rx.inset(
                     show_selected_points_table(),
@@ -237,9 +264,10 @@ def export_points_dialog() -> rx.Component:
                         ),
                         rx.dialog.close(
                             rx.button(
-                                "Export",
+                                "Export to CSV",
                                 variant="soft",
-                                size="2"
+                                size="2",
+                                on_click=lambda: BacnetScanState.export_to_csv
                             ),
                         ),
                         width="100%",
@@ -249,7 +277,9 @@ def export_points_dialog() -> rx.Component:
                     spacing="6",
                     width="100%"
                 ),
-                on_close_auto_focus=lambda: BacnetScanState.on_selected_points_dialog_close
+                on_close_auto_focus=lambda: BacnetScanState.on_selected_points_dialog_close,
+                max_width="100rem",
+                width="clamp(20rem, 80vw, 100rem)",
             )
         )
 
@@ -305,7 +335,9 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                     spacing="6",
                     width="100%"
                 ),
-                on_close_auto_focus=lambda: BacnetScanState.on_selected_points_dialog_close
+                on_close_auto_focus=lambda: BacnetScanState.on_selected_points_dialog_close,
+                max_width="100rem",
+                width="clamp(20rem, 80vw, 100rem)",
             )
         )
 
@@ -477,6 +509,10 @@ def show_device_point(point: BACnetDevicePointModelView, index: int) -> rx.Compo
         rx.cond(
             BacnetScanState.point_table_filters.units,
             rx.table.cell(point.units)
+        ),
+        rx.cond(
+            BacnetScanState.point_table_filters.units,
+            rx.table.cell(point.object_type)
         ),
         rx.cond(
             BacnetScanState.point_table_filters.present_value,
