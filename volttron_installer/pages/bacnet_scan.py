@@ -1,6 +1,7 @@
 import reflex as rx
-from ..state import BacnetScanState, ToolState
+from ..state import BacnetScanState, ToolState, PlatformPageState
 from ..components.form_components import form_entry
+from ..components.tiles import platform_tile
 from ..layouts import app_layout_sidebar
 from ..model_views import BACnetDeviceModelView, BACnetDevicePointModelView
 
@@ -10,7 +11,7 @@ def point_table_view_filter_dialog() -> rx.Component:
                 rx.button(
                         rx.hstack(
                             rx.icon("sliders-horizontal", size=15),
-                            rx.text("Filter Table View"),
+                            rx.text("Toggle Columns"),
                             align="center",
                             spacing="2"
                         ), 
@@ -35,7 +36,7 @@ def point_table_view_filter_dialog() -> rx.Component:
                                 ),
                             ),
                             form_entry.form_entry(
-                                "Object Type",
+                                "BACnet Object Type",
                                 rx.vstack(
                                     rx.checkbox(
                                         name="object_type", default_checked=BacnetScanState.point_table_filters.object_type
@@ -128,6 +129,8 @@ def point_table_view_filter_dialog() -> rx.Component:
 
 def device_point_dialog_table_headers() -> rx.Component:
     return rx.fragment(
+        rx.table.column_header_cell("Point Name"),
+        rx.table.column_header_cell("VOLTTRON Point Name"),
         rx.table.column_header_cell("Units"),
         rx.table.column_header_cell("BACnet Object Type"),
         rx.table.column_header_cell("Present Value"),
@@ -194,6 +197,7 @@ def show_selected_points_table() -> rx.Component:
     def show_row(point: BACnetDevicePointModelView) -> rx.Component:
         return rx.table.row(
             rx.table.cell(point.device_name),
+            rx.table.cell(point.volttron_point_name),
             rx.table.cell(point.units),
             rx.table.cell(point.object_type),
             rx.table.cell(point.present_value),
@@ -211,7 +215,6 @@ def show_selected_points_table() -> rx.Component:
     return rx.table.root(
         rx.table.header(
             rx.table.row(
-                rx.table.column_header_cell("VOLTTRON Point Name"),
                 device_point_dialog_table_headers(),
             ),
         ),
@@ -284,7 +287,8 @@ def export_points_dialog() -> rx.Component:
         )
 
 def add_to_registry_config_file_dialog() -> rx.Component:
-    return rx.dialog.root(
+    return rx.fragment(
+        rx.dialog.root(
             rx.dialog.trigger(
                 rx.button(
                     rx.hstack(
@@ -292,18 +296,21 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                         rx.text("Create a Registry Config File"),
                         align="center",
                         spacing="2"
-                    ), 
+                    ),
                     size="1",
                     disabled=rx.cond(
                         BacnetScanState.selected_points.length() == 0,
                         True,
                         False
-                    )
+                    ),
+                    on_click=BacnetScanState.open_registry_dialog,
                 )
             ),
             rx.dialog.content(
                 rx.dialog.title("Registry Config File Contents"),
-                rx.dialog.description(f"{BacnetScanState.selected_points.length()} points selected to create a registry config file."),
+                rx.dialog.description(
+                    f"{BacnetScanState.selected_points.length()} points selected to create a registry config file."
+                ),
                 rx.inset(
                     show_selected_points_table(),
                     side="x",
@@ -313,20 +320,18 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                 rx.vstack(
                     selected_points_pagination(),
                     rx.hstack(
-                        rx.dialog.close(
-                            rx.button(
-                                "Close",
-                                color_scheme="gray",
-                                variant="soft",
-                                size="2"
-                            ),
+                        rx.button(
+                            "Close",
+                            color_scheme="gray",
+                            variant="soft",
+                            size="2",
+                            on_click=BacnetScanState.close_dialogs,
                         ),
-                        rx.dialog.close(
-                            rx.button(
-                                "Add to Registry Config File",
-                                variant="soft",
-                                size="2"
-                            ),
+                        rx.button(
+                            "Add to Registry Config File",
+                            variant="soft",
+                            size="2",
+                            on_click=BacnetScanState.open_select_platform_dialog,
                         ),
                         width="100%",
                         justify="end",
@@ -335,11 +340,54 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                     spacing="6",
                     width="100%"
                 ),
-                on_close_auto_focus=lambda: BacnetScanState.on_selected_points_dialog_close,
                 max_width="100rem",
                 width="clamp(20rem, 80vw, 100rem)",
-            )
-        )
+            ),
+            open=BacnetScanState.dialog_registry_open,
+        ),
+
+        # Selecting Platforms Dialog
+        rx.dialog.root(
+            rx.dialog.content(
+                rx.dialog.title("Select Platforms"),
+                rx.dialog.description("Are you sure you want to add to the registry config file?"),
+                rx.hstack(
+                    rx.foreach(
+                        PlatformPageState.in_file_platforms,
+                        lambda platform: platform_tile.platform_tile(
+                            platform.platform.config.instance_name,
+                            platform
+                        )
+                    ),
+                    wrap="wrap",
+                    spacing="6",
+                    padding="1rem",
+                    margin_top="24px",
+                    margin_bottom="24px",
+                ),
+                rx.hstack(
+                    rx.button(
+                        "Cancel",
+                        color_scheme="gray",
+                        variant="soft",
+                        size="2",
+                        on_click=BacnetScanState.close_dialogs,
+                    ),
+                    rx.button(
+                        "Confirm",
+                        color_scheme="green",
+                        variant="soft",
+                        size="2",
+                        on_click=BacnetScanState.close_dialogs,  # Or your confirm logic
+                    ),
+                    width="100%",
+                    justify="end",
+                    spacing="2"
+                ),
+            ),
+            open=BacnetScanState.dialog_select_platform_open,
+        ),
+    )
 
 def scan_for_devices_card():
     return rx.box(
@@ -468,6 +516,50 @@ def present_value_cell(point: BACnetDevicePointModelView, index: int) -> rx.Comp
         )
     )
 
+
+def volttron_point_name_cell(point: BACnetDevicePointModelView, index: int) -> rx.Component:
+    return rx.table.cell(
+        rx.hstack(
+            rx.checkbox(
+                on_change=lambda checked: BacnetScanState.handle_device_check(index, checked), 
+                checked=point.selected
+            ),
+            rx.hstack(
+                rx.cond(
+                    point.volttron_point_name_editing,
+                    rx.fragment(
+                        rx.text_field(
+                            value=point.volttron_point_name,
+                            size="1",
+                            on_change=lambda v: BacnetScanState.handle_volttron_point_name_value_edit(index, v)
+                        ),
+                        rx.button(
+                            rx.icon("save", size=12),
+                            size="1",
+                            on_click=lambda: BacnetScanState.save_device_point_volttron_point_name_value_edit(index)
+                        ),
+                        rx.button(
+                            rx.icon("x", size=12),
+                            size="1",
+                            color_scheme="red",
+                            on_click=lambda: BacnetScanState.cancel_device_point_volttron_point_name_value_edit(index)
+                        )
+                    ),
+                    rx.fragment(
+                        rx.text(point.volttron_point_name),
+                        rx.button(
+                            rx.icon("pencil", size=12),
+                            size="1",
+                            on_click=lambda: BacnetScanState.enable_device_point_volttron_point_name_value_edit(index)
+                        )
+                    )
+                ),
+                spacing="2"
+            ),
+            spacing="4"
+        )
+    )
+
 def device_point_table_pagination() -> rx.Component:
     return rx.hstack(
         rx.button(
@@ -496,22 +588,13 @@ def device_point_table_pagination() -> rx.Component:
 
 def show_device_point(point: BACnetDevicePointModelView, index: int) -> rx.Component:
     return rx.table.row(
-        rx.table.cell(
-            rx.hstack(
-                rx.checkbox(
-                    on_change=lambda checked: BacnetScanState.handle_device_check(index, checked), 
-                    checked=point.selected
-                ), 
-                rx.text(point.device_name),
-                spacing="4"
-            )
-        ),        
+        volttron_point_name_cell(point, index),
         rx.cond(
             BacnetScanState.point_table_filters.units,
             rx.table.cell(point.units)
         ),
         rx.cond(
-            BacnetScanState.point_table_filters.units,
+            BacnetScanState.point_table_filters.object_type,
             rx.table.cell(point.object_type)
         ),
         rx.cond(

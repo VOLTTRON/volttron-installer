@@ -620,10 +620,12 @@ async def bacnet_scan_read_property(request: BACnetReadPropertyRequest) -> dict:
     except ApiError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
-@bacnet_scan_tool_router.post("/write_property", response_model=dict[str, str])
-async def bacnet_scan_write_property(request: BACnetWritePropertyRequest) -> dict[str, str]:
+@bacnet_scan_tool_router.post("/write_property", response_model=dict)
+async def bacnet_scan_write_property(request: BACnetWritePropertyRequest) -> dict:
     from .tool_proxy_factory import ApiError
-
+    from loguru import logger
+    
+    logger.debug(f"this is i, the endpiont getting: {request}")
     url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/write_property")
     REQUEST = {
             "device_address": request.device_address,

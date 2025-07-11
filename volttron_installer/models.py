@@ -97,6 +97,7 @@ class LocalIPModel(rx.Base):
     cidr: str = ""
 
 class BACnetPointFilters(rx.Base):
+    volttron_point_name: bool = True
     units: bool = True
     object_type: bool = True
     writable: bool = True

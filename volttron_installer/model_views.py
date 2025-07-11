@@ -181,6 +181,7 @@ class PlatformModelView(rx.Base):
     
 class BACnetDevicePointModelView(rx.Base):
     device_name: str
+    volttron_point_name: str
     writable: bool
     object_type: str
     present_value: str
@@ -188,14 +189,24 @@ class BACnetDevicePointModelView(rx.Base):
     index: str | int # should really only be an int but who knows
     notes: str
 
+    write_request_target: dict = {}
+
     # UI driven field
     selected: bool = False
     present_value_editing: bool = False
+    volttron_point_name_editing: bool = False
     safe_point: dict = {}
     
+    def set_write_request_target(self, device_address: str, object_identifier: str):
+        self.write_request_target={
+            "device_address": device_address,
+            "object_identifier": object_identifier
+        }
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "device_name": self.device_name,
+            "volttron_point_name": self.volttron_point_name,
             "units": self.units,
             "object_type": self.object_type,
             "present_value": self.present_value,

@@ -254,10 +254,10 @@ async def read_bacnet_property(request: BACnetReadPropertyRequest, TIMEOUT: floa
     )
     return response.json()
 
-async def write_bacnet_property(request: BACnetWritePropertyRequest) -> dict[str, str]:
+async def write_bacnet_property(request: BACnetWritePropertyRequest):
     """Write a property to a BACnet device."""
     from loguru import logger
-    logger.debug(request.model_dump())
+    logger.debug(f"we got hit with: {request.model_dump()}")
     response = await proxy_request(
         f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/write_property",
         "POST",
