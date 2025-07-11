@@ -2236,7 +2236,7 @@ class BacnetScanState(rx.State):
                 logger.debug(f"we are going to go through {len(points) - 1}")
                 logger.debug(f"sike we only getting 50")
                 # go through each object-list item, skip the first one which is ours, then read property the stuff
-                for obj in points[1:81]:
+                for obj in points[1:56]:
                     logger.debug(f"Processing object: {obj}")
                     
                     object_identifier: str = f"{obj[0]},{obj[1]}"
