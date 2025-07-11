@@ -2120,12 +2120,12 @@ class BacnetScanState(rx.State):
         yield
         self.selected_device.points[absolute_index].safe_point = self.selected_device.points[absolute_index].to_dict()
         yield
-        yield BacnetScanState.handle_write_property(
-            self.selected_device.points[absolute_index],
-            "present-value",
-            self.selected_device.points[absolute_index].safe_point["present_value"],
-            1
-        )
+        # yield BacnetScanState.handle_write_property(
+        #     self.selected_device.points[absolute_index],
+        #     "present-value",
+        #     self.selected_device.points[absolute_index].safe_point["present_value"],
+        #     1
+        # )
 
 
     @rx.event
@@ -2199,7 +2199,9 @@ class BacnetScanState(rx.State):
         if not self.proxy_up:
             yield rx.toast.error("Proxy must be started first.")
             return
+        yield
         self.scanning_bacnet_range = True
+        yield
         
         try:
             scan_results: BACnetScanResults = await scan_bacnet_ip_range(self.scan_ip_range.network_string)

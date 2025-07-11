@@ -403,7 +403,7 @@ def scan_for_devices_card():
         ),
         rx.box(  # CardContent
             rx.vstack(
-                rx.text("Network Range (CIDR)", as_="label", html_for="local-ip"),
+                rx.text("Subnet Range (CIDR)", as_="label", html_for="local-ip"),
                 rx.input(
                     id="network_str",
                     placeholder="e.g. 192.168.1.0/24",
@@ -642,7 +642,7 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
                     rx.vstack(
                         rx.vstack(
                             rx.text("Device Points", size="1", weight="bold"),
-                            rx.text(f"Select points to export or configure to a platform", size="1", color="gray"),
+                            rx.text(f"Select points to export to CSV or create a registry config file", size="1", color="gray"),
                             rx.text(f"{BacnetScanState.selected_points.length()} points selected", size="1", color="gray"),
                             spacing="1",
                             margin_bottom="12px"
