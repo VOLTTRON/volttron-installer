@@ -39,23 +39,22 @@ class AnsibleService:
         inventory_service = await get_inventory_service()
         cmd:str
         if password == None: 
-            cmd = ["ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix()]
+            cmd = ["ansible-playbook","-i", inventory_service.inventory_path.as_posix()]
         else:
-            password = f"'{password}'"
-            cmd = ["sshpass","-p", password, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix()]
+            cmd = ["sshpass","-p", password, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix(),"--extra-vars", f'ansible_become_pass="{password}"']
 
         logger.debug(f"Running playbook {playbook_name} on hosts {hosts} cmd: {cmd}")
         # if connection:
         #     cmd.extend(["--connection", connection])
 
         # Merge default vars with provided vars
-        default_vars = {
-            "ansible_ssh_common_args": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-        }
-        if extra_vars:
-            default_vars.update(extra_vars)
+        # default_vars = {
+        #     "ansible_ssh_common_args": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        # }
+        # if extra_vars:
+        #     default_vars.update(extra_vars)
 
-        cmd.extend(["-e", json.dumps(default_vars)])
+        # cmd.extend(["-e", json.dumps(default_vars)])
         # Ensure playbooks are run based on volttron.deployment
         if not playbook_name.startswith('volttron.deployment.'):
             playbook_name = f'volttron.deployment.{playbook_name}'

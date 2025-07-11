@@ -337,7 +337,6 @@ async def deploy_platform(platform_id: str, password:str,
         return_code, stdout, stderr = await ansible.run_playbook(
             "install_platform",
             hosts,
-            password,
             extra_vars=platform.config.model_dump()
         )
 
