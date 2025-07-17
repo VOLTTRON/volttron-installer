@@ -2,10 +2,235 @@ import reflex as rx
 from ..state import BacnetScanState, ToolState, PlatformPageState
 from ..components.form_components import form_entry
 from ..components.tiles import platform_tile
+from ..components.buttons.tile_icon import tile_icon
 from ..layouts import app_layout_sidebar
 from ..model_views import BACnetDeviceModelView, BACnetDevicePointModelView
 
-def point_table_view_filter_dialog() -> rx.Component:
+def filter_badge(text: str, **props) -> rx.Component:
+    return rx.badge(
+        rx.hstack(
+            rx.icon("x", size=12),
+            rx.text(text),
+            spacing="1",
+            align="center"
+        ),
+        color_scheme="blue",
+        variant="surface",
+        cursor="pointer",
+        size="1",
+        **props
+    )
+
+def table_filter_trigger() -> rx.Component:
+    return tile_icon(
+        "search",
+    )
+
+def volttron_point_name_filter_popover() -> rx.Component:
+    return rx.popover.root(
+        rx.popover.trigger(
+            table_filter_trigger()
+        ),
+        rx.popover.content(
+            rx.form(
+                rx.vstack(
+                    form_entry.form_entry(
+                        "VOLTTRON Point Name Filter",
+                        rx.input(
+                            width="100%",
+                            name="units",
+                            default_value=BacnetScanState.point_table_filter.volttron_point_name,
+                        )
+                    ),
+                    rx.popover.close(
+                        rx.button(
+                            "Save",
+                            width="100%",
+                            type="submit"
+                        )
+                    )
+                ),
+                on_submit = BacnetScanState.filter_form_submit
+            )
+        ),
+    )
+
+def units_filter_popover() -> rx.Component:
+    return rx.popover.root(
+        rx.popover.trigger(
+            table_filter_trigger()
+        ),
+        rx.popover.content(
+            rx.form(
+                rx.vstack(
+                    form_entry.form_entry(
+                        "Units Filter",
+                        rx.input(
+                            width="100%",
+                            name="units",
+                            default_value=BacnetScanState.point_table_filter.units,
+                        )
+                    ),
+                    rx.popover.close(
+                        rx.button(
+                            "Save",
+                            width="100%",
+                            type="submit"
+                        )
+                    )
+                ),
+                on_submit = BacnetScanState.filter_form_submit
+            )
+        ),
+    )
+
+def object_type_filter_popover() -> rx.Component:
+    return rx.popover.root(
+        rx.popover.trigger(
+            table_filter_trigger()
+        ),
+        rx.popover.content(
+            rx.form(
+                rx.vstack(
+                    form_entry.form_entry(
+                        "BACnet Object Type Filter",
+                        rx.input(
+                            name="object_type",
+                            default_value=BacnetScanState.point_table_filter.object_type,
+                            width="100%"
+                        )
+                    ),
+                    rx.popover.close(
+                        rx.button(
+                            "Save",
+                            width="100%",
+                            type="submit"
+                        )
+                    )
+                ),
+                on_submit = BacnetScanState.filter_form_submit
+            )
+        ),
+    )
+
+def present_value_filter_popover() -> rx.Component:
+    return rx.popover.root(
+        rx.popover.trigger(
+            table_filter_trigger()
+        ),
+        rx.popover.content(
+            rx.form(
+                rx.vstack(
+                    form_entry.form_entry(
+                        "Present Value Filter",
+                        rx.input(
+                            name="present_value",
+                            default_value=BacnetScanState.point_table_filter.present_value,
+                            width="100%"
+                        )
+                    ),
+                    rx.popover.close(
+                        rx.button(
+                            "Save",
+                            width="100%",
+                            type="submit"
+                        )
+                    )
+                ),
+                on_submit = BacnetScanState.filter_form_submit
+            )
+        ),
+    )
+ 
+def writable_filter_popover() -> rx.Component:
+    return rx.popover.root(
+        rx.popover.trigger(
+            table_filter_trigger()
+        ),
+        rx.popover.content(
+            rx.form(
+                rx.vstack(
+                    form_entry.form_entry(
+                        "Writable Filter",
+                        rx.select(
+                            [" ", "TRUE", "FALSE"],
+                            name="writable",
+                            default_value=BacnetScanState.point_table_filter.writable,
+                            width="100%"
+                        )
+                    ),
+                    rx.popover.close(
+                        rx.button(
+                            "Save",
+                            width="100%",
+                            type="submit"
+                        )
+                    )
+                ),
+                on_submit = BacnetScanState.filter_form_submit
+            )
+        ),
+    )
+
+def index_filter_popover() -> rx.Component:
+    return rx.popover.root(
+        rx.popover.trigger(
+            table_filter_trigger()
+        ),
+        rx.popover.content(
+            rx.form(
+                rx.vstack(
+                    form_entry.form_entry(
+                        "Index Filter",
+                        rx.input(
+                            name="index",
+                            default_value=BacnetScanState.point_table_filter.index,
+                            width="100%"
+                        )
+                    ),
+                    rx.popover.close(
+                        rx.button(
+                            "Save",
+                            width="100%",
+                            type="submit"
+                        )
+                    )
+                ),
+                on_submit = BacnetScanState.filter_form_submit
+            )
+        ),
+    )
+
+def notes_filter_popover() -> rx.Component:
+    return rx.popover.root(
+        rx.popover.trigger(
+            table_filter_trigger()
+        ),
+        rx.popover.content(
+            rx.form(
+                rx.vstack(
+                    form_entry.form_entry(
+                        "Notes Filter",
+                        rx.input(
+                            name="notes",
+                            default_value=BacnetScanState.point_table_filter.notes,
+                            width="100%"
+                        )
+                    ),
+                    rx.popover.close(
+                        rx.button(
+                            "Save",
+                            width="100%",
+                            type="submit"
+                        )
+                    )
+                ),
+                on_submit = BacnetScanState.filter_form_submit
+            )
+        ),
+    )
+
+def point_column_filter_dialog() -> rx.Component:
     return rx.dialog.root(
             rx.dialog.trigger(
                 rx.button(
@@ -28,7 +253,7 @@ def point_table_view_filter_dialog() -> rx.Component:
                                 "Units",
                                 rx.vstack(
                                     rx.checkbox(
-                                        name="units", default_checked=BacnetScanState.point_table_filters.units
+                                        name="units", default_checked=BacnetScanState.point_column_filter.units
                                     ),
                                     justify="center",
                                     align="center",
@@ -39,7 +264,7 @@ def point_table_view_filter_dialog() -> rx.Component:
                                 "BACnet Object Type",
                                 rx.vstack(
                                     rx.checkbox(
-                                        name="object_type", default_checked=BacnetScanState.point_table_filters.object_type
+                                        name="object_type", default_checked=BacnetScanState.point_column_filter.object_type
                                     ),
                                     justify="center",
                                     align="center",
@@ -50,7 +275,7 @@ def point_table_view_filter_dialog() -> rx.Component:
                                 "Present Value",
                                 rx.vstack(
                                     rx.checkbox(
-                                        name="present_value", default_checked=BacnetScanState.point_table_filters.present_value
+                                        name="present_value", default_checked=BacnetScanState.point_column_filter.present_value
                                     ),
                                     justify="center",
                                     align="center",
@@ -61,7 +286,7 @@ def point_table_view_filter_dialog() -> rx.Component:
                                 "Writable",
                                 rx.vstack(
                                     rx.checkbox(
-                                        name="writable", default_checked=BacnetScanState.point_table_filters.writable
+                                        name="writable", default_checked=BacnetScanState.point_column_filter.writable
                                     ),
                                     justify="center",
                                     align="center",
@@ -72,7 +297,7 @@ def point_table_view_filter_dialog() -> rx.Component:
                                 "Index",
                                 rx.vstack(
                                     rx.checkbox(
-                                        name="index", default_checked=BacnetScanState.point_table_filters.index
+                                        name="index", default_checked=BacnetScanState.point_column_filter.index
                                     ),
                                     justify="center",
                                     align="center",
@@ -83,7 +308,7 @@ def point_table_view_filter_dialog() -> rx.Component:
                                 "Notes",
                                 rx.vstack(
                                     rx.checkbox(
-                                        name="notes", default_checked=BacnetScanState.point_table_filters.notes
+                                        name="notes", default_checked=BacnetScanState.point_column_filter.notes
                                     ),
                                     justify="center",
                                     align="center",
@@ -142,28 +367,130 @@ def device_point_dialog_table_headers() -> rx.Component:
 def device_point_table_headers() -> rx.Component:
     return rx.fragment(
         rx.cond(
-            BacnetScanState.point_table_filters.units,
-            rx.table.column_header_cell("Units")
+            BacnetScanState.point_column_filter.units,
+            rx.table.column_header_cell(
+                rx.hstack(
+                    rx.text("Units"),
+                    rx.hstack(
+                        units_filter_popover(),
+                        rx.cond(
+                            BacnetScanState.point_table_filter.units != "",
+                            filter_badge(
+                                BacnetScanState.point_table_filter.units,
+                                on_click=lambda: BacnetScanState.clear_point_filter("units"),
+                            )
+                        ),
+                        wrap="wrap"
+                    ),
+                    align="center",
+                    spacing="2"
+                )
+            )
         ),
         rx.cond(
-            BacnetScanState.point_table_filters.object_type,
-            rx.table.column_header_cell("BACnet Object Type")
+            BacnetScanState.point_column_filter.object_type,
+            rx.table.column_header_cell(
+                rx.hstack(
+                    rx.text("BACnet Object Type"),
+                    rx.hstack(
+                        object_type_filter_popover(),
+                        rx.cond(
+                            BacnetScanState.point_table_filter.object_type != "",
+                            filter_badge(
+                                BacnetScanState.point_table_filter.object_type,
+                                on_click=lambda: BacnetScanState.clear_point_filter("object_type"),
+                            )
+                        ),
+                        wrap="wrap"
+                    ),
+                    align="center",
+                    spacing="2"
+                )
+            )
         ),
         rx.cond(
-            BacnetScanState.point_table_filters.present_value,
-            rx.table.column_header_cell("Present Value")
+            BacnetScanState.point_column_filter.present_value,
+            rx.table.column_header_cell(
+                rx.hstack(
+                    rx.text("Present Value"),
+                    rx.hstack(
+                        present_value_filter_popover(),
+                        rx.cond(
+                            BacnetScanState.point_table_filter.present_value != "",
+                            filter_badge(
+                                BacnetScanState.point_table_filter.present_value,
+                                on_click=lambda: BacnetScanState.clear_point_filter("present_value"),
+                            )
+                        ),
+                        wrap="wrap"
+                    ),
+                    align="center",
+                    spacing="2"
+                )
+            )
         ),
         rx.cond(
-            BacnetScanState.point_table_filters.writable,
-            rx.table.column_header_cell("Writable")
+            BacnetScanState.point_column_filter.writable,
+            rx.table.column_header_cell(
+                rx.hstack(
+                    rx.text("Writable"),
+                    rx.hstack(
+                        writable_filter_popover(),
+                        rx.cond(
+                            BacnetScanState.point_table_filter.writable != "",
+                            filter_badge(
+                                BacnetScanState.point_table_filter.writable,
+                                on_click=lambda: BacnetScanState.clear_point_filter("writable"),
+                            )
+                        ),
+                        wrap="wrap"
+                    ),
+                    align="center",
+                    spacing="2"
+                )
+            )
         ),
         rx.cond(
-            BacnetScanState.point_table_filters.index,
-            rx.table.column_header_cell("Index")
+            BacnetScanState.point_column_filter.index,
+            rx.table.column_header_cell(
+                rx.hstack(
+                    rx.text("Index"),
+                    rx.hstack(
+                        index_filter_popover(),
+                        rx.cond(
+                            BacnetScanState.point_table_filter.index != "",
+                            filter_badge(
+                                BacnetScanState.point_table_filter.index,
+                                on_click=lambda: BacnetScanState.clear_point_filter("index"),
+                            )
+                        ),
+                        wrap="wrap"
+                    ),
+                    align="center",
+                    spacing="2"
+                )
+            )
         ),
         rx.cond(
-            BacnetScanState.point_table_filters.notes,
-            rx.table.column_header_cell("Notes"),
+            BacnetScanState.point_column_filter.notes,
+            rx.table.column_header_cell(
+                rx.hstack(
+                    rx.text("Notes"),
+                    rx.hstack(
+                        notes_filter_popover(),
+                        rx.cond(
+                            BacnetScanState.point_table_filter.notes != "",
+                            filter_badge(
+                                BacnetScanState.point_table_filter.notes,
+                                on_click=lambda: BacnetScanState.clear_point_filter("notes"),
+                            )
+                        ),
+                        wrap="wrap"
+                    ),
+                    align="center",
+                    spacing="2"
+                )
+            ),
         )
     )
 
@@ -590,19 +917,19 @@ def show_device_point(point: BACnetDevicePointModelView, index: int) -> rx.Compo
     return rx.table.row(
         volttron_point_name_cell(point, index),
         rx.cond(
-            BacnetScanState.point_table_filters.units,
+            BacnetScanState.point_column_filter.units,
             rx.table.cell(point.units)
         ),
         rx.cond(
-            BacnetScanState.point_table_filters.object_type,
+            BacnetScanState.point_column_filter.object_type,
             rx.table.cell(point.object_type)
         ),
         rx.cond(
-            BacnetScanState.point_table_filters.present_value,
+            BacnetScanState.point_column_filter.present_value,
             present_value_cell(point, index)
         ),
         rx.cond(
-            BacnetScanState.point_table_filters.writable,
+            BacnetScanState.point_column_filter.writable,
             rx.table.cell(
                 rx.cond(
                     point.writable,
@@ -612,11 +939,11 @@ def show_device_point(point: BACnetDevicePointModelView, index: int) -> rx.Compo
             )
         ),
         rx.cond(
-            BacnetScanState.point_table_filters.index,
+            BacnetScanState.point_column_filter.index,
             rx.table.cell(point.index)
         ),
         rx.cond(
-            BacnetScanState.point_table_filters.notes,
+            BacnetScanState.point_column_filter.notes,
             rx.table.cell(point.notes)
         ),
     )
@@ -659,7 +986,7 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
                                 ),
                                 spacing="2"
                             ),
-                            point_table_view_filter_dialog(),
+                            point_column_filter_dialog(),
                             rx.hstack(
                                 export_points_dialog(),
                                 add_to_registry_config_file_dialog(),
@@ -673,12 +1000,17 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
                                 rx.table.row(
                                     rx.table.column_header_cell(
                                         rx.hstack(
-                                            rx.checkbox(
-                                                checked=BacnetScanState.selected_device.select_all_points,
-                                                on_change=BacnetScanState.toggle_select_all_points
+                                            rx.hstack(
+                                                rx.checkbox(
+                                                    checked=BacnetScanState.selected_device.select_all_points,
+                                                    on_change=BacnetScanState.toggle_select_all_points
+                                                ),
+                                                rx.text("VOLTTRON Point Name", weight="bold"),
+                                                spacing="4"
                                             ),
-                                            rx.text("VOLTTRON Point Name", weight="bold"),
-                                            spacing="4"
+                                            volttron_point_name_filter_popover(),
+                                            align="center",
+                                            spacing="2"
                                         )
                                     ),
                                     device_point_table_headers(),
@@ -1248,6 +1580,7 @@ def render() -> rx.Component:
                             )
                         ),
                         rx.fragment(
+                            rx.button("click haha", on_click=BacnetScanState.set_it),
                             bacnet_scan_tool_header(),
                             proxy_down_warning(),
                             bacnet_networking_grid(),

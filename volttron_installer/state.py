@@ -1561,6 +1561,108 @@ class IndexPageState(rx.State):
 
 
 
+def __create_prefilled_bacnet_device__() -> BACnetDeviceModelView:
+    # Create 5 point model views
+    points = [
+        BACnetDevicePointModelView(
+            device_name="Building1AHU1",
+            volttron_point_name="ZoneTemp1",
+            writable=True,
+            object_type="analogValue",
+            present_value="72.5",
+            units="degF",
+            index=1,
+            notes="Zone temperature sensor",
+            selected=False,
+            present_value_editing=False,
+            volttron_point_name_editing=False,
+            safe_point={},
+        ),
+        BACnetDevicePointModelView(
+            device_name="Building1AHU1",
+            volttron_point_name="FanStatus",
+            writable=False,
+            object_type="binaryValue",
+            present_value="1",
+            units="no-units",
+            index=2,
+            notes="Fan operational status",
+            selected=False,
+            present_value_editing=False,
+            volttron_point_name_editing=False,
+            safe_point={},
+        ),
+        BACnetDevicePointModelView(
+            device_name="Building1AHU1",
+            volttron_point_name="CoolingValve",
+            writable=True,
+            object_type="analogOutput",
+            present_value="45.0",
+            units="percent",
+            index=3,
+            notes="Cooling valve position",
+            selected=False,
+            present_value_editing=False,
+            volttron_point_name_editing=False,
+            safe_point={},
+        ),
+        BACnetDevicePointModelView(
+            device_name="Building1AHU1",
+            volttron_point_name="HeatingSetpoint",
+            writable=True,
+            object_type="analogValue",
+            present_value="68.0",
+            units="degF",
+            index=4,
+            notes="Heating setpoint",
+            selected=False,
+            present_value_editing=False,
+            volttron_point_name_editing=False,
+            safe_point={},
+        ),
+        BACnetDevicePointModelView(
+            device_name="Building1AHU1",
+            volttron_point_name="OccupancyMode",
+            writable=True,
+            object_type="multiStateValue",
+            present_value="1",
+            units=3,  # Using int for multistate
+            index=5,
+            notes="Occupancy mode (1=Occupied, 2=Unoccupied, 3=Standby)",
+            selected=False,
+            present_value_editing=False,
+            volttron_point_name_editing=False,
+            safe_point={},
+        ),
+    ]
+    
+    # Set write request targets for each point
+    points[0].set_write_request_target("192.168.1.100", "analogValue:1")
+    points[1].set_write_request_target("192.168.1.100", "binaryValue:2")
+    points[2].set_write_request_target("192.168.1.100", "analogOutput:3")
+    points[3].set_write_request_target("192.168.1.100", "analogValue:4")
+    points[4].set_write_request_target("192.168.1.100", "multiStateValue:5")
+
+    for point in points:
+        point.safe_point = point.to_dict()
+
+    # Create the device model view with the points
+    device = BACnetDeviceModelView(
+        pduSource="192.168.1.100",
+        deviceIdentifier="100",
+        maxAPDULengthAccepted=1476,
+        segmentationSupported="segmentedBoth",
+        vendorID=15,
+        object_name="Building1AHU1",
+        scanned_ip_target="192.168.1.100",
+        device_instance=100,
+        points=points,
+        select_all_points=False,
+    )
+    
+    return device
+
+
 class BacnetScanState(rx.State):
     selected_property_tab: Literal["read", "write"] = "read"  # Default to "read" tab
     discovered_devices: list[BACnetDeviceModelView] = []  # Store discovered devices
@@ -1576,8 +1678,9 @@ class BacnetScanState(rx.State):
     _is_read_property_valid: bool = False
     _warn_ping_range: bool = False
 
-    # Device Points page filter
-    point_table_filters: BACnetPointFilters = BACnetPointFilters()
+    # Device Points page filters
+    point_table_filter: BACnetPointTableFilter = BACnetPointTableFilter()
+    point_column_filter: BACnetPointColumnFilters = BACnetPointColumnFilters()
 
     # For all points pagination
     _point_per_page_limit: int = 20
@@ -1608,41 +1711,42 @@ class BacnetScanState(rx.State):
 
     # For bacnet point stuff
     writable_map: Dict[int, BACnetObjectType] = {
+        # INPUTS NEVER, some maybe
         0: BACnetObjectType(value=0, type_name="analog-input", writable=False),
         1: BACnetObjectType(value=1, type_name="analog-output", writable=True),
-        2: BACnetObjectType(value=2, type_name="analog-value", writable=False),
+        2: BACnetObjectType(value=2, type_name="analog-value", writable=True),
         3: BACnetObjectType(value=3, type_name="binary-input", writable=False),
         4: BACnetObjectType(value=4, type_name="binary-output", writable=True),
-        5: BACnetObjectType(value=5, type_name="binary-value", writable=False),
+        5: BACnetObjectType(value=5, type_name="binary-value", writable=True),
         6: BACnetObjectType(value=6, type_name="calendar", writable=True),
-        7: BACnetObjectType(value=7, type_name="command", writable=True),
-        8: BACnetObjectType(value=8, type_name="device", writable=False),
-        9: BACnetObjectType(value=9, type_name="event-enrollment", writable=True),
-        10: BACnetObjectType(value=10, type_name="file", writable=True),
-        11: BACnetObjectType(value=11, type_name="group", writable=True),
-        12: BACnetObjectType(value=12, type_name="loop", writable=True),
+        7: BACnetObjectType(value=7, type_name="command", writable=False),
+        8: BACnetObjectType(value=8, type_name="device", writable=False), # NEVER
+        9: BACnetObjectType(value=9, type_name="event-enrollment", writable=False),
+        10: BACnetObjectType(value=10, type_name="file", writable=False),
+        11: BACnetObjectType(value=11, type_name="group", writable=False),
+        12: BACnetObjectType(value=12, type_name="loop", writable=False),
         13: BACnetObjectType(value=13, type_name="multi-state-input", writable=False),
         14: BACnetObjectType(value=14, type_name="multi-state-output", writable=True),
         15: BACnetObjectType(value=15, type_name="notification-class", writable=True),
         16: BACnetObjectType(value=16, type_name="program", writable=True),
         17: BACnetObjectType(value=17, type_name="schedule", writable=True),
         18: BACnetObjectType(value=18, type_name="averaging", writable=False),
-        19: BACnetObjectType(value=19, type_name="multi-state-value", writable=False),
+        19: BACnetObjectType(value=19, type_name="multi-state-value", writable=True),
         20: BACnetObjectType(value=20, type_name="trend-log", writable=False),
         21: BACnetObjectType(value=21, type_name="life-safety-point", writable=False),
         22: BACnetObjectType(value=22, type_name="life-safety-zone", writable=False),
         23: BACnetObjectType(value=23, type_name="accumulator", writable=False),
         24: BACnetObjectType(value=24, type_name="pulse-converter", writable=False),
         25: BACnetObjectType(value=25, type_name="event-log", writable=False),
-        26: BACnetObjectType(value=26, type_name="global-group", writable=True),
+        26: BACnetObjectType(value=26, type_name="global-group", writable=False),
         27: BACnetObjectType(value=27, type_name="trend-log-multiple", writable=False),
-        28: BACnetObjectType(value=28, type_name="load-control", writable=True),
+        28: BACnetObjectType(value=28, type_name="load-control", writable=False),
         29: BACnetObjectType(value=29, type_name="structured-view", writable=False),
-        30: BACnetObjectType(value=30, type_name="access-door", writable=True),
+        30: BACnetObjectType(value=30, type_name="access-door", writable=False),
         31: BACnetObjectType(value=31, type_name="unassigned", writable=False),
         32: BACnetObjectType(value=32, type_name="access-credential", writable=False),
         33: BACnetObjectType(value=33, type_name="access-point", writable=False),
-        34: BACnetObjectType(value=34, type_name="access-rights", writable=True),
+        34: BACnetObjectType(value=34, type_name="access-rights", writable=False),
         35: BACnetObjectType(value=35, type_name="access-user", writable=False),
         36: BACnetObjectType(value=36, type_name="access-zone", writable=False),
         37: BACnetObjectType(value=37, type_name="credentional-data-input", writable=False),
@@ -1659,11 +1763,18 @@ class BacnetScanState(rx.State):
         48: BACnetObjectType(value=48, type_name="positive-integer-value", writable=False),
         49: BACnetObjectType(value=49, type_name="time-pattern-value", writable=False),
         50: BACnetObjectType(value=50, type_name="time-value", writable=False),
-        51: BACnetObjectType(value=51, type_name="notification-forwarder", writable=True),
-        52: BACnetObjectType(value=52, type_name="alert-enrollment", writable=True),
-        53: BACnetObjectType(value=53, type_name="channel", writable=True),
-        54: BACnetObjectType(value=54, type_name="lighting-output", writable=True),
+        51: BACnetObjectType(value=51, type_name="notification-forwarder", writable=False),
+        52: BACnetObjectType(value=52, type_name="alert-enrollment", writable=False),
+        53: BACnetObjectType(value=53, type_name="channel", writable=False),
+        54: BACnetObjectType(value=54, type_name="lighting-output", writable=False),
     }
+
+
+    @rx.event
+    def set_it(self):
+        self.discovered_devices=[__create_prefilled_bacnet_device__()]
+
+
 
     # important event, actually spins up the tool when the page loads.
     @rx.event
@@ -1737,7 +1848,7 @@ class BacnetScanState(rx.State):
             "index": form_data.get("index") == "on",
             "notes": form_data.get("notes") == "on",
         }
-        self.point_table_filters=BACnetPointFilters(**filters)
+        self.point_column_filter=BACnetPointColumnFilters(**filters)
 
     @rx.var
     def warn_ping_range(self) -> bool: 
@@ -1889,6 +2000,25 @@ class BacnetScanState(rx.State):
     def on_selected_points_dialog_close(self):
         self._selected_points_page_number = 1
 
+    @rx.event
+    def filter_form_submit(self, form_data: dict):
+        self.point_table_filter = BACnetPointTableFilter(
+            volttron_point_name=form_data.get("volttron_point_name", ""),
+            units=form_data.get("units", ""),
+            object_type=form_data.get("object_type", ""),
+            writable=form_data.get("writable", "").strip(),
+            present_value=form_data.get("present_value", ""),
+            index=form_data.get("index", ""),
+            notes=form_data.get("notes", "")
+        )
+
+    @rx.event
+    def clear_point_filter(self, field: str):
+        change: dict[str, str] = self.point_table_filter.dict()
+        change[field] = ""  # Clear the specified field
+        self.point_table_filter = BACnetPointTableFilter(
+            **change
+        )
 
     @rx.event
     def toggle_select_all_points(self, checked: bool):
@@ -2598,7 +2728,7 @@ class BacnetScanState(rx.State):
     # Resetting methods
     @rx.event
     def reset_point_table_filters(self):
-        self.point_table_filters = BACnetPointFilters()
+        self.point_column_filter = BACnetPointColumnFilters()
 
     def get_absolute_index(self, relative_index: int) -> int:
         """Convert a relative index (on the current points page) to an absolute index.

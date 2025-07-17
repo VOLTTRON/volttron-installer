@@ -96,7 +96,16 @@ class LocalIPModel(rx.Base):
     subnet_mask: str = ""
     cidr: str = ""
 
-class BACnetPointFilters(rx.Base):
+class BACnetPointTableFilter(rx.Base):
+    volttron_point_name: str = ""
+    units: str = ""
+    object_type: str = ""
+    writable: str = ""
+    present_value: str = ""
+    index: str = ""
+    notes: str = ""
+
+class BACnetPointColumnFilters(rx.Base):
     volttron_point_name: bool = True
     units: bool = True
     object_type: bool = True
