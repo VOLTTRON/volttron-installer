@@ -943,13 +943,15 @@ def show_device_point(point_tuple: tuple[int, BACnetDevicePointModelView], index
         rx.cond(
             BacnetScanState.point_column_filter.writable,
             rx.table.cell(
-                rx.box(
+                rx.button(
                     rx.cond(
                     point.writable,
                         true_writable_badge(),
                         false_writable_badge()
                     ),
                     disabled=point.never_writable,
+                    variant="ghost",
+                    padding="0px",
                     cursor=rx.cond(
                         point.never_writable,
                         "not-allowed",

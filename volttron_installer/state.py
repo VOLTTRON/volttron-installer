@@ -1567,7 +1567,7 @@ def __create_prefilled_bacnet_device__() -> BACnetDeviceModelView:
         BACnetDevicePointModelView(
             device_name="Building1AHU1",
             volttron_point_name="ZoneTemp1",
-            writable=True,
+            writable=False,
             object_type="analogValue",
             present_value="72.5",
             units="degF",
