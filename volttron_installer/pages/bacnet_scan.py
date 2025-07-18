@@ -38,7 +38,8 @@ def volttron_point_name_filter_popover() -> rx.Component:
                         "VOLTTRON Point Name Filter",
                         rx.input(
                             width="100%",
-                            name="units",
+                            placeholder="Filter for a value",
+                            name="volttron_point_name",
                             default_value=BacnetScanState.point_table_filter.volttron_point_name,
                         )
                     ),
@@ -67,6 +68,7 @@ def units_filter_popover() -> rx.Component:
                         "Units Filter",
                         rx.input(
                             width="100%",
+                            placeholder="Filter for a value",
                             name="units",
                             default_value=BacnetScanState.point_table_filter.units,
                         )
@@ -95,6 +97,7 @@ def object_type_filter_popover() -> rx.Component:
                     form_entry.form_entry(
                         "BACnet Object Type Filter",
                         rx.input(
+                            placeholder="Filter for a value",
                             name="object_type",
                             default_value=BacnetScanState.point_table_filter.object_type,
                             width="100%"
@@ -124,6 +127,7 @@ def present_value_filter_popover() -> rx.Component:
                     form_entry.form_entry(
                         "Present Value Filter",
                         rx.input(
+                            placeholder="Filter for a value",
                             name="present_value",
                             default_value=BacnetScanState.point_table_filter.present_value,
                             width="100%"
@@ -184,6 +188,7 @@ def index_filter_popover() -> rx.Component:
                         "Index Filter",
                         rx.input(
                             name="index",
+                            placeholder="Filter for a value",
                             default_value=BacnetScanState.point_table_filter.index,
                             width="100%"
                         )
@@ -213,6 +218,7 @@ def notes_filter_popover() -> rx.Component:
                         "Notes Filter",
                         rx.input(
                             name="notes",
+                            placeholder="Filter for a value",
                             default_value=BacnetScanState.point_table_filter.notes,
                             width="100%"
                         )
@@ -913,7 +919,8 @@ def device_point_table_pagination() -> rx.Component:
         align="center"
     )
 
-def show_device_point(point: BACnetDevicePointModelView, index: int) -> rx.Component:
+def show_device_point(point_tuple: tuple[int, BACnetDevicePointModelView], index: int) -> rx.Component:
+    point = point_tuple[1]
     return rx.table.row(
         volttron_point_name_cell(point, index),
         rx.cond(
@@ -975,17 +982,6 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
                             margin_bottom="12px"
                         ),
                         rx.hstack(
-                            rx.hstack(
-                                rx.input(
-                                    rx.input.slot(
-                                        rx.icon("search", size=15)
-                                    ),
-                                    placeholder="Search",
-                                    variant="surface",
-                                    size="1"
-                                ),
-                                spacing="2"
-                            ),
                             point_column_filter_dialog(),
                             rx.hstack(
                                 export_points_dialog(),
@@ -1008,7 +1004,17 @@ def show_device(device: BACnetDeviceModelView, index: int) -> rx.Component:
                                                 rx.text("VOLTTRON Point Name", weight="bold"),
                                                 spacing="4"
                                             ),
-                                            volttron_point_name_filter_popover(),
+                                            rx.hstack(
+                                                volttron_point_name_filter_popover(),
+                                                rx.cond(
+                                                    BacnetScanState.point_table_filter.volttron_point_name != "",
+                                                    filter_badge(
+                                                        BacnetScanState.point_table_filter.volttron_point_name,
+                                                        on_click=lambda: BacnetScanState.clear_point_filter("volttron_point_name"),
+                                                    )
+                                                ),
+                                                wrap="wrap"
+                                            ),
                                             align="center",
                                             spacing="2"
                                         )

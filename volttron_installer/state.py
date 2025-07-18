@@ -1821,20 +1821,22 @@ class BacnetScanState(rx.State):
         return self.points_table_page_number > 1
 
     @rx.var
-    def points_to_load(self) -> list[BACnetDevicePointModelView]:
-        """Get the points for the current page."""
-        if self.selected_device is None or not self.selected_device.points:
+    def points_to_load(self) -> list[tuple[int, BACnetDevicePointModelView]]:
+        """Get the points for the current page with their original indices."""
+        filtered_points = self.filtered_points_with_indices
+        
+        if not filtered_points:
             return []
         
         page_view_low = (self.points_table_page_number - 1) * self._point_per_page_limit
-        page_view_high = min(page_view_low + self._point_per_page_limit, len(self.selected_device.points))
+        page_view_high = min(page_view_low + self._point_per_page_limit, len(filtered_points))
         
         # Safety check to prevent out-of-bounds errors
-        if page_view_low >= len(self.selected_device.points):
+        if page_view_low >= len(filtered_points):
             page_view_low = 0
-            page_view_high = min(self._point_per_page_limit, len(self.selected_device.points))
+            page_view_high = min(self._point_per_page_limit, len(filtered_points))
         
-        return self.selected_device.points[page_view_low:page_view_high]
+        return filtered_points[page_view_low:page_view_high]
 
     @rx.event
     def save_point_table_filters(self, form_data: dict):
@@ -1939,6 +1941,15 @@ class BacnetScanState(rx.State):
         """Whether there's a previous page available for selected points."""
         return self.selected_points_page_number > 1
 
+    @rx.var
+    def filtered_points_with_indices(self) -> list[tuple[int, BACnetDevicePointModelView]]:
+        """Return filtered points with their original indices."""
+        return self.apply_point_table_filters(self.point_table_filter)
+
+    @rx.var
+    def filtered_points(self) -> list[BACnetDevicePointModelView]:
+        """Return just the filtered points."""
+        return [point for _, point in self.filtered_points_with_indices]
 
     # Events
     # For points pagination
@@ -2731,46 +2742,67 @@ class BacnetScanState(rx.State):
         self.point_column_filter = BACnetPointColumnFilters()
 
     def get_absolute_index(self, relative_index: int) -> int:
-        """Convert a relative index (on the current points page) to an absolute index.
+        """
+        Convert a relative index (page position) to an absolute index in the original points list.
         
         Args:
-            relative_index: The index of the item on the current page
+            relative_index: The index within the current page view
             
         Returns:
-            The absolute index in the full list of points (within self.discovered_device.points)
+            The absolute index in the original points list
         """
-        # Log initial state
-        # logger.debug(f"Converting relative_index={relative_index} to absolute index")
+        points_to_load = self.points_to_load
         
-        # Safety check - if no device is selected or no points exist
-        if self.selected_device is None:
-            # logger.debug("No device selected, returning index 0")
-            return 0
+        if not points_to_load or relative_index >= len(points_to_load):
+            return -1  # Invalid index
         
-        if not self.selected_device.points:
-            # logger.debug("Selected device has no points, returning index 0")
-            return 0
-        
-        total_points = len(self.selected_device.points)
-        # logger.debug(f"Total points in selected device: {total_points}")
-        
-        # Calculate the start index for the current page
-        page_start_index = (self.points_table_page_number - 1) * self._point_per_page_limit
-        # logger.debug(f"Current page: {self.points_table_page_number}, Start index: {page_start_index}")
-        
-        # Calculate the absolute index
-        absolute_index = page_start_index + relative_index
-        # logger.debug(f"Calculated absolute_index: {absolute_index}")
-        
-        # Ensure the index doesn't exceed the bounds of the list
-        if absolute_index >= total_points:
-            # logger.debug(f"Absolute index {absolute_index} exceeds total points {total_points}, clamping to {total_points-1}")
-            # If out of bounds, return the last valid index
-            return total_points - 1
-        
-        # logger.debug(f"Final absolute_index: {absolute_index}")
-        return absolute_index
+        # Get the original index stored in the tuple
+        original_index, _ = points_to_load[relative_index]
+        return original_index
     
+    def apply_point_table_filters(self, filters: BACnetPointTableFilter) -> list[tuple[int, BACnetDevicePointModelView]]:
+        """
+        Apply filters to the data points and return filtered results with their original indices.
+        
+        Args:
+            filters: BACnetPointTableFilter instance containing filter criteria
+            
+        Returns:
+            List of tuples (original_index, point)
+        """
+        if self.selected_device is None:
+            return []
+        
+        # Start with all points and their original indices
+        points_with_indices = list(enumerate(self.selected_device.points))
+        
+        # Define a helper function to apply a single filter
+        def apply_filter(points_with_indices, filter_value, column_enabled, attr_name):
+            if filter_value == "" or not column_enabled:
+                return points_with_indices
+            
+            return [
+                (idx, point) for idx, point in points_with_indices 
+                if filter_value.lower() in str(getattr(point, attr_name, "")).lower()
+            ]
+        
+        # Apply each filter sequentially
+        filter_specs = [
+            (filters.volttron_point_name, self.point_column_filter.volttron_point_name, "volttron_point_name"),
+            (filters.units, self.point_column_filter.units, "units"),
+            (filters.object_type, self.point_column_filter.object_type, "object_type"),
+            (filters.writable, self.point_column_filter.writable, "writable"),
+            (filters.present_value, self.point_column_filter.present_value, "present_value"),
+            (filters.index, self.point_column_filter.index, "index"),
+            (filters.notes, self.point_column_filter.notes, "notes")
+        ]
+        
+        # Apply each filter in sequence
+        for filter_value, column_enabled, attr_name in filter_specs:
+            points_with_indices = apply_filter(points_with_indices, filter_value, column_enabled, attr_name)
+        
+        return points_with_indices
+
     def _convert_selected_points_to_csv(self) -> str:
         """Convert selected_points to CSV string with mapped column names."""
         # Define the CSV columns and their mapping to model fields
