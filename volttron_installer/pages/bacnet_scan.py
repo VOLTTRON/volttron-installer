@@ -6,7 +6,7 @@ from ..components.buttons.tile_icon import tile_icon
 from ..layouts import app_layout_sidebar
 from ..model_views import BACnetDeviceModelView, BACnetDevicePointModelView
 
-def filter_badge(text: str, **props) -> rx.Component:
+def filter_badge(text: str, cursor: str = "pointer", **props) -> rx.Component:
     return rx.badge(
         rx.hstack(
             rx.icon("x", size=12),
@@ -16,7 +16,7 @@ def filter_badge(text: str, **props) -> rx.Component:
         ),
         color_scheme="blue",
         variant="surface",
-        cursor="pointer",
+        cursor=cursor,
         size="1",
         **props
     )
@@ -841,6 +841,11 @@ def present_value_cell(point: BACnetDevicePointModelView, index: int) -> rx.Comp
                     rx.button(
                         rx.icon("pencil", size=12),
                         size="1",
+                        disabled=rx.cond(
+                            point.writable,
+                            False,
+                            True
+                        ),
                         on_click=lambda: BacnetScanState.enable_device_point_present_value_edit(index)
                     )
                 )
@@ -938,10 +943,19 @@ def show_device_point(point_tuple: tuple[int, BACnetDevicePointModelView], index
         rx.cond(
             BacnetScanState.point_column_filter.writable,
             rx.table.cell(
-                rx.cond(
+                rx.box(
+                    rx.cond(
                     point.writable,
-                    true_writable_badge(),
-                    false_writable_badge()
+                        true_writable_badge(),
+                        false_writable_badge()
+                    ),
+                    disabled=point.never_writable,
+                    cursor=rx.cond(
+                        point.never_writable,
+                        "not-allowed",
+                        "pointer"
+                    ),
+                    on_click=lambda: BacnetScanState.flip_device_point_writable(index)
                 )
             )
         ),

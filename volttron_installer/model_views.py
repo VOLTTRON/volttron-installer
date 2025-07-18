@@ -192,6 +192,7 @@ class BACnetDevicePointModelView(rx.Base):
     write_request_target: dict = {}
 
     # UI driven field
+    never_writable: bool = False
     selected: bool = False
     present_value_editing: bool = False
     volttron_point_name_editing: bool = False

@@ -1576,6 +1576,7 @@ def __create_prefilled_bacnet_device__() -> BACnetDeviceModelView:
             selected=False,
             present_value_editing=False,
             volttron_point_name_editing=False,
+            never_writable=True,
             safe_point={},
         ),
         BACnetDevicePointModelView(
@@ -1710,12 +1711,19 @@ class BacnetScanState(rx.State):
     windows_host_ip_info: WindowsHostIPModel = WindowsHostIPModel()
 
     # For bacnet point stuff
+    NEVER_WRITABLE: list[int] = [
+        0,
+        3,
+        8,
+        13,
+        37
+    ]
     writable_map: Dict[int, BACnetObjectType] = {
         # INPUTS NEVER, some maybe
-        0: BACnetObjectType(value=0, type_name="analog-input", writable=False),
+        0: BACnetObjectType(value=0, type_name="analog-input", writable=False), # NEVER
         1: BACnetObjectType(value=1, type_name="analog-output", writable=True),
         2: BACnetObjectType(value=2, type_name="analog-value", writable=True),
-        3: BACnetObjectType(value=3, type_name="binary-input", writable=False),
+        3: BACnetObjectType(value=3, type_name="binary-input", writable=False), # NEVER
         4: BACnetObjectType(value=4, type_name="binary-output", writable=True),
         5: BACnetObjectType(value=5, type_name="binary-value", writable=True),
         6: BACnetObjectType(value=6, type_name="calendar", writable=True),
@@ -1725,7 +1733,7 @@ class BacnetScanState(rx.State):
         10: BACnetObjectType(value=10, type_name="file", writable=False),
         11: BACnetObjectType(value=11, type_name="group", writable=False),
         12: BACnetObjectType(value=12, type_name="loop", writable=False),
-        13: BACnetObjectType(value=13, type_name="multi-state-input", writable=False),
+        13: BACnetObjectType(value=13, type_name="multi-state-input", writable=False), # NEVER
         14: BACnetObjectType(value=14, type_name="multi-state-output", writable=True),
         15: BACnetObjectType(value=15, type_name="notification-class", writable=True),
         16: BACnetObjectType(value=16, type_name="program", writable=True),
@@ -1749,7 +1757,7 @@ class BacnetScanState(rx.State):
         34: BACnetObjectType(value=34, type_name="access-rights", writable=False),
         35: BACnetObjectType(value=35, type_name="access-user", writable=False),
         36: BACnetObjectType(value=36, type_name="access-zone", writable=False),
-        37: BACnetObjectType(value=37, type_name="credentional-data-input", writable=False),
+        37: BACnetObjectType(value=37, type_name="credentional-data-input", writable=False), # NEVER
         38: BACnetObjectType(value=38, type_name="network-security", writable=False),
         39: BACnetObjectType(value=39, type_name="bitstring-value", writable=False),
         40: BACnetObjectType(value=40, type_name="characterstring-value", writable=False),
@@ -2268,6 +2276,16 @@ class BacnetScanState(rx.State):
         #     1
         # )
 
+    @rx.event
+    def flip_device_point_writable(self, index: int):
+        """Toggle the writable state of a device point."""
+        index = self.get_absolute_index(index)
+        point = self.selected_device.points[index]
+        point.writable = not point.writable
+        # Update the writable map for this object type
+        if point.object_type in self.writable_map:
+            self.writable_map[point.object_type].writable = point.writable
+
 
     @rx.event
     def handle_volttron_point_name_value_edit(self, index: int, value: str):
@@ -2485,7 +2503,9 @@ class BacnetScanState(rx.State):
                         units=units,
                         notes=notes_value,
                         index=index_value,
-                        object_type=object_type
+                        object_type=object_type,
+
+                        never_writable=obj[0] in self.NEVER_WRITABLE
                     )
                     point.safe_point = point.to_dict()
                     point.set_write_request_target(device.scanned_ip_target, object_identifier)
