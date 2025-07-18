@@ -1559,8 +1559,6 @@ class IndexPageState(rx.State):
             self.selected_tool = tool
         logger.debug(f"Selected tool changed to: {self.selected_tool}")
 
-
-
 def __create_prefilled_bacnet_device__() -> BACnetDeviceModelView:
     # Create 5 point model views
     points = [
@@ -1663,7 +1661,6 @@ def __create_prefilled_bacnet_device__() -> BACnetDeviceModelView:
     
     return device
 
-
 class BacnetScanState(rx.State):
     selected_property_tab: Literal["read", "write"] = "read"  # Default to "read" tab
     discovered_devices: list[BACnetDeviceModelView] = []  # Store discovered devices
@@ -1694,6 +1691,7 @@ class BacnetScanState(rx.State):
     # Dialog States
     dialog_registry_open: bool = False
     dialog_select_platform_open: bool = False
+    selected_platform_uid: str = ""
 
     # Fields
     proxy_field_value: str = ""
@@ -2012,6 +2010,7 @@ class BacnetScanState(rx.State):
 
     @rx.event
     def close_dialogs(self):
+        self.selected_platform_uid = ""
         self.dialog_registry_open = False
         self.dialog_select_platform_open = False
 
@@ -2697,6 +2696,11 @@ class BacnetScanState(rx.State):
             yield rx.toast.success("Retrieved Host IP")
         except Exception as e:
             logger.debug(f"There was an error getting local ip info {e}")
+
+    # Other
+    @rx.event
+    def select_platform_for_registry_config(self, uid: str):
+        self.selected_platform_uid = uid if self.selected_platform_uid != uid else ""
 
     # Exporting
     @rx.event

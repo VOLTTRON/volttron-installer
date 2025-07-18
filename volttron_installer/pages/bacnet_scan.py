@@ -682,14 +682,20 @@ def add_to_registry_config_file_dialog() -> rx.Component:
         # Selecting Platforms Dialog
         rx.dialog.root(
             rx.dialog.content(
-                rx.dialog.title("Select Platforms"),
-                rx.dialog.description("Are you sure you want to add to the registry config file?"),
+                rx.dialog.title("Select a Platform"),
+                rx.dialog.description("Select a platform to add the registry config file to."),
                 rx.hstack(
                     rx.foreach(
                         PlatformPageState.in_file_platforms,
                         lambda platform: platform_tile.platform_tile(
                             platform.platform.config.instance_name,
-                            platform
+                            platform,
+                            background_color=rx.cond(
+                                BacnetScanState.selected_platform_uid == platform.platform.config.instance_name,
+                                "#44C0ED",
+                                "rgba(145, 145, 145, 0.29)"
+                            ),
+                            on_click=lambda: BacnetScanState.select_platform_for_registry_config(platform.platform.config.instance_name)
                         )
                     ),
                     wrap="wrap",
@@ -711,6 +717,11 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                         color_scheme="green",
                         variant="soft",
                         size="2",
+                        disabled=rx.cond(
+                            BacnetScanState.selected_platform_uid == "",
+                            True,
+                            False
+                        ),
                         on_click=BacnetScanState.close_dialogs,  # Or your confirm logic
                     ),
                     width="100%",
