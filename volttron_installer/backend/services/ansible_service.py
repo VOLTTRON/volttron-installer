@@ -7,6 +7,7 @@ from .. services.inventory_service import get_inventory_service, InventoryServic
 from .. services.platform_service import get_platform_service, PlatformService
 import json
 import os
+from os.path import exists
 
 from dotenv import load_dotenv, dotenv_values 
 import yaml
@@ -39,23 +40,22 @@ class AnsibleService:
         inventory_service = await get_inventory_service()
         cmd:str
         if password == None: 
-            cmd = ["ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix()]
+            cmd = ["ansible-playbook","-i", inventory_service.inventory_path.as_posix()]
         else:
-            password = f"'{password}'"
-            cmd = ["sshpass","-p", password, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix()]
+            cmd = ["sshpass","-p", password, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix(),"--extra-vars", f'ansible_become_pass="{password}"']
 
         logger.debug(f"Running playbook {playbook_name} on hosts {hosts} cmd: {cmd}")
         # if connection:
         #     cmd.extend(["--connection", connection])
 
         # Merge default vars with provided vars
-        default_vars = {
-            "ansible_ssh_common_args": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-        }
-        if extra_vars:
-            default_vars.update(extra_vars)
+        # default_vars = {
+        #     "ansible_ssh_common_args": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        # }
+        # if extra_vars:
+        #     default_vars.update(extra_vars)
 
-        cmd.extend(["-e", json.dumps(default_vars)])
+        # cmd.extend(["-e", json.dumps(default_vars)])
         # Ensure playbooks are run based on volttron.deployment
         if not playbook_name.startswith('volttron.deployment.'):
             playbook_name = f'volttron.deployment.{playbook_name}'
@@ -76,8 +76,9 @@ class AnsibleService:
             stderr=asyncio.subprocess.PIPE,
             env=env
         )
-        
+
         stdout, stderr = await process.communicate()
+
         logger.debug(f"Playbook output: {stdout.decode() if stdout else stderr.decode()}")
         return (
             process.returncode,
@@ -118,7 +119,7 @@ class AnsibleService:
             stderr.decode() if stderr else ""
         )
 
-    async def run_volttron_ad_hoc(self, command: str, inventory: str = "localhost,", connection: str = "local") -> tuple[int, str, str]:
+    async def run_volttron_ad_hoc(self, command: str, inventory: str = "localhost,", connection: str = "local", password: str = None) -> tuple[int, str, str]:
         """Run an ad-hoc Ansible command
 
         Args:
@@ -129,13 +130,21 @@ class AnsibleService:
         Returns:
             Tuple of (return_code, stdout, stderr)
         """
-        cmd = [
-            "ansible-playbook", "-i", inventory,
-            "--connection", connection,
-            "volttron.deployment.ad_hoc",
-            "-e", f"command='{command}'"
-        ]
-
+        if password == None:
+            cmd = [
+                "ansible-playbook", "-i", inventory,
+                "--connection", connection,
+                "volttron.deployment.ad_hoc",
+                "-e", f"command='{command}'"
+            ]
+        else:
+            cmd = [
+                "sshpass","-p", password, 
+                "ansible-playbook","-k", "-i", inventory,
+                "--connection", connection,
+                "volttron.deployment.ad_hoc","-e", f"command='{command}'", "--extra-vars", f'ansible_become_pass="{password}"'
+            ]
+        logger.debug(f"{cmd}")
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -275,10 +284,11 @@ class AnsibleService:
         Returns:
             HostEntry object
         """
-        path =  Path.home()/os.getenv("VI_DATA_DIR")
+        path =os.getenv("VI_DATA_DIR")
+        path = os.path.expanduser(path)
         if os.path.exists(path):
-         
-            with open(Path.home()/os.getenv("VI_DATA_DIR"), "r") as file:
+            final_path = path +"/inventory.yml"
+            with open(final_path, "r") as file:
                 data = yaml.safe_load(file)
         # Implement the logic to retrieve the HostEntry by its ID
         # This is a placeholder implementation
@@ -286,13 +296,15 @@ class AnsibleService:
             if data['all']['hosts'][host_id]:
                 if "ansible_password" in tmp_str:
                     password = data['all']['hosts'][host_id]['ansible_password']
-                    return HostEntry(host=host_id, user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'], password = data['all']['hosts'][host_id]['ansible_password'])
+                    return HostEntry(ansible_host=host_id, anisible_user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'], password = data['all']['hosts'][host_id]['ansible_password'], ansible_connection = data['all']['hosts'][host_id]['ansible_connection'])
             
-                return HostEntry(host=host_id, user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'])
+                return HostEntry(ansible_host=host_id, ansible_user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'], id = data['all']['hosts'][host_id]['ansible_host'], ansible_connection = data['all']['hosts'][host_id]['ansible_connection'])
             else:
                 print("HOST IS NOT A MEMBER OF INVENTORY FILE")
+                return None
         else:
-            print("PATH DOES NOT EXIST TO INVENTORY FILE")
+            print("PATH DOES NOT EXIST TO INVENTORY FILE", path)
+            return None
 
 __ansible_service__ = AnsibleService()
 
