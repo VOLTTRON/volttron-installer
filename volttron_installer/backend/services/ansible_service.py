@@ -7,6 +7,7 @@ from .. services.inventory_service import get_inventory_service, InventoryServic
 from .. services.platform_service import get_platform_service, PlatformService
 import json
 import os
+from os.path import exists
 
 from dotenv import load_dotenv, dotenv_values 
 import yaml
@@ -75,8 +76,9 @@ class AnsibleService:
             stderr=asyncio.subprocess.PIPE,
             env=env
         )
-        
+
         stdout, stderr = await process.communicate()
+
         logger.debug(f"Playbook output: {stdout.decode() if stdout else stderr.decode()}")
         return (
             process.returncode,
@@ -117,7 +119,7 @@ class AnsibleService:
             stderr.decode() if stderr else ""
         )
 
-    async def run_volttron_ad_hoc(self, command: str, inventory: str = "localhost,", connection: str = "local") -> tuple[int, str, str]:
+    async def run_volttron_ad_hoc(self, command: str, inventory: str = "localhost,", connection: str = "local", Password: str = None) -> tuple[int, str, str]:
         """Run an ad-hoc Ansible command
 
         Args:
@@ -128,13 +130,22 @@ class AnsibleService:
         Returns:
             Tuple of (return_code, stdout, stderr)
         """
-        cmd = [
-            "ansible-playbook", "-i", inventory,
-            "--connection", connection,
-            "volttron.deployment.ad_hoc",
-            "-e", f"command='{command}'"
-        ]
-
+        if Password == None:
+            cmd = [
+                "ansible-playbook", "-i", inventory,
+                "--connection", connection,
+                "volttron.deployment.ad_hoc",
+                "-e", f"command='{command}'"
+            ]
+        else:
+            cmd = [
+                "sshpass","-p", password, 
+                "ansible-playbook","-k", "-i", inventory,
+                "--connection", connection,
+                "volttron.deployment.ad_hoc",
+                "-e", f"command='{command}'",
+                f'ansible_become_pass="{password}"'
+            ]
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -274,10 +285,11 @@ class AnsibleService:
         Returns:
             HostEntry object
         """
-        path =  Path.home()/os.getenv("VI_DATA_DIR")
+        path =os.getenv("VI_DATA_DIR")
+        path = os.path.expanduser(path)
         if os.path.exists(path):
-         
-            with open(Path.home()/os.getenv("VI_DATA_DIR"), "r") as file:
+            final_path = path +"/inventory.yml"
+            with open(final_path, "r") as file:
                 data = yaml.safe_load(file)
         # Implement the logic to retrieve the HostEntry by its ID
         # This is a placeholder implementation
@@ -285,13 +297,15 @@ class AnsibleService:
             if data['all']['hosts'][host_id]:
                 if "ansible_password" in tmp_str:
                     password = data['all']['hosts'][host_id]['ansible_password']
-                    return HostEntry(host=host_id, user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'], password = data['all']['hosts'][host_id]['ansible_password'])
+                    return HostEntry(ansible_host=host_id, anisible_user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'], password = data['all']['hosts'][host_id]['ansible_password'], ansible_connection = data['all']['hosts'][host_id]['ansible_connection'])
             
-                return HostEntry(host=host_id, user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'])
+                return HostEntry(ansible_host=host_id, ansible_user=data['all']['hosts'][host_id]['ansible_user'], port=data['all']['hosts'][host_id]['ansible_port'], id = data['all']['hosts'][host_id]['ansible_host'], ansible_connection = data['all']['hosts'][host_id]['ansible_connection'])
             else:
                 print("HOST IS NOT A MEMBER OF INVENTORY FILE")
+                return None
         else:
-            print("PATH DOES NOT EXIST TO INVENTORY FILE")
+            print("PATH DOES NOT EXIST TO INVENTORY FILE", path)
+            return None
 
 __ansible_service__ = AnsibleService()
 

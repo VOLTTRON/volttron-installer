@@ -106,6 +106,19 @@ The repository includes a Dev Container configuration that allows you to develop
    cleanup-pr
    ```
 
+## Installing Ansible
+
+The VOLTTRON Installer relies on VOLTTRON Ansible to run playbooks for installation. Install VOLTTRON Ansible with: 
+```
+ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git
+```
+**Note**: 
+Ansible galaxy is installed after completing one of the above installation options. Complete VOLTTRON Installer installation
+before running the ansible-galaxy command. 
+
+*For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
+
+
 ## Usage
 
 After installation, run the VOLTTRON Installer:
