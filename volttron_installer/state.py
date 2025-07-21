@@ -319,6 +319,7 @@ class PlatformPageState(rx.State):
         #     platform=PlatformModelView()
         # )
     }
+    _working_platform: Instance = Instance(host=HostEntryModelView(), platform=PlatformModelView())
     list_of_agents: list[AgentModelView] = []
 
     _host_resolvable: bool = True
@@ -335,6 +336,16 @@ class PlatformPageState(rx.State):
     @rx.var(cache=True)
     def current_uid(self) -> str:
         return self.router.page.params.get("uid", "")
+
+    @rx.var
+    def working_platform(self) -> Instance:
+        self._working_platform = self.platforms.get(self.current_uid, Instance(host=HostEntryModelView(), platform=PlatformModelView()))
+        return self._working_platform
+
+    @rx.var
+    def raka(self) -> str:
+        return f"{len(self.working_platform.platform.agents)}"
+
 
     @rx.var(cache=True)
     def in_file_platforms(self) -> list[Instance]:

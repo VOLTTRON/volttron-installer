@@ -16,7 +16,7 @@ parts = Literal["connection", "instance_configuration"]
 @rx.page(route="/platform/[uid]", on_load=State.hydrate_state)
 def platform_page() -> rx.Component:
 
-    working_platform: Instance = State.platforms[State.current_uid]
+    # State.working_platform: Instance = State.platforms[State.current_uid]
 
     return rx.cond(
         State.is_hydrated, 
@@ -31,7 +31,7 @@ def platform_page() -> rx.Component:
                     ),
                     rx.text(f"""{
                             rx.cond(
-                                working_platform.new_instance,
+                                State.working_platform.new_instance,
                                 'New Platform',
                                 f'Platform: {State.platform_title}'
                             )
@@ -44,7 +44,7 @@ def platform_page() -> rx.Component:
                 ),
                 rx.hstack(
                     rx.cond(
-                        working_platform.new_instance==False,
+                        State.working_platform.new_instance==False,
                         icon_button_wrapper.icon_button_wrapper(
                             tool_tip_content="Copy Platform",
                             icon_key="copy",
@@ -110,14 +110,14 @@ def platform_page() -> rx.Component:
 # TODO: clean up these components to make it more readable and separated. 
 # These components all work if they have the right setup which follows:
 # def function() -> rx.Component:
-#   working_platform: Instance = State.platforms[State.current_uid]
+#   State.working_platform: Instance = State.platforms[State.current_uid]
 #   return rx.cond(State.is_hydrated,
 #             rest of component...
 #             )
 
 
 def platform_tabs() -> rx.Component:
-    working_platform: Instance = State.platforms[State.current_uid]
+    # State.working_platform: Instance = State.platforms[State.current_uid]
     return rx.cond(
         State.is_hydrated,
         rx.box(
@@ -125,7 +125,7 @@ def platform_tabs() -> rx.Component:
                 rx.tabs.list(
                     rx.tabs.trigger(
                         "Status", value="status", disabled=rx.cond(
-                            working_platform.platform.in_file,
+                            State.working_platform.platform.in_file,
                             False,
                             True
                         )
@@ -144,7 +144,7 @@ def platform_tabs() -> rx.Component:
                     value="configuration"
                 ),
                 default_value=rx.cond(
-                    working_platform.platform.in_file,
+                    State.working_platform.platform.in_file,
                     "status",
                     "configuration"
                 )
@@ -154,7 +154,7 @@ def platform_tabs() -> rx.Component:
 
 # Config tab and it's components:
 def configuration_tab_content() -> rx.Component:
-    working_platform: Instance = State.platforms[State.current_uid]
+    # State.working_platform: Instance = State.platforms[State.current_uid]
     
     return rx.cond(State.is_hydrated, 
             rx.box(
@@ -163,18 +163,18 @@ def configuration_tab_content() -> rx.Component:
                         header="Connection",
                         value="connection",
                         # content=rx.box(
-                        #     connection_accordion_content(working_platform)
+                        #     connection_accordion_content(State.working_platform)
                         # ),
                         content=rx.box(
                             rx.box(
                                 form_entry.form_entry(
                                     "Host",
                                     rx.input(
-                                        value= working_platform.host.ansible_host,
+                                        value= State.working_platform.host.ansible_host,
                                         on_change=lambda v: State.update_detail("id", v),
                                         size="3",
                                         required=True,
-                                        on_blur=lambda: State.determine_host_reachability(working_platform),
+                                        on_blur=lambda: State.determine_host_reachability(State.working_platform),
                                         color_scheme = rx.cond(
                                             State.is_host_resolvable,
                                             "gray",
@@ -210,7 +210,7 @@ def configuration_tab_content() -> rx.Component:
                                 form_entry.form_entry(
                                     "Username",
                                     rx.input(
-                                        value= working_platform.host.ansible_user,
+                                        value= State.working_platform.host.ansible_user,
                                         on_change=lambda v: State.update_detail("ansible_user", v),
                                         size="3",
                                         required=True,
@@ -224,7 +224,7 @@ def configuration_tab_content() -> rx.Component:
                                 form_entry.form_entry(
                                     "Port SSH",
                                     rx.input(
-                                        value= working_platform.host.ansible_port,
+                                        value= State.working_platform.host.ansible_port,
                                         on_change=lambda v: State.update_detail("ansible_port", v),
                                         size="3",
                                         required=True,
@@ -242,7 +242,7 @@ def configuration_tab_content() -> rx.Component:
                                     rx.hstack(
                                         rx.text("Toggle Advanced"),
                                         rx.cond(
-                                            working_platform.advanced_expanded,
+                                            State.working_platform.advanced_expanded,
                                             rx.icon("chevron-up"),
                                             rx.icon("chevron-down")
                                         )
@@ -251,12 +251,12 @@ def configuration_tab_content() -> rx.Component:
                                     on_click=lambda: State.toggle_advanced(State.current_uid)
                                 ),
                                 rx.cond(
-                                    working_platform.advanced_expanded,
+                                    State.working_platform.advanced_expanded,
                                     rx.fragment(
                                         form_entry.form_entry(
                                             "HTTP Proxy",
                                             rx.input(
-                                                value= working_platform.host.http_proxy,
+                                                value= State.working_platform.host.http_proxy,
                                                 on_change=lambda v: State.update_detail("http_proxy", v),
                                                 size="3",
                                                 required=True,
@@ -265,7 +265,7 @@ def configuration_tab_content() -> rx.Component:
                                         form_entry.form_entry(
                                             "HTTPS Proxy",
                                             rx.input(
-                                                value= working_platform.host.https_proxy,
+                                                value= State.working_platform.host.https_proxy,
                                                 on_change=lambda v: State.update_detail("https_proxy", v),
                                                 size="3",
                                                 required=True,
@@ -274,7 +274,7 @@ def configuration_tab_content() -> rx.Component:
                                         form_entry.form_entry(
                                             "VOLTTRON Home",
                                             rx.input(
-                                                value= working_platform.host.volttron_home,
+                                                value= State.working_platform.host.volttron_home,
                                                 on_change=lambda v: State.update_detail("volttron_home", v),
                                                 size="3",
                                                 required=True,
@@ -291,7 +291,7 @@ def configuration_tab_content() -> rx.Component:
                         header="Instance Configuration",
                         value="instance_configuration",
                         # content=rx.box(
-                        #     instance_configuration_accordion_content(working_platform)
+                        #     instance_configuration_accordion_content(State.working_platform)
                         # ),
                         content=rx.box(
                             rx.box(
@@ -300,7 +300,7 @@ def configuration_tab_content() -> rx.Component:
                                     rx.vstack(
                                         rx.input(
                                             size="3",
-                                            value=working_platform.platform.config.instance_name,
+                                            value=State.working_platform.platform.config.instance_name,
                                             on_change=lambda v: State.update_platform_config_detail("instance_name", v),
                                             required=True,
                                         ),
@@ -333,7 +333,7 @@ def configuration_tab_content() -> rx.Component:
                                     rx.vstack(
                                         rx.input(
                                             size="3",
-                                            value=working_platform.platform.config.vip_address,
+                                            value=State.working_platform.platform.config.vip_address,
                                             on_change=lambda v: State.update_platform_config_detail("vip_address", v),
                                             required=True,
                                         ),  
@@ -369,7 +369,7 @@ def configuration_tab_content() -> rx.Component:
                                     rx.vstack(
                                         rx.checkbox(
                                             size="3",
-                                            checked=working_platform.web_checked,
+                                            checked=State.working_platform.web_checked,
                                             on_change=lambda: State.toggle_web()
                                         ),
                                         justify="center",
@@ -378,13 +378,13 @@ def configuration_tab_content() -> rx.Component:
                                     )
                                 ),
                                 rx.cond(
-                                    working_platform.web_checked,
+                                    State.working_platform.web_checked,
                                     rx.fragment(
                                         form_entry.form_entry(
                                             "Web Bind Address",
                                             rx.input(
                                                 size="3",
-                                                value=working_platform.web_bind_address,
+                                                value=State.working_platform.web_bind_address,
                                                 on_change=lambda v: State.update_platform_config_detail("web_bind_address", v),
                                                 required=True,
                                             )
@@ -395,7 +395,7 @@ def configuration_tab_content() -> rx.Component:
                                     rx.hstack(
                                         rx.text("Agent Configuration"),
                                         rx.cond(
-                                            working_platform.agent_configuration_expanded,
+                                            State.working_platform.agent_configuration_expanded,
                                             rx.icon("chevron-up"),
                                             rx.icon("chevron-down")
                                         )
@@ -405,7 +405,7 @@ def configuration_tab_content() -> rx.Component:
                                 ),
                                 rx.box(
                                     rx.cond(
-                                        working_platform.agent_configuration_expanded,
+                                        State.working_platform.agent_configuration_expanded,
                                         rx.el.div(
                                             rx.box(
                                                 rx.box(
@@ -416,9 +416,9 @@ def configuration_tab_content() -> rx.Component:
                                                             agent.identity,
                                                             right_component=tile_icon(
                                                                 "plus",
-                                                                on_click=State.handle_adding_agent(agent)
-                                                                ),
+                                                                on_click=lambda: State.handle_adding_agent(agent, State.current_uid)
                                                             ),
+                                                        ),
                                                     ),
                                                     class_name="agent_config_view_content"
                                                 ),
@@ -427,8 +427,9 @@ def configuration_tab_content() -> rx.Component:
                                             rx.box(
                                                 rx.box(
                                                     rx.heading("Added Agents", as_="h3"),
+                                                    rx.text(f"agents: {State.raka}"),
                                                     rx.foreach(
-                                                        working_platform.platform.agents,
+                                                        State.working_platform.platform.agents,
                                                         lambda identity_agent_pair: config_tile.config_tile(
                                                             identity_agent_pair[1].identity,
                                                             left_component=tile_icon(
@@ -486,7 +487,7 @@ def configuration_tab_content() -> rx.Component:
                         disabled=rx.cond(
                             (State.instance_savable)
                             & (State.instance_uncaught),
-                            # (working_platform.uncaught),
+                            # (State.working_platform.uncaught),
                             False,
                             True
                         )
@@ -561,7 +562,7 @@ def configuration_tab_content() -> rx.Component:
                             on_click=lambda: State.handle_cancel(),
                             disabled=rx.cond(
                                 State.instance_uncaught == False,
-                                # working_platform.uncaught == False,
+                                # State.working_platform.uncaught == False,
                                 True,
                                 False
                             )
