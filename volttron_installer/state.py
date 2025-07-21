@@ -313,6 +313,7 @@ class PlatformPageState(rx.State):
     # off of it's instance name, and redirect the user to 
     # platforms/x, maybe we might have to delete the old 
     # routing id
+    session_hydrated: bool = False
     platforms: dict[str, Instance] = {
         # "new": Instance(
         #     host=HostEntryModelView(),
@@ -522,24 +523,26 @@ class PlatformPageState(rx.State):
     # Events
     @rx.event
     async def hydrate_state(self):
-        # Make sure we have a valid 'blank' agent
-        blank_agent = AgentModelView(
-                safe_agent={
-                    "identity" : "",
-                    "source" : "",
-                    "config" : "",
-                    "config_store": {}
-                },
+        if self.session_hydrated == False:
+            # Make sure we have a valid 'blank' agent
+            blank_agent = AgentModelView(
+                    safe_agent={
+                        "identity" : "",
+                        "source" : "",
+                        "config" : "",
+                        "config_store": {}
+                    },
+                )
+            
+            self.list_of_agents = await __agents_off_catalog__()
+            platforms_from_api = await __instances_from_api__()
+            
+            # Ensure we have a blank agent that the user can edit as they so choose
+            self.list_of_agents.append(
+                blank_agent
             )
-        
-        self.list_of_agents = await __agents_off_catalog__()
-        platforms_from_api = await __instances_from_api__()
-        
-        # Ensure we have a blank agent that the user can edit as they so choose
-        self.list_of_agents.append(
-            blank_agent
-        )
-        self.platforms.update(platforms_from_api)
+            self.platforms.update(platforms_from_api)
+            self.session_hydrated = True
 
     @rx.event(background=True)
     async def delete_temp_uid(self, uid_copy: str):
@@ -550,8 +553,8 @@ class PlatformPageState(rx.State):
         logger.debug(f"this is the list of param afters: {list(self.platforms.keys())}")
 
     @rx.event
-    def handle_adding_agent(self, agent: AgentModelView):
-        working_platform = self.platforms[self.current_uid]
+    def handle_adding_agent(self, agent: AgentModelView, uid: str):
+        working_platform = self.platforms[uid]
 
         # Take a copy of the agent we are adding and make sure we dont have an already existing agent of the same identity
         new_agent: AgentModelView = agent.copy()
@@ -807,6 +810,12 @@ class PlatformPageState(rx.State):
         self._host_resolved = self._host_resolvable
         yield
         return
+
+    @rx.event
+    def cement_registry_config(self, working_platform: Instance):
+        logger.debug("Cementing registry config...")
+        self.platforms[working_platform.platform.config.instance_name] = working_platform
+
 
     # NOTE: i would like to offload the uncaught and valid vars into the state vars because it's easier for the UI to read off of 
     # state vars, for faster development, ive kept these here and i'll change it once it's time to refine the code.
@@ -2713,6 +2722,128 @@ class BacnetScanState(rx.State):
     def select_platform_for_registry_config(self, uid: str):
         self.selected_platform_uid = uid if self.selected_platform_uid != uid else ""
 
+    @rx.event
+    async def on_add_to_registry_config(self):
+        yield BacnetScanState.close_dialogs()
+        csv_data = self._convert_selected_points_to_csv()
+        escaped_csv_data = csv_data.replace("'", "\\'")
+        
+        platform_page_state: PlatformPageState = await self.get_state(PlatformPageState)
+        
+        # Check if platform.driver is NOT on the selected platform
+        if "platform.driver" not in list(platform_page_state.platforms[self.selected_platform_uid].platform.agents.keys()):
+            logger.debug("Platform.driver agent not found on platform, adding it...")
+            # Find and add platform driver agent to the platform
+            for agent in platform_page_state.list_of_agents:
+                if agent.identity == "platform.driver":
+                    logger.debug("Found platform.driver agent in list of agents, adding to platform...")
+                    yield PlatformPageState.handle_adding_agent(agent, self.selected_platform_uid)
+                    break
+            else:
+                logger.debug("No platform.driver agent found in the list of agents. Somehow...")
+        else:
+            logger.debug("Platform.driver agent already exists on platform")
+        
+        logger.debug("Adding registry config to platform...")
+        yield BacnetScanState.add_registry_config_to_platform(self.selected_platform_uid, "points.csv", escaped_csv_data)
+        
+    # TODO move all the stuff handiling adding the actual config store entry to its designated state and method
+    @rx.event
+    async def on_add_to_registry_config(self):
+        """Add selected BACnet points to a platform.driver registry configuration."""
+        # Close any open dialogs
+        yield BacnetScanState.close_dialogs()
+        
+        # Convert selected points to CSV format
+        csv_data = self._convert_selected_points_to_csv()
+        escaped_csv_data = csv_data.replace("'", "\\'")
+        
+        platform_uid = self.selected_platform_uid
+        
+        # Step 1: Ensure platform.driver agent exists
+        # yield BacnetScanState.ensure_platform_driver_exists(platform_uid)
+        # we need tto shove the method in here to ensure that it runs one at a time...
+        platform_page_state: PlatformPageState = await self.get_state(PlatformPageState)
+        platform = platform_page_state.platforms.get(platform_uid)
+        if not platform:
+            yield rx.toast.error("Platform not found")
+            return
+        
+        # Find and add platform.driver agent
+        if "platform.driver" not in platform.platform.agents:
+            for agent in platform_page_state.list_of_agents:
+                if agent.identity == "platform.driver":
+                    yield PlatformPageState.handle_adding_agent(agent, platform_uid)
+        # ===============================================================
+
+
+
+
+
+        # Step 2: Add the registry config to the platform.driver agent
+        yield BacnetScanState.add_config_to_platform_driver(
+            platform_uid, 
+            escaped_csv_data
+        )
+
+    @rx.event
+    async def ensure_platform_driver_exists(self, platform_uid: str):
+        """Make sure the platform has a platform.driver agent.
+        
+        Returns:
+            bool: True if platform.driver exists or was successfully added, False otherwise.
+        """
+        platform_page_state: PlatformPageState = await self.get_state(PlatformPageState)
+        platform = platform_page_state.platforms.get(platform_uid)
+        if not platform:
+            return
+        
+        # Check if platform.driver already exists
+        if "platform.driver" in platform.platform.agents:
+            return 
+        
+        # Find and add platform.driver agent
+        for agent in platform_page_state.list_of_agents:
+            if agent.identity == "platform.driver":
+                yield PlatformPageState.handle_adding_agent(agent, platform_uid)
+                # We need to check if the agent was actually added
+                return 
+        
+        # Couldn't find platform.driver in available agents
+        yield rx.toast.error("Could not add platform.driver agent")
+    
+    @rx.event
+    async def add_config_to_platform_driver(
+        self, 
+        platform_uid: str, 
+        csv_value: str
+    ):
+        """Add a config store entry with the CSV value to the platform.driver agent."""
+        platform_page_state: PlatformPageState = await self.get_state(PlatformPageState)
+        platform = platform_page_state.platforms.get(platform_uid)
+        if "platform.driver" not in platform.platform.agents:
+            yield rx.toast.error("Platform or platform.driver agent not found")
+        
+        # Get the platform.driver agent
+        driver_agent = platform.platform.agents.get("platform.driver", None)
+        if driver_agent is None:
+            logger.debug(f"an error occurred, here are the list of agents on the platform: {platform.platform.agents.keys()}")
+            yield rx.toast.error("Platform.driver agent not found on platform")
+            return
+
+        # Create and add the config store entry
+        component_id = generate_unique_uid()
+        config_entry = self._create_config_store_entry("points.csv", csv_value, component_id)
+        driver_agent.config_store.append(config_entry)
+        
+        # Finalize the agent
+        # driver_agent.is_new = False
+        driver_agent.safe_agent = driver_agent.to_dict()
+        
+        # Update the platform state
+        # yield PlatformPageState.cement_registry_config(platform)
+        yield rx.toast.success("BACnet points added to registry")
+
     # Exporting
     @rx.event
     def export_to_csv(self):
@@ -2871,3 +3002,24 @@ class BacnetScanState(rx.State):
         csv_data = output.getvalue()
         output.close()
         return csv_data
+
+    def _create_config_store_entry(self, path: str, csv_value: str, component_id: str) -> ConfigStoreEntryModelView:
+        """Create a new ConfigStoreEntryModelView with the provided values."""
+        new_entry = ConfigStoreEntryModelView(
+            path=path,
+            data_type="CSV",
+            value=csv_value,
+            component_id=component_id,
+            safe_entry={
+                "path": path,
+                "data_type": "CSV",
+                "value": csv_value,
+            }
+        )
+        
+        # Process CSV data
+        usable_csv = csv_string_to_usable_dict(csv_value)
+        new_entry.csv_variants["Custom"] = usable_csv
+        new_entry.safe_entry = new_entry.dict()
+        
+        return new_entry

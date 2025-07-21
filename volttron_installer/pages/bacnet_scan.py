@@ -722,7 +722,7 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                             True,
                             False
                         ),
-                        on_click=BacnetScanState.close_dialogs,  # Or your confirm logic
+                        on_click=BacnetScanState.on_add_to_registry_config,  # Or your confirm logic
                     ),
                     width="100%",
                     justify="end",

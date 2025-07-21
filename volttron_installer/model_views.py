@@ -7,7 +7,13 @@ class ConfigStoreEntryModelView(rx.Base):
     value: str = ""
 
     contains_errors: bool = False
-    safe_entry: dict[str, Any] = {}
+    safe_entry: dict[str, Any] = {
+        "path": "",
+        "data_type": "JSON",
+        "value": "",
+        "component_id": "_",
+        "csv_variants": ""
+    }
     component_id: str = "_"
 
     uncommitted: bool = True
@@ -104,6 +110,8 @@ class AgentModelView(rx.Base):
     routing_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        # from loguru import logger
+        # logger.debug(f"config store: {self.config_store}")
         return {
             "identity": self.identity,
             "source": self.source,
