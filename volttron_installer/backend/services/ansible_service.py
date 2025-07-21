@@ -119,7 +119,7 @@ class AnsibleService:
             stderr.decode() if stderr else ""
         )
 
-    async def run_volttron_ad_hoc(self, command: str, inventory: str = "localhost,", connection: str = "local", Password: str = None) -> tuple[int, str, str]:
+    async def run_volttron_ad_hoc(self, command: str, inventory: str = "localhost,", connection: str = "local", password: str = None) -> tuple[int, str, str]:
         """Run an ad-hoc Ansible command
 
         Args:
@@ -130,7 +130,7 @@ class AnsibleService:
         Returns:
             Tuple of (return_code, stdout, stderr)
         """
-        if Password == None:
+        if password == None:
             cmd = [
                 "ansible-playbook", "-i", inventory,
                 "--connection", connection,
@@ -142,10 +142,9 @@ class AnsibleService:
                 "sshpass","-p", password, 
                 "ansible-playbook","-k", "-i", inventory,
                 "--connection", connection,
-                "volttron.deployment.ad_hoc",
-                "-e", f"command='{command}'",
-                f'ansible_become_pass="{password}"'
+                "volttron.deployment.ad_hoc","-e", f"command='{command}'", "--extra-vars", f'ansible_become_pass="{password}"'
             ]
+        logger.debug(f"{cmd}")
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,

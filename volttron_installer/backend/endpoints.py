@@ -347,6 +347,8 @@ async def deploy_platform(platform_id: str, password:str,
                 detail=f"Ansible deployment failed: {stderr or stdout}"
             )
         return {"status": "success", "output": stdout}
+    
+
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -385,7 +387,7 @@ async def start_platform(password: str, platform_id: str, ansible: AnsibleServic
             f"cd {platform_id} && ./start-volttron",
             inventory = address.id + ",",
             connection=address.ansible_connection,
-            Password = password
+            password = password
         )
 
         if return_code != 0:
