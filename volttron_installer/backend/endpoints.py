@@ -347,6 +347,7 @@ async def deploy_platform(platform_id: str, password:str,
                 detail=f"Ansible deployment failed: {stderr or stdout}"
             )
         return {"status": "success", "output": stdout}
+    
 
     except Exception as e:
         raise HTTPException(
@@ -376,17 +377,23 @@ async def deploy_platform(platform_id: str, password:str,
 #         )
 
 @ansible_router.post("/ansible/start_platform")
-async def start_platform(platform_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
+async def start_platform(password: str, platform_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
     """Starts a platform using Ansible"""
+    
+    address = await ansible.get_host_entry_by_id(platform_id)
+
     try:
         return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
-            f"cd {platform_id} && ./start-volttron"
+            f"cd {platform_id} && ./start-volttron",
+            inventory = address.id + ",",
+            connection=address.ansible_connection,
+            password = password
         )
 
         if return_code != 0:
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to start platform: {stderr or stdout}"
+                detail=f"{return_code}Failed to start platform: {stderr or stdout}"
             )
         return {"status": "success", "output": stdout}
 
