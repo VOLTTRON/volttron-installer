@@ -37,10 +37,16 @@ When running on bare metal, ensure your system has:
    ```bash
    pip install git+https://github.com/VOLTTRON/volttron-installer.git@develop
    ```
+3. **Install VOLTTRON Ansible**
+      
+      ```bash
+      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git@develop
+      ```
+      *For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
 
-3. **Run the Installer**
+4. **Run the Installer**
    ```bash
-   volttron-installer
+   reflex run
    ```
 
 ### Option 2: Development Installation
@@ -62,10 +68,14 @@ When running on bare metal, ensure your system has:
    pip install -r requirements.txt
    pip install -e .
    ```
-
-4. **Run the Installer**
+4. **Install VOLTTRON Ansible**
+      ```bash
+      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git@develop
+      ```
+      *For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
+5. **Run the Installer**
    ```bash
-   volttron-installer
+   reflex run
    ```
 
 ### Option 3: Using VS Code Dev Containers
@@ -85,46 +95,38 @@ The repository includes a Dev Container configuration that allows you to develop
    git clone https://github.com/VOLTTRON/volttron-installer.git
    cd volttron-installer
    ```
+2. **Install VOLTTRON Ansible**
+      ```bash
+      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git@develop
+      ```
+   *For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
 
-2. **Open in VS Code**
+3. **Open in VS Code**
    ```bash
    code .
    ```
 
-3. **Reopen in Container**
+4. **Reopen in Container**
    When prompted by VS Code, click "Reopen in Container" or use the command palette (F1) and select "Remote-Containers: Reopen in Container".
 
-4. **Testing Pull Requests**
+5. **Testing Pull Requests**
    Once the container is running, you can test pull requests using the included script:
    ```bash
    test-pr [PR-NUMBER]
    ```
 
-5. **Clean Up After Testing**
+6. **Clean Up After Testing**
    When finished testing, clean up using:
    ```bash
    cleanup-pr
    ```
-
-## Installing Ansible
-
-The VOLTTRON Installer relies on VOLTTRON Ansible to run playbooks for installation. Install VOLTTRON Ansible with: 
-```
-ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git
-```
-**Note**: 
-Ansible galaxy is installed after completing one of the above installation options. Complete VOLTTRON Installer installation
-before running the ansible-galaxy command. 
-
-*For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
-
 
 ## Usage
 
 After installation, run the VOLTTRON Installer:
 
 ```bash
-volttron-installer
+reflex run
 ```
 
 Follow the interactive prompts to configure your VOLTTRON installation.
