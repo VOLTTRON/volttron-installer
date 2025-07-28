@@ -535,13 +535,15 @@ def configuration_tab_content() -> rx.Component:
                                             color_scheme="gray",
                                         )
                                     ),
-                                    rx.button(
-                                        "Submit",
-                                        on_click=lambda: State.handle_deploy(),
-                                        disabled=rx.cond(
-                                            State.password_field=="",
-                                            True,
-                                            False
+                                    rx.dialog.close(
+                                        rx.button(
+                                            "Submit",
+                                            on_click=lambda: State.handle_deploy(),
+                                            disabled=rx.cond(
+                                                State.password_field=="",
+                                                True,
+                                                False
+                                            )
                                         )
                                     ),
                                     spacing="3",
