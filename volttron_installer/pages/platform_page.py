@@ -427,7 +427,6 @@ def configuration_tab_content() -> rx.Component:
                                             rx.box(
                                                 rx.box(
                                                     rx.heading("Added Agents", as_="h3"),
-                                                    rx.text(f"agents: {State.raka}"),
                                                     rx.foreach(
                                                         State.working_platform.platform.agents,
                                                         lambda identity_agent_pair: config_tile.config_tile(

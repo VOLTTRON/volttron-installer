@@ -684,50 +684,105 @@ def add_to_registry_config_file_dialog() -> rx.Component:
             rx.dialog.content(
                 rx.dialog.title("Select a Platform"),
                 rx.dialog.description("Select a platform to add the registry config file to."),
-                rx.hstack(
-                    rx.foreach(
-                        PlatformPageState.in_file_platforms,
-                        lambda platform: platform_tile.platform_tile(
-                            platform.platform.config.instance_name,
-                            platform,
-                            background_color=rx.cond(
-                                BacnetScanState.selected_platform_uid == platform.platform.config.instance_name,
-                                "#44C0ED",
-                                "rgba(145, 145, 145, 0.29)"
+                rx.form(
+                    # Replace the simple grid with a grid that has custom column widths
+                    rx.grid(
+                        # First column (70%) - Platform listings
+                        rx.box(
+                            rx.vstack(
+                                rx.hstack(
+                                    rx.foreach(
+                                        PlatformPageState.in_file_platforms,
+                                        lambda platform: platform_tile.platform_tile(
+                                            platform.platform.config.instance_name,
+                                            platform,
+                                            background_color=rx.cond(
+                                                BacnetScanState.selected_platform_uid == platform.platform.config.instance_name,
+                                                "#44C0ED",
+                                                "rgba(145, 145, 145, 0.29)"
+                                            ),
+                                            on_click=lambda: BacnetScanState.select_platform_for_registry_config(platform.platform.config.instance_name)
+                                        )
+                                    ),
+                                    wrap="wrap",
+                                    spacing="6",
+                                    padding="1rem",
+                                    margin_top="24px",
+                                ),
+                                rx.cond(
+                                    BacnetScanState.platform_has_platform_driver == False,
+                                    rx.text(
+                                        "This selected platform doesn't already contain a platform.driver agent, confirming will automatically add a platform.driver agent to the platform along side the registry config within it's config store.",
+                                        size="1",
+                                        color="#ffa057",
+                                        padding="8px 12px",
+                                        border_radius="6px",
+                                        background_color="#66350c63",
+                                        margin_button="24px",
+                                    )
+                                ),
+                                width="100%",  # Take full width of this grid cell
+                                spacing="3"
                             ),
-                            on_click=lambda: BacnetScanState.select_platform_for_registry_config(platform.platform.config.instance_name)
-                        )
-                    ),
-                    wrap="wrap",
-                    spacing="6",
-                    padding="1rem",
-                    margin_top="24px",
-                    margin_bottom="24px",
-                ),
-                rx.hstack(
-                    rx.button(
-                        "Cancel",
-                        color_scheme="gray",
-                        variant="soft",
-                        size="2",
-                        on_click=BacnetScanState.close_dialogs,
-                    ),
-                    rx.button(
-                        "Confirm",
-                        color_scheme="green",
-                        variant="soft",
-                        size="2",
-                        disabled=rx.cond(
-                            BacnetScanState.selected_platform_uid == "",
-                            True,
-                            False
+                            width="100%",  # Take full width of this grid cell,
                         ),
-                        on_click=BacnetScanState.on_add_to_registry_config,  # Or your confirm logic
+                        
+                        # Second column (30%) - Form entry
+                        rx.box(
+                            form_entry.form_entry(
+                                "Path",
+                                rx.input(
+                                    placeholder="Provide a path to save the registry config file",
+                                    # width="100%",  # Modified to take full width of its container
+                                    default_value="points.csv",
+                                    name="path",
+                                    disabled=rx.cond(
+                                        BacnetScanState.selected_platform_uid == "",
+                                        True,
+                                        False
+                                    ),
+                                    required=True,
+                                ),
+                                required_entry=True,
+                            ),
+                            width="100%",  # Take full width of this grid cell
+                            margin_top="24px",
+                        ),
+                        
+                        # Define custom grid template columns for the 70/30 split
+                        template_columns={"base": "1fr", "md": "70% 30%"},
+                        gap="4",
+                        width="100%",
                     ),
-                    width="100%",
-                    justify="end",
-                    spacing="2"
+                    
+                    rx.hstack(
+                        rx.button(
+                            "Cancel",
+                            color_scheme="gray",
+                            variant="soft",
+                            size="2",
+                            on_click=BacnetScanState.close_dialogs,
+                        ),
+                        rx.button(
+                            "Confirm",
+                            color_scheme="green",
+                            variant="soft",
+                            size="2",
+                            type="submit",
+                            disabled=rx.cond(
+                                BacnetScanState.selected_platform_uid == "",
+                                True,
+                                False
+                            ),
+                        ),
+                        width="100%",
+                        justify="end",
+                        spacing="2"
+                    ),
+                    on_submit=BacnetScanState.on_add_to_registry_config_confirm
                 ),
+                max_width="100rem",
+                width="clamp(20rem, 80vw, 100rem)",
             ),
             open=BacnetScanState.dialog_select_platform_open,
         ),
@@ -1576,6 +1631,27 @@ def proxy_down_warning() -> rx.Component:
         )
     )
 
+def device_scan_status() -> rx.Component:
+    return rx.fragment(
+            rx.foreach(
+                BacnetScanState.all_device_scan_point_status,
+                lambda status: rx.callout.root(
+                    rx.hstack(
+                        rx.callout.icon(rx.icon("info")),
+                        rx.vstack(
+                            rx.text(f"Scanning points on device: {status.object_name}"),
+                            rx.progress(
+                                value=status.percent_finished,
+                            ),
+                            rx.text(status.message, size="1"),
+                            width="100%"
+                        ),
+                        align="center"
+                    )
+                )
+            )
+        )
+
 def render() -> rx.Component:
     return (
         rx.box(
@@ -1613,8 +1689,9 @@ def render() -> rx.Component:
                             )
                         ),
                         rx.fragment(
-                            rx.button("click haha", on_click=BacnetScanState.set_it),
+                            # rx.button("click haha", on_click=BacnetScanState.set_it),
                             bacnet_scan_tool_header(),
+                            device_scan_status(),
                             proxy_down_warning(),
                             bacnet_networking_grid(),
                             bacnet_device_and_property_grid(),

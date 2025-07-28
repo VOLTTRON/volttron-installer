@@ -118,3 +118,9 @@ class BACnetObjectType(rx.Base):
     value: int
     type_name: str
     writable: bool
+
+class BACnetDevicePointScanStatus(rx.Base):
+    object_name: str
+    message: str
+    device_name: str
+    percent_finished: int

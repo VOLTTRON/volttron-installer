@@ -5,9 +5,11 @@ from ..backend.models import AgentType, HostEntry, PlatformDefinition, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ReachableResponse, \
     PlatformDeploymentStatus, CreateAgentRequest, ToolRequest, ToolStatusResponse, \
     BACnetReadDeviceAllRequest, BACnetDevice, BACnetReadPropertyRequest, BACnetScanResults, \
-    BACnetWritePropertyRequest
+    BACnetWritePropertyRequest, BACnetReadObjectListRequest
 from ..models import WindowsHostIPModel, LocalIPModel
 from rxconfig import config
+
+from bacnet_scan_tool.models import ScanResponse, ObjectListNamesResponse
 
 API_BASE_URL = f"{config.api_url}"
 API_PREFIX = "/api"
@@ -234,14 +236,24 @@ async def start_bacnet_proxy(local_device_address: str = None) -> dict[str, str]
     response = await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/start_proxy", "POST", params=data)
     return response.json()
 
-@with_model(BACnetScanResults)
-async def scan_bacnet_ip_range(network_str: str) -> BACnetScanResults:
+@with_model(ScanResponse)
+async def scan_bacnet_subnet(network_str: str) -> ScanResponse:
     """Scan a BACnet IP range for devices."""
     return await proxy_request(
-        f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/bacnet/scan_ip_range",
+        f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/bacnet/scan_subnet",
         "POST",
         timeout=600.0,
         params={"network_str": network_str}
+    )
+
+@with_model(ObjectListNamesResponse)
+async def read_bacnet_object_list_names(request: BACnetReadObjectListRequest) -> ObjectListNamesResponse:
+    """Read object list names from a BACnet device."""
+    return await proxy_request(
+        f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/bacnet/read_object_list_names",
+        "POST",
+        timeout=60.0,
+        params=request.model_dump()
     )
 
 async def read_bacnet_property(request: BACnetReadPropertyRequest, TIMEOUT: float=60.0):
@@ -265,7 +277,7 @@ async def write_bacnet_property(request: BACnetWritePropertyRequest):
     )
     return response.json()
 
-async def read_bacnet_device_all(request: BACnetReadDeviceAllRequest) -> dict:
+async def read_bacnet_device_all(request: BACnetReadDeviceAllRequest, timeout: float = 600.0) -> dict:
     """Read all properties from a BACnet device."""
     try:
         from loguru import logger
@@ -273,7 +285,7 @@ async def read_bacnet_device_all(request: BACnetReadDeviceAllRequest) -> dict:
         response = await proxy_request(
             f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/bacnet/read_device_all",
             "POST",
-            timeout=600.0,
+            timeout=timeout,
             json=request.model_dump()
         )
         return response.json()

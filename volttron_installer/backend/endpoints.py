@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
-from typing import Optional
+from typing import Any, Optional
 from ..utils import get_api_url
 import os, asyncio
 
@@ -10,6 +10,8 @@ from volttron_installer.backend.services.platform_service import PlatformService
 from volttron_installer.backend.models import AgentCatalog
 
 from volttron_installer.backend.tool_proxy_factory import ToolProxyFactory
+
+from bacnet_scan_tool.models import ScanResponse, ObjectListNamesResponse
 
 from .models import (
     CreateOrUpdateHostEntryRequest,
@@ -532,8 +534,8 @@ async def bacnet_scan_get_local_ip(target_ip: str = None) -> dict[str, str]:
     except ApiError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
-@bacnet_scan_tool_router.post("/start_proxy", response_model=dict[str, str])
-async def bacnet_scan_start_proxy(local_device_address: str | None = None) -> dict[str, str]:
+@bacnet_scan_tool_router.post("/start_proxy", response_model=dict[str, Any])
+async def bacnet_scan_start_proxy(local_device_address: str | None = None) -> dict[str, Any]:
     from .tool_proxy_factory import ApiError
 
     url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/start_proxy")
@@ -565,12 +567,12 @@ async def bacnet_scan_get_windows_host_ip() -> dict[str, str]:
     except ApiError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     
-@bacnet_scan_tool_router.post("/bacnet/scan_ip_range", response_model=BACnetScanResults)
-async def bacnet_scan_scan_ip_range(network_str: str) -> dict[str, str]:
+@bacnet_scan_tool_router.post("/bacnet/scan_subnet", response_model=ScanResponse)
+async def bacnet_scan_subnet(network_str: str | None = None) -> dict[str, str]:
     from .tool_proxy_factory import ApiError
 
-    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/bacnet/scan_ip_range")
-    REQUEST={"network_str": network_str}
+    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/bacnet/scan_subnet")
+    REQUEST={"subnet": network_str}
     try:
         response = await ToolProxyFactory.request(
             url,
@@ -579,20 +581,8 @@ async def bacnet_scan_scan_ip_range(network_str: str) -> dict[str, str]:
             timeout=600.0
         )
         data = response.json()
-        return BACnetScanResults(
-            status=data["status"],
-            devices=[
-                BACnetDevice(
-                    pduSource=device["pduSource"],
-                    deviceIdentifier=device["deviceIdentifier"],
-                    maxAPDULengthAccepted=device["maxAPDULengthAccepted"],
-                    segmentationSupported=device["segmentationSupported"],
-                    vendorID=device["vendorID"],
-                    object_name=device["object-name"],
-                    scanned_ip_target=device["scanned_ip_target"],
-                    device_instance=device["device_instance"]
-                ) for device in data["devices"]
-            ]
+        return ScanResponse(
+            **data
         )
     except ApiError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
@@ -698,8 +688,8 @@ async def bacnet_scan_who_is(
     except ApiError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
-@bacnet_scan_tool_router.post("/stop_proxy", response_model=dict[str, str])
-async def bacnet_scan_stop_proxy() -> dict[str, str]:
+@bacnet_scan_tool_router.post("/stop_proxy", response_model=dict[str, Any])
+async def bacnet_scan_stop_proxy() -> dict[str, Any]:
     from .tool_proxy_factory import ApiError
 
     url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/stop_proxy")
@@ -713,3 +703,29 @@ async def bacnet_scan_stop_proxy() -> dict[str, str]:
     except ApiError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     
+@bacnet_scan_tool_router.post("/bacnet/read_object_list_names", response_model=ObjectListNamesResponse)
+async def bacnet_scan_read_object_list_names(
+    device_address: str, 
+    device_object_identifier: str,
+    page: int = 1,
+    page_size: int = 100
+) -> ObjectListNamesResponse:
+    from .tool_proxy_factory import ApiError
+
+    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/bacnet/read_object_list_names")
+    REQUEST = {
+        "device_address": device_address,
+        "device_object_identifier": device_object_identifier,
+        "page": page,
+        "page_size": page_size
+    }
+    try:
+        response = await ToolProxyFactory.request(
+            url,
+            "POST",
+            data=REQUEST
+        )
+        data = response.json()
+        return ObjectListNamesResponse(**data)
+    except ApiError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

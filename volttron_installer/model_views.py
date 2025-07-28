@@ -1,5 +1,5 @@
 import reflex as rx
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 class ConfigStoreEntryModelView(rx.Base):
     path: str = ""
@@ -192,8 +192,8 @@ class BACnetDevicePointModelView(rx.Base):
     volttron_point_name: str
     writable: bool
     object_type: str
-    present_value: str
-    units: str | int
+    present_value: str | None = ""
+    units: str | int | None = ""
     index: str | int # should really only be an int but who knows
     notes: str
 
@@ -225,15 +225,15 @@ class BACnetDevicePointModelView(rx.Base):
         }
 
 class BACnetDeviceModelView(rx.Base):
-    pduSource: str
+    object_name: str = "" # This will be added later in the scan of a subnet 
     deviceIdentifier: str
-    maxAPDULengthAccepted: int
-    segmentationSupported: str
-    vendorID: int
-    object_name: str
+    maxAPDULengthAccepted: Optional[int] = None
+    segmentationSupported: Optional[str] = None
+    vendorID: Optional[int] = None
     scanned_ip_target: str
     device_instance: int
     points: list[BACnetDevicePointModelView] = []
 
     # UI driven field
     select_all_points: bool = False
+    read_device_all_failed: bool = False

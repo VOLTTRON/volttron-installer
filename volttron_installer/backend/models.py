@@ -816,3 +816,9 @@ class BACnetWritePropertyRequest(BaseModel):
 class BACnetReadDeviceAllRequest(BaseModel):
     device_address: str
     device_object_identifier: str
+
+class BACnetReadObjectListRequest(BaseModel):
+    device_address: str
+    device_object_identifier: str
+    page: int | None = None
+    page_size: int | None = None
