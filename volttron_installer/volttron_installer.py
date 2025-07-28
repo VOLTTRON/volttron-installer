@@ -32,12 +32,6 @@ app = rx.App(
         style=styles.styles
 )
 
-app.add_page(
-    index, 
-    route="/",
-    on_load=PlatformState.hydrate_state
-)
-
 # Register the lifespan task
 app.register_lifespan_task(lifespan)
 
