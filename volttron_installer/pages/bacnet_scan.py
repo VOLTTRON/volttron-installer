@@ -1689,7 +1689,6 @@ def render() -> rx.Component:
                             )
                         ),
                         rx.fragment(
-                            # rx.button("click haha", on_click=BacnetScanState.set_it),
                             bacnet_scan_tool_header(),
                             device_scan_status(),
                             proxy_down_warning(),

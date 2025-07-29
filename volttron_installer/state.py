@@ -1575,107 +1575,6 @@ class IndexPageState(rx.State):
             self.selected_tool = tool
         logger.debug(f"Selected tool changed to: {self.selected_tool}")
 
-def __create_prefilled_bacnet_device__() -> BACnetDeviceModelView:
-    # Create 5 point model views
-    points = [
-        BACnetDevicePointModelView(
-            device_name="Building1AHU1",
-            volttron_point_name="ZoneTemp1",
-            writable=False,
-            object_type="analogValue",
-            present_value="72.5",
-            units="degF",
-            index=1,
-            notes="Zone temperature sensor",
-            selected=False,
-            present_value_editing=False,
-            volttron_point_name_editing=False,
-            never_writable=True,
-            safe_point={},
-        ),
-        BACnetDevicePointModelView(
-            device_name="Building1AHU1",
-            volttron_point_name="FanStatus",
-            writable=False,
-            object_type="binaryValue",
-            present_value="1",
-            units="no-units",
-            index=2,
-            notes="Fan operational status",
-            selected=False,
-            present_value_editing=False,
-            volttron_point_name_editing=False,
-            safe_point={},
-        ),
-        BACnetDevicePointModelView(
-            device_name="Building1AHU1",
-            volttron_point_name="CoolingValve",
-            writable=True,
-            object_type="analogOutput",
-            present_value="45.0",
-            units="percent",
-            index=3,
-            notes="Cooling valve position",
-            selected=False,
-            present_value_editing=False,
-            volttron_point_name_editing=False,
-            safe_point={},
-        ),
-        BACnetDevicePointModelView(
-            device_name="Building1AHU1",
-            volttron_point_name="HeatingSetpoint",
-            writable=True,
-            object_type="analogValue",
-            present_value="68.0",
-            units="degF",
-            index=4,
-            notes="Heating setpoint",
-            selected=False,
-            present_value_editing=False,
-            volttron_point_name_editing=False,
-            safe_point={},
-        ),
-        BACnetDevicePointModelView(
-            device_name="Building1AHU1",
-            volttron_point_name="OccupancyMode",
-            writable=True,
-            object_type="multiStateValue",
-            present_value="1",
-            units=3,  # Using int for multistate
-            index=5,
-            notes="Occupancy mode (1=Occupied, 2=Unoccupied, 3=Standby)",
-            selected=False,
-            present_value_editing=False,
-            volttron_point_name_editing=False,
-            safe_point={},
-        ),
-    ]
-    
-    # Set write request targets for each point
-    points[0].set_write_request_target("192.168.1.100", "analogValue:1")
-    points[1].set_write_request_target("192.168.1.100", "binaryValue:2")
-    points[2].set_write_request_target("192.168.1.100", "analogOutput:3")
-    points[3].set_write_request_target("192.168.1.100", "analogValue:4")
-    points[4].set_write_request_target("192.168.1.100", "multiStateValue:5")
-
-    for point in points:
-        point.safe_point = point.to_dict()
-
-    # Create the device model view with the points
-    device = BACnetDeviceModelView(
-        deviceIdentifier="100",
-        maxAPDULengthAccepted=1476,
-        segmentationSupported="segmentedBoth",
-        vendorID=15,
-        object_name="Building1AHU1",
-        scanned_ip_target="192.168.1.100",
-        device_instance=100,
-        points=points,
-        select_all_points=False,
-    )
-    
-    return device
-
 class BacnetScanState(rx.State):
     selected_property_tab: Literal["read", "write"] = "read"  # Default to "read" tab
     discovered_devices: list[BACnetDeviceModelView] = []  # Store discovered devices
@@ -1795,13 +1694,6 @@ class BacnetScanState(rx.State):
         53: BACnetObjectType(value=53, type_name="channel", writable=False),
         54: BACnetObjectType(value=54, type_name="lighting-output", writable=False),
     }
-
-
-    @rx.event
-    def set_it(self):
-        self.discovered_devices=[__create_prefilled_bacnet_device__()]
-
-
 
     # important event, actually spins up the tool when the page loads.
     @rx.event
