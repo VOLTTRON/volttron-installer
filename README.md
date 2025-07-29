@@ -35,12 +35,12 @@ When running on bare metal, ensure your system has:
 
 2. **Install VOLTTRON Installer**
    ```bash
-   pip install git+https://github.com/VOLTTRON/volttron-installer.git@develop
+   pip install git+https://github.com/VOLTTRON/volttron-installer.git,develop
    ```
 3. **Install VOLTTRON Ansible**
       
       ```bash
-      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git@develop
+      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
       ```
       *For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
 
@@ -70,7 +70,7 @@ When running on bare metal, ensure your system has:
    ```
 4. **Install VOLTTRON Ansible**
       ```bash
-      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git@develop
+      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
       ```
       *For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
 5. **Run the Installer**
@@ -97,7 +97,7 @@ The repository includes a Dev Container configuration that allows you to develop
    ```
 2. **Install VOLTTRON Ansible**
       ```bash
-      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git@develop
+      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
       ```
    *For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
 
