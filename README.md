@@ -23,6 +23,30 @@ When running on bare metal, ensure your system has:
   sudo apt install -y build-essential libffi-dev libssl-dev git python3-dev python3-venv unzip
   ```
 
+### Generating SSH Key
+
+To run the installer, there must be a secure SSH Key for each host. To generate these 
+keys, you first need to generate your private key:
+
+   *Note: The keygen will ask to create a directory:
+   ``` /home/$USER/.ssh```
+   . Simply click enter and allow the automatic location be used. This will assist in Known Hosts Generation.*
+
+   - **Generate Key**
+      
+      ```bash
+      ssh-keygen -t rsa
+      ```
+
+### Generating Known Hosts
+For each host, you must add it to the known_hosts file. You can do so by running:
+
+- **Generate Known Hosts**
+   ```bash
+   ssh -i ~/.ssh/id_rsa <hostname>
+   ```
+
+
 ## Installation Options
 
 ### Option 1: Direct Installation with Pip

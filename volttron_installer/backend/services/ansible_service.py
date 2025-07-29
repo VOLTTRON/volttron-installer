@@ -39,12 +39,15 @@ class AnsibleService:
         """
         inventory_service = await get_inventory_service()
         cmd:str
+        output_cmd: str
+        pass_holder = "********"
         if password == None: 
             cmd = ["ansible-playbook","-i", inventory_service.inventory_path.as_posix()]
         else:
             cmd = ["sshpass","-p", password, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix(),"--extra-vars", f'ansible_become_pass="{password}"']
+            output_cmd = ["sshpass","-p", pass_holder, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix(),"--extra-vars", f'ansible_become_pass="{pass_holder}"']
 
-        logger.debug(f"Running playbook {playbook_name} on hosts {hosts} cmd: {cmd}")
+        logger.debug(f"Running playbook {playbook_name} on hosts {hosts} cmd: {output_cmd}")
         # if connection:
         #     cmd.extend(["--connection", connection])
 
@@ -64,12 +67,13 @@ class AnsibleService:
         # playbook_file = playbook_name if playbook_name.endswith(".yml") else f"{playbook_name}.yml"
         # cmd.append(str(self.playbook_dir / playbook_file))
         cmd.append(playbook_name)
+        output_cmd.append(playbook_name)
         # Set environment variables
         env = os.environ.copy()
         #env['ANSIBLE_HOST_KEY_CHECKING'] = 'False'
         #env['ANSIBLE_SSH_ARGS'] = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
         
-        logger.debug(f"Executing command: {' '.join(cmd)}")
+        logger.debug(f"Executing command: {' '.join(output_cmd)}")
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
