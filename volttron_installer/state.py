@@ -2661,25 +2661,9 @@ class BacnetScanState(rx.State):
         if not self.proxy_up:
             yield rx.toast.error("Proxy must be started first.")
             return
-        identfier = point.write_request_target.get("object_identifier", "")
-        if identfier != "analog-value,3000112":
-            logger.debug(f"We cant continue. point is not safe to write: {identfier}")
-            return
-    
-        try:
-            val = float(value)
-            if 69 <= val <= 76:
-                logger.debug(f"we are valid to write: {val}")
-                value = val
-            else:
-                logger.debug(f"value is not in range to write for the point.")
-                value = 71
-                return
-        except Exception as e:
-            logger.error(f"{e}")
-            value = 71
-            
+
         yield rx.toast.info(f"Writing to property on {self.write_property.device_address}")
+        logger.debug(f"Writing `{property_identifier}` with value: `{value}` on address: `{self.write_property.device_address}`")
 
         try:
             logger.debug(f"Writing bacnet property: {property_identifier}, to target: {point.write_request_target}, value: {value}")
