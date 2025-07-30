@@ -2814,8 +2814,28 @@ class BacnetScanState(rx.State):
         config_entry = self._create_config_store_entry(path, csv_value, component_id)
         driver_agent.config_store.append(config_entry)
         
-        # Finalize the agent
-        # driver_agent.is_new = False
+        # Save the config store entry
+
+        # NOTE: This is largely a copy and paste job from AgentConfigState.save_config_store_entry
+        # TODO: make the function referenced above more modular and not tied to AgentConfigState variables
+        list_of_config_paths: list[tuple[str, str]] = [
+            (entry_.safe_entry["path"], entry_.component_id) for entry_ in driver_agent.config_store
+        ]
+        # Check if the path exists and belongs to a different component
+        for path, component_id in list_of_config_paths:
+            if config_entry.path == "" or (config_entry.path == path and config_entry.component_id != component_id):
+                # This check catches all empty paths or duplicate paths
+                yield rx.toast.error(f"Config path is already in use.")
+                return
+        config_entry.safe_entry = config_entry.dict()
+        logger.debug(f"this is the config_entry's safe dict: {config_entry.safe_entry}")
+        config_entry.uncommitted=False
+        logger.debug(f"going through the agent's config store, here they are:")
+        for driver_agent_config in driver_agent.config_store:
+            logger.debug(f"safe dict: {driver_agent_config.safe_entry}")
+
+        # Finalize and save the agent
+        driver_agent.is_new = False
         driver_agent.safe_agent = driver_agent.to_dict()
         
         # Update the platform state
