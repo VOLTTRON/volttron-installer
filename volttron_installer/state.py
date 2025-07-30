@@ -2074,7 +2074,7 @@ class BacnetScanState(rx.State):
                                     object_identifier=f"{type_int},{index_value}",
                                     property_identifier="notes"
                                 ),
-                                timeout=4.0
+                                TIMEOUT=0.05
                             )
                             data = res_notes.json()
                             
@@ -2472,12 +2472,12 @@ class BacnetScanState(rx.State):
         yield
         self.selected_device.points[absolute_index].safe_point = self.selected_device.points[absolute_index].to_dict()
         yield
-        # yield BacnetScanState.handle_write_property(
-        #     self.selected_device.points[absolute_index],
-        #     "present-value",
-        #     self.selected_device.points[absolute_index].safe_point["present_value"],
-        #     1
-        # )
+        yield BacnetScanState.handle_write_property(
+            self.selected_device.points[absolute_index],
+            "present-value",
+            self.selected_device.points[absolute_index].safe_point["present_value"],
+            8
+        )
 
     @rx.event
     def flip_device_point_writable(self, index: int):
@@ -2653,7 +2653,7 @@ class BacnetScanState(rx.State):
         self, 
         point: BACnetDevicePointModelView, 
         property_identifier: str, 
-        value: Any, 
+        value: Any,
         priority: int, 
         property_array_index: int | None = None
     ):
@@ -2661,19 +2661,36 @@ class BacnetScanState(rx.State):
         if not self.proxy_up:
             yield rx.toast.error("Proxy must be started first.")
             return
+        identfier = point.write_request_target.get("object_identifier", "")
+        if identfier != "analog-value,3000112":
+            logger.debug(f"We cant continue. point is not safe to write: {identfier}")
+            return
+    
+        try:
+            val = float(value)
+            if 69 <= val <= 76:
+                logger.debug(f"we are valid to write: {val}")
+                value = val
+            else:
+                logger.debug(f"value is not in range to write for the point.")
+                value = 71
+                return
+        except Exception as e:
+            logger.error(f"{e}")
+            value = 71
             
         yield rx.toast.info(f"Writing to property on {self.write_property.device_address}")
-        
+
         try:
             logger.debug(f"Writing bacnet property: {property_identifier}, to target: {point.write_request_target}, value: {value}")
             response = await write_bacnet_property(
                 BACnetWritePropertyRequest(
-                    # **point.write_request_target,
-                    device_address="130.20.24.157",
-                    object_identifier="2,3000112",
+                    **point.write_request_target,
+                    # device_address="130.20.24.157",
+                    # object_identifier="2,3000112",
                     # ==============================
-                    property_identifier="present-value",
-                    value=71.0,
+                    property_identifier=property_identifier,
+                    value=value,
                     priority=priority
                     # Omit property_array_index for now 
                 )
