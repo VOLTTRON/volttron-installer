@@ -1879,24 +1879,28 @@ class BacnetScanState(rx.State):
         for i, point in enumerate(self.selected_device.points):
             # Check each filter field independently
             # Skip if any filter doesn't match its corresponding field
+            # Only apply filters for columns that are visible (not toggled off)
             
-            # Check volttron_point_name filter
-            if (self.point_table_filter.volttron_point_name and 
+            # Check volttron_point_name filter - only if column is visible
+            if (self.point_column_filter.volttron_point_name and 
+                self.point_table_filter.volttron_point_name and 
                 self.point_table_filter.volttron_point_name.lower() not in str(point.volttron_point_name or "").lower()):
                 continue
             
-            # Check units filter
-            if (self.point_table_filter.units and 
+            # Check units filter - only if column is visible
+            if (self.point_column_filter.units and 
+                self.point_table_filter.units and 
                 self.point_table_filter.units.lower() not in str(point.units or "").lower()):
                 continue
             
-            # Check object_type filter
-            if (self.point_table_filter.object_type and 
+            # Check object_type filter - only if column is visible
+            if (self.point_column_filter.object_type and 
+                self.point_table_filter.object_type and 
                 self.point_table_filter.object_type.lower() not in str(point.object_type or "").lower()):
                 continue
             
-            # Check writable filter - special case as it's a boolean
-            if self.point_table_filter.writable:
+            # Check writable filter - only if column is visible
+            if self.point_column_filter.writable and self.point_table_filter.writable:
                 writable_filter = self.point_table_filter.writable.lower()
                 point_writable_str = str(point.writable).lower()
                 
@@ -1907,18 +1911,21 @@ class BacnetScanState(rx.State):
                 ):
                     continue
             
-            # Check present_value filter
-            if (self.point_table_filter.present_value and 
+            # Check present_value filter - only if column is visible
+            if (self.point_column_filter.present_value and 
+                self.point_table_filter.present_value and 
                 self.point_table_filter.present_value.lower() not in str(point.present_value or "").lower()):
                 continue
             
-            # Check index filter
-            if (self.point_table_filter.index and 
+            # Check index filter - only if column is visible
+            if (self.point_column_filter.index and 
+                self.point_table_filter.index and 
                 self.point_table_filter.index.lower() not in str(point.index or "").lower()):
                 continue
             
-            # Check notes filter
-            if (self.point_table_filter.notes and 
+            # Check notes filter - only if column is visible
+            if (self.point_column_filter.notes and 
+                self.point_table_filter.notes and 
                 self.point_table_filter.notes.lower() not in str(point.notes or "").lower()):
                 continue
             
