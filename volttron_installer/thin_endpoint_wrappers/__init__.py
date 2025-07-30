@@ -304,7 +304,7 @@ async def create_platform(platform: CreatePlatformRequest):
     await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/", data=platform.model_dump())
 
 async def deploy_platform(platform_id: str, password: str):
-    return await request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/deploy/{platform_id}", "POST", params={"password":password})
+    return await request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/deploy/{platform_id}", "POST", timeout=40.0, params={"password":password})
 
 async def add_host(host: CreateOrUpdateHostEntryRequest):
     await post_request(f"{API_BASE_URL}{HOSTS_PREFIX}", data=host.model_dump())
