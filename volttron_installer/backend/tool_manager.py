@@ -4,8 +4,8 @@ import subprocess
 import sys
 import threading
 import time
+import socket
 from datetime import datetime
-from pathlib import Path
 from typing import Dict, Optional
 from loguru import logger
 
@@ -44,6 +44,28 @@ class ToolManager:
             logger.debug(f"Tool access recorded: {tool_name} at {datetime.now().strftime('%H:%M:%S')}")
 
     @classmethod
+    def is_port_available(cls, port: int) -> bool:
+        """Check if a port is available to use."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                # Try to bind to the port
+                s.bind(('', port))
+                return True
+            except socket.error:
+                # Port is already in use
+                return False
+    
+    @classmethod
+    def find_available_port(cls, start_port: int = 8001, max_attempts: int = 100) -> int:
+        """Find an available port starting from start_port."""
+        current_port = start_port
+        for _ in range(max_attempts):
+            if cls.is_port_available(current_port):
+                return current_port
+            current_port += 1
+        raise RuntimeError(f"Could not find an available port after {max_attempts} attempts")
+
+    @classmethod
     def _normalize_tool_name(cls, name):
         """Normalize tool names to avoid case/format mismatches"""
         return str(name).lower().replace(" ", "_")
@@ -79,8 +101,16 @@ class ToolManager:
         
         # Assign a port if not specified
         if port is None:
-            port = cls._next_available_port
-            cls._next_available_port += 1
+            # Find an available port instead of just incrementing
+            port = cls.find_available_port(cls._next_available_port)
+            cls._next_available_port = port + 1
+        else:
+            # If specific port is requested, check if it's available
+            if not cls.is_port_available(port):
+                return {
+                    "success": False,
+                    "message": f"Port {port} is already in use by another process"
+                }
         
         # Extract package name from module path
         package_name = module_path.split('.')[0]
