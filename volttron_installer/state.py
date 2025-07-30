@@ -2211,14 +2211,19 @@ class BacnetScanState(rx.State):
 
     @rx.event
     def filter_form_submit(self, form_data: dict):
+        # Start with the current filter values
+        current_filter = self.point_table_filter
+        
+        # Create a new filter object preserving all existing values
         self.point_table_filter = BACnetPointTableFilter(
-            volttron_point_name=form_data.get("volttron_point_name", ""),
-            units=form_data.get("units", ""),
-            object_type=form_data.get("object_type", ""),
-            writable=form_data.get("writable", "").strip(),
-            present_value=form_data.get("present_value", ""),
-            index=form_data.get("index", ""),
-            notes=form_data.get("notes", "")
+            # For each field, use the form data if provided, otherwise keep existing value
+            volttron_point_name=form_data.get("volttron_point_name", current_filter.volttron_point_name),
+            units=form_data.get("units", current_filter.units),
+            object_type=form_data.get("object_type", current_filter.object_type),
+            writable=form_data.get("writable", current_filter.writable).strip() if form_data.get("writable") is not None else current_filter.writable,
+            present_value=form_data.get("present_value", current_filter.present_value),
+            index=form_data.get("index", current_filter.index),
+            notes=form_data.get("notes", current_filter.notes)
         )
 
     @rx.event
