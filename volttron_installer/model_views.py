@@ -192,9 +192,9 @@ class BACnetDevicePointModelView(rx.Base):
     volttron_point_name: str
     writable: bool
     object_type: str
-    present_value: str | None = ""
-    units: str | int | None = ""
-    index: str | int # should really only be an int but who knows
+    present_value: str = ""
+    units: str | int = ""
+    index: str | int # should really only be an int but strings are needed for the ui (text fields)
     notes: str
 
     write_request_target: dict = {}
