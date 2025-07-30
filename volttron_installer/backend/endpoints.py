@@ -627,11 +627,12 @@ async def bacnet_scan_write_property(request: BACnetWritePropertyRequest) -> dic
         }
     if request.property_array_index is not None:
         REQUEST["property_array_index"] = request.property_array_index
+    logger.debug(f"this is i, the endpoint, passing in: {REQUEST}")
     try:
         response = await ToolProxyFactory.request(
             url,
             "POST",
-            data=REQUEST
+            params=REQUEST
         )
         data = response.json()
         return data
