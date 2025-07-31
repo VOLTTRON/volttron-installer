@@ -3,9 +3,10 @@ from fastapi import FastAPI
 from . import endpoints as api
 from .tool_router import tool_router
 from .tool_manager import ToolManager
+import os
 
-def init(app: FastAPI | rx.App, inactivity_timeout_minutes: int = 30):
-    ToolManager.set_inactivity_timeout(inactivity_timeout_minutes)
+def init(app: FastAPI | rx.App):
+    ToolManager.set_inactivity_timeout(os.environ.get("TOOL_INACTIVITY_TIMEOUT", 30))
     
     # Reflex wraps fast API, make sure to set app to FastAPI instance
     if isinstance(app, rx.App):
