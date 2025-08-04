@@ -854,7 +854,7 @@ class PlatformPageState(rx.State):
     def check_instance_savable(self, working_platform: Instance) -> bool:
         savable = True
 
-        # manually check the host and all of its stuff...
+        # TODO : Instead of manually checking host, we should rely only on the connection validity function.
         host_dict = working_platform.host.to_dict()
         if (
             host_dict["id"] == "" or \
@@ -879,6 +879,11 @@ class PlatformPageState(rx.State):
         # check if platform details are valid 
         platform_valid, platform_valid_map = self.platform_validity(working_platform)
         if platform_valid == False:
+            savable = False
+
+        # check if connection details are valid 
+        connection_valid, connection_valid_map = self.connection_validity(working_platform)
+        if connection_valid == False:
             savable = False
 
         return savable
