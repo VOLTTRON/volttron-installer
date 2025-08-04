@@ -1,7 +1,7 @@
 from pathlib import Path
 import asyncio
 from typing import Optional
-
+from loguru import logger
 import aiofiles
 import yaml
 
@@ -28,8 +28,14 @@ class PlatformService:
         normalized_name = normalize_name_for_file(definition.config.instance_name)
         definition_path = self.platform_dir / normalized_name
         definition_path.mkdir(parents=True, exist_ok=True)
+        temp = definition.model_dump()
+        temp['config']['instance-name'] = temp['config'].pop('instance_name')
+        temp['config']['messagebus']= temp['config'].pop('message_bus')
+        temp['config']['address']=temp['config'].pop('vip_address')
+    
         async with aiofiles.open(definition_path.joinpath(f"{normalized_name}.yml"), 'w') as file:
-            await file.write(yaml.dump(definition.model_dump()))
+            await file.write(yaml.dump(temp))
+
 
     async def get_platform(self, instance_name: str) -> Optional[PlatformDefinition]:
         async with self._lock:
@@ -53,8 +59,10 @@ class PlatformService:
         normalized_name = normalize_name_for_file(instance_name)
         definition_path = self.platform_dir / instance_name / f"{normalized_name}.yml"
         if definition_path.exists():
+            temp = definition.model_dump()
+            temp['config']['instance-name'] = temp['config'].pop('instance_name')
             async with aiofiles.open(definition_path, 'w') as file:
-                await file.write(yaml.dump(updated_definition.model_dump()))
+                await file.write(yaml.dump(temp))
         else:
             raise FileNotFoundError(f"Platform definition for {instance_name} not found.")
 

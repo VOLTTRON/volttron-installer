@@ -550,7 +550,7 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
                 "volttron-central-address": "http://ip<host>:port `or` tcp://ip:port",
                 "volttron-central-serverkey": "VC agent's instance serverkey",
                 "volttron-central-reconnect-interval": 5,
-                "instance-name": "name of instances (VC agent's instance ip address as default)",
+                "instance_name": "name of instances (VC agent's instance ip address as default)",
                 "stats-publish-interval": 30,
                 "topic-replace-map": {
                     "from": "to",
@@ -724,7 +724,6 @@ class PlatformConfig(BaseModel):
     instance_name: str = "volttron1"
     vip_address: str = "tcp://127.0.0.1:22916"
     message_bus: Literal["zmq"] = "zmq"
-    options: list[KeyValuePair] = []
     # TODO make this actually do something when we have all parts of the federation functionality
     # completed
     # enable_federation: bool = False

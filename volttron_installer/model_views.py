@@ -159,7 +159,6 @@ class PlatformConfigModelView(rx.Base):
             "instance_name" : self.instance_name,
             "vip_address" : self.vip_address,
             "message_bus" : self.message_bus,
-            "options" : []
             # enable_federation: self.enable_federation
         }
 

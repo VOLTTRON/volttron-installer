@@ -82,6 +82,7 @@ async def add_host(host_entry: CreateOrUpdateHostEntryRequest):
             http_proxy=host_entry.http_proxy,
             https_proxy=host_entry.https_proxy,
             volttron_venv=host_entry.volttron_venv,
+            volttron_home= host_entry.volttron_home,
             host_configs_dir=host_entry.host_configs_dir,
             name = host_entry.name
         )
@@ -346,8 +347,21 @@ async def deploy_platform(platform_id: str, password:str,
                 status_code=500,
                 detail=f"Ansible deployment failed: {stderr or stdout}"
             )
+        
+        return_code, stdout, stderr = await ansible.run_playbook(
+            "run_platforms",
+            hosts,
+            password,
+            extra_vars=platform.config.model_dump()
+        )
+
+        if return_code != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Ansible deployment failed: {stderr or stdout}"
+            )
         return {"status": "success", "output": stdout}
-    
+
 
     except Exception as e:
         raise HTTPException(

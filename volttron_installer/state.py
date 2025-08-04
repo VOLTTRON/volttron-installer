@@ -1,4 +1,3 @@
-import reflex as rx
 from .settings import get_settings
 from .model_views import *
 from .utils.create_component_uid import generate_unique_uid
@@ -240,6 +239,7 @@ async def __instances_from_api__() -> dict[str, Instance]:
             ansible_user=working_host_entry.ansible_user,
             ansible_host=working_host_entry.ansible_host,
             # For later type validation
+            host_configs_dir=working_host_entry.host_configs_dir,
             ansible_port=str(working_host_entry.ansible_port),
             http_proxy=working_host_entry.http_proxy,
             https_proxy=working_host_entry.https_proxy,
@@ -752,7 +752,7 @@ class PlatformPageState(rx.State):
                 ) for identity, agent in working_platform.platform.to_dict()["agents"].items()
             }
         )
-
+        
         logger.debug(f"this is the uid copy: {uid_copy}")
         if working_platform.platform.config.instance_name in [p.config.instance_name for p in all_platforms]:
             logger.debug("yes we have committed this already")
