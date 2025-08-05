@@ -1606,7 +1606,7 @@ class BacnetScanState(rx.State):
     dialog_registry_open: bool = False
     dialog_select_platform_open: bool = False
     dialog_confirm_add_platform_agent: bool = False
-    selected_platform_uid: str = ""
+    selected_platform_uids: list[str] = []
 
     # Fields
     proxy_field_value: str = ""
@@ -1625,7 +1625,7 @@ class BacnetScanState(rx.State):
     all_device_scan_point_status: list[BACnetDevicePointScanStatus] = []
 
 
-    _platform_has_platform_driver: bool = True
+    _platforms_have_platform_driver: list[str] = []
 
 
     # For bacnet point stuff
@@ -1709,11 +1709,8 @@ class BacnetScanState(rx.State):
 
     # Computed Vars
     @rx.var
-    def platform_has_platform_driver(self) -> bool:
-        if self.selected_platform_uid == "":
-            return True
-        return self._platform_has_platform_driver
-        
+    def platforms_with_platform_driver(self) -> list[str]:
+        return self._platforms_have_platform_driver
 
     # For point pagination
     @rx.var
@@ -2208,7 +2205,7 @@ class BacnetScanState(rx.State):
 
     @rx.event
     def close_dialogs(self):
-        self.selected_platform_uid = ""
+        self.selected_platform_uids = []
         self.dialog_registry_open = False
         self.dialog_select_platform_open = False
 
@@ -2707,32 +2704,42 @@ class BacnetScanState(rx.State):
     # Other
     @rx.event
     async def select_platform_for_registry_config(self, uid: str):
-        self.selected_platform_uid = uid if self.selected_platform_uid != uid else ""
+        """Toggle selection of a platform for registry config."""
 
+        # Toggle selection of the platform
+        if uid in self.selected_platform_uids:
+            self.selected_platform_uids.remove(uid)
+            if uid in self._platforms_have_platform_driver:
+                self._platforms_have_platform_driver.remove(uid)
+        else:
+            self.selected_platform_uids.append(uid)
+            
+        # Check if platform has platform.driver
         platform_state = await self.get_state(PlatformPageState)
         platform = platform_state.platforms.get(uid)
         if not platform:
-            self._platform_has_platform_driver = True
             return
-        
-        self._platform_has_platform_driver = "platform.driver" in platform.platform.agents
+            
+        if "platform.driver" in platform.platform.agents:
+            self._platforms_have_platform_driver.append(uid)
+        logger.debug(f"Selected platforms: {self.selected_platform_uids}")
+        logger.debug(f"Platforms with platform.drivers: {self._platforms_have_platform_driver}")
         return
 
     @rx.event
     def on_add_to_registry_config_confirm(self, form_data):
         """Handle the confirmation to add selected points to registry config."""
-        if self.selected_platform_uid == "":
-            # yield rx.toast.error("No platform selected for registry config.")
+        if not hasattr(self, "selected_platform_uids") or not self.selected_platform_uids:
+            logger.debug("No platforms selected for registry config. Or cancelled")
             return
+            
+        logger.debug(f"Selected platform UIDs: {self.selected_platform_uids}")
         
-        logger.debug(f"selected platform UID: {self.selected_platform_uid}")
-        platform_uid = self.selected_platform_uid
-
         path = form_data.get("path", "")
         if path == "":
             yield rx.toast.error("Path cannot be empty.")
             return
-
+            
         # Close any open dialogs
         yield BacnetScanState.close_dialogs()
         
@@ -2740,120 +2747,112 @@ class BacnetScanState(rx.State):
         csv_data = self._convert_selected_points_to_csv()
         escaped_csv_data = csv_data.replace("'", "\\'")
         
-        # Add the registry config to the platform
-        yield BacnetScanState.on_add_to_registry_config(platform_uid, path, escaped_csv_data)
+        # Add the registry config to each selected platform
+        for platform_uid in self.selected_platform_uids:
+            yield BacnetScanState.on_add_to_registry_config(platform_uid, path, escaped_csv_data)
 
-    # TODO move all the stuff handiling adding the actual config store entry to its designated state and method
     @rx.event
     async def on_add_to_registry_config(self, platform_uid: str, path: str, escaped_csv_data: str):
         """Add selected BACnet points to a platform.driver registry configuration."""
         # Close any open dialogs
         yield BacnetScanState.close_dialogs()
-                
         
-        # Step 1: Ensure platform.driver agent exists
-        # yield BacnetScanState.ensure_platform_driver_exists(platform_uid)
-        # we need tto shove the method in here to ensure that it runs one at a time...
         platform_page_state: PlatformPageState = await self.get_state(PlatformPageState)
         platform = platform_page_state.platforms.get(platform_uid)
+        
         if not platform:
             logger.debug(f"Platform with UID {platform_uid} not found.")
             logger.debug(f"Available platforms: {list(platform_page_state.platforms.keys())}")
-            yield rx.toast.error("Platform not found")
+            yield rx.toast.error(f"Platform {platform_uid} not found")
             return
         
-        # Find and add platform.driver agent
+        # Find and add platform.driver agent if it doesn't exist
         if "platform.driver" not in platform.platform.agents:
             for agent in platform_page_state.list_of_agents:
                 if agent.identity == "platform.driver":
                     yield PlatformPageState.handle_adding_agent(agent, platform_uid)
-        # ===============================================================
-
-        # Step 2: Add the registry config to the platform.driver agent
+                    break
+            else:
+                yield rx.toast.error(f"Could not add platform.driver agent to platform {platform_uid}")
+                return
+            
+        # Add the registry config to the platform.driver agent
         yield BacnetScanState.add_config_to_platform_driver(
-            platform_uid, 
+            platform_uid,
             escaped_csv_data,
             path
         )
 
     @rx.event
     async def ensure_platform_driver_exists(self, platform_uid: str):
-        """Make sure the platform has a platform.driver agent.
-        
-        Returns:
-            bool: True if platform.driver exists or was successfully added, False otherwise.
-        """
+        """Make sure the platform has a platform.driver agent."""
         platform_page_state: PlatformPageState = await self.get_state(PlatformPageState)
         platform = platform_page_state.platforms.get(platform_uid)
+        
         if not platform:
             return
-        
+            
         # Check if platform.driver already exists
         if "platform.driver" in platform.platform.agents:
-            return 
-        
+            return
+            
         # Find and add platform.driver agent
         for agent in platform_page_state.list_of_agents:
             if agent.identity == "platform.driver":
                 yield PlatformPageState.handle_adding_agent(agent, platform_uid)
-                # We need to check if the agent was actually added
-                return 
-        
+                return
+                
         # Couldn't find platform.driver in available agents
-        yield rx.toast.error("Could not add platform.driver agent")
-    
+        yield rx.toast.error(f"Could not add platform.driver agent to {platform_uid}")
+        return
+
     @rx.event
     async def add_config_to_platform_driver(
-        self, 
-        platform_uid: str, 
+        self,
+        platform_uid: str,
         csv_value: str,
         path: str
     ):
         """Add a config store entry with the CSV value to the platform.driver agent."""
         platform_page_state: PlatformPageState = await self.get_state(PlatformPageState)
         platform = platform_page_state.platforms.get(platform_uid)
-        if "platform.driver" not in platform.platform.agents:
-            yield rx.toast.error("Platform or platform.driver agent not found")
         
+        if not platform or "platform.driver" not in platform.platform.agents:
+            yield rx.toast.error(f"Platform {platform_uid} or platform.driver agent not found")
+            return
+            
         # Get the platform.driver agent
         driver_agent = platform.platform.agents.get("platform.driver", None)
         if driver_agent is None:
-            logger.debug(f"an error occurred, here are the list of agents on the platform: {platform.platform.agents.keys()}")
-            yield rx.toast.error("Platform.driver agent not found on platform")
+            logger.debug(f"An error occurred, here are the list of agents on the platform: {platform.platform.agents.keys()}")
+            yield rx.toast.error(f"Platform.driver agent not found on platform {platform_uid}")
             return
-
+            
         # Create and add the config store entry
         component_id = generate_unique_uid()
         config_entry = self._create_config_store_entry(path, csv_value, component_id)
-        driver_agent.config_store.append(config_entry)
         
-        # Save the config store entry
-
-        # NOTE: This is largely a copy and paste job from AgentConfigState.save_config_store_entry
-        # TODO: make the function referenced above more modular and not tied to AgentConfigState variables
+        # Check if path already exists in this platform's config
         list_of_config_paths: list[tuple[str, str]] = [
             (entry_.safe_entry["path"], entry_.component_id) for entry_ in driver_agent.config_store
         ]
-        # Check if the path exists and belongs to a different component
-        for path, component_id in list_of_config_paths:
-            if config_entry.path == "" or (config_entry.path == path and config_entry.component_id != component_id):
-                # This check catches all empty paths or duplicate paths
-                yield rx.toast.error(f"Config path is already in use.")
+        
+        for existing_path, existing_component_id in list_of_config_paths:
+            if config_entry.path == existing_path:
+                # This path already exists for this platform
+                yield rx.toast.error(f"Config path '{path}' already exists in platform {platform_uid}")
                 return
+                
+        # Add and save the config entry
+        driver_agent.config_store.append(config_entry)
         config_entry.safe_entry = config_entry.dict()
-        logger.debug(f"this is the config_entry's safe dict: {config_entry.safe_entry}")
-        config_entry.uncommitted=False
-        logger.debug(f"going through the agent's config store, here they are:")
-        for driver_agent_config in driver_agent.config_store:
-            logger.debug(f"safe dict: {driver_agent_config.safe_entry}")
-
+        config_entry.uncommitted = False
+        
         # Finalize and save the agent
         driver_agent.is_new = False
         driver_agent.safe_agent = driver_agent.to_dict()
         
-        # Update the platform state
-        # yield PlatformPageState.cement_registry_config(platform)
-        yield rx.toast.success("BACnet points added to registry")
+        yield rx.toast.success(f"BACnet points added to registry for platform {platform_uid}")
 
     # Exporting
     @rx.event

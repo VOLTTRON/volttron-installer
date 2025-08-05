@@ -697,8 +697,12 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                                             platform.platform.config.instance_name,
                                             platform,
                                             background_color=rx.cond(
-                                                BacnetScanState.selected_platform_uid == platform.platform.config.instance_name,
-                                                "#44C0ED",
+                                                BacnetScanState.selected_platform_uids.contains(platform.platform.config.instance_name),
+                                                rx.cond(
+                                                    BacnetScanState.platforms_with_platform_driver.contains(platform.platform.config.instance_name),
+                                                    "#44C0ED",
+                                                    "orange"
+                                                ),
                                                 "rgba(145, 145, 145, 0.29)"
                                             ),
                                             on_click=lambda: BacnetScanState.select_platform_for_registry_config(platform.platform.config.instance_name)
@@ -710,9 +714,9 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                                     margin_top="24px",
                                 ),
                                 rx.cond(
-                                    BacnetScanState.platform_has_platform_driver == False,
+                                    BacnetScanState.platforms_with_platform_driver.length() != BacnetScanState.selected_platform_uids.length(),
                                     rx.text(
-                                        "This selected platform doesn't already contain a platform.driver agent, confirming will automatically add a platform.driver agent to the platform along side the registry config within it's config store.",
+                                        "One or more selected platforms don't already contain a platform.driver agent, confirming will automatically add a platform.driver agent to the platform along side the registry config within it's config store.",
                                         size="1",
                                         color="#ffa057",
                                         padding="8px 12px",
@@ -737,7 +741,7 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                                     default_value="points.csv",
                                     name="path",
                                     disabled=rx.cond(
-                                        BacnetScanState.selected_platform_uid == "",
+                                        BacnetScanState.selected_platform_uids.length() == 0, # & make new platform checkbox is false
                                         True,
                                         False
                                     ),
@@ -770,7 +774,7 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                             size="2",
                             type="submit",
                             disabled=rx.cond(
-                                BacnetScanState.selected_platform_uid == "",
+                                BacnetScanState.selected_platform_uids.length() == 0, # & add to new platform checkbox == false
                                 True,
                                 False
                             ),
