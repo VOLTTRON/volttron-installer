@@ -272,6 +272,22 @@ def configuration_tab_content() -> rx.Component:
                                             )
                                         ),
                                         form_entry.form_entry(
+                                            "Host Configs Directory",
+                                            rx.input(
+                                                value= working_platform.host.host_configs_dir,
+                                                on_change=lambda v: State.update_detail("host_configs_dir", v),
+                                                size="3",
+                                                required=True,
+                                            ),
+                                            below_component=rx.cond(
+                                                State.connection_host_configs_dir_validity == False,
+                                                rx.text(
+                                                    "This must be unique for every VOLTTRON under the same host.", 
+                                                    color_scheme="red"
+                                                )
+                                            ),
+                                        ),
+                                        form_entry.form_entry(
                                             "VOLTTRON Home",
                                             rx.input(
                                                 value= working_platform.host.volttron_home,
@@ -280,7 +296,7 @@ def configuration_tab_content() -> rx.Component:
                                                 required=True,
                                             ),
                                             below_component=rx.cond(
-                                                State.volttron_home_validity == False,
+                                                State.connection_volttron_home_validity == False,
                                                 rx.text(
                                                     "This must be unique for every VOLTTRON under the same host.", 
                                                     color_scheme="red"
