@@ -279,13 +279,22 @@ def configuration_tab_content() -> rx.Component:
                                                 size="3",
                                                 required=True,
                                             ),
-                                            below_component=rx.cond(
-                                                State.connection_host_configs_dir_validity == False,
-                                                rx.text(
-                                                    "This must be unique for every VOLTTRON under the same host.", 
-                                                    color_scheme="red"
-                                                )
-                                            ),
+                                            below_component= rx.fragment(
+                                                rx.cond(
+                                                    State.connection_host_configs_dir_validity == False,
+                                                    rx.text(
+                                                        "This must be unique for every VOLTTRON under the same host.", 
+                                                        color_scheme="red"
+                                                    )
+                                                ),
+                                                rx.cond(
+                                                    State.connection_host_configs_dir_path_validity == False,
+                                                    rx.text(
+                                                        "Must be a valid path.", 
+                                                        color_scheme="red"
+                                                    )
+                                                ),
+                                            )
                                         ),
                                         form_entry.form_entry(
                                             "VOLTTRON Home",
@@ -295,11 +304,20 @@ def configuration_tab_content() -> rx.Component:
                                                 size="3",
                                                 required=True,
                                             ),
-                                            below_component=rx.cond(
-                                                State.connection_volttron_home_validity == False,
-                                                rx.text(
-                                                    "This must be unique for every VOLTTRON under the same host.", 
-                                                    color_scheme="red"
+                                            below_component=rx.fragment(
+                                                rx.cond(
+                                                    State.connection_volttron_home_validity == False,
+                                                    rx.text(
+                                                        "This must be unique for every VOLTTRON under the same host.", 
+                                                        color_scheme="red"
+                                                    )
+                                                ),
+                                                rx.cond(
+                                                    State.connection_volttron_home_path_validity == False,
+                                                    rx.text(
+                                                        "Must be a valid path.", 
+                                                        color_scheme="red"
+                                                    )
                                                 )
                                             ),
                                         ),

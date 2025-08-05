@@ -450,6 +450,16 @@ class PlatformPageState(rx.State):
         return self.connection_validity(working_platform)[1]["volttron_home"]
 
     @rx.var
+    def connection_volttron_home_path_validity(self) -> bool:
+        if self.current_uid == "":
+            return True
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.connection_validity(working_platform)[1]["volttron_home_valid_path"]
+
+
+    @rx.var
     def connection_host_configs_dir_validity(self) -> bool:
         if self.current_uid == "":
             return True
@@ -457,6 +467,15 @@ class PlatformPageState(rx.State):
         if working_platform is None:
             return False
         return self.connection_validity(working_platform)[1]["host_configs_dir"]
+
+    @rx.var
+    def connection_host_configs_dir_path_validity(self) -> bool:
+        if self.current_uid == "":
+            return True
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return self.connection_validity(working_platform)[1]["host_configs_dir_valid_path"]
 
     # ==== vars for platform validation ===
     @rx.var
@@ -903,6 +922,7 @@ class PlatformPageState(rx.State):
         return True if self.check_instance_uncaught(working_platform) == False and working_platform.new_instance == False else False
 
     def connection_validity(self, working_platform: Instance) -> tuple[bool, dict[str, bool]]:
+        from .utils import validate_content as vc
         valid = True
         validity_map: dict[str, bool] = {
             "id" : True,
@@ -913,7 +933,11 @@ class PlatformPageState(rx.State):
             "https_proxy" : True,
             "volttron_venv" : True,
             "volttron_home" : True,
-            "host_configs_dir" : True
+            "host_configs_dir" : True,
+
+            # Checking valid paths
+            "volttron_home_valid_path" : True,
+            "host_configs_dir_valid_path" : True
         }
         # Validate the host id
         if working_platform.host.id == "":
@@ -937,16 +961,46 @@ class PlatformPageState(rx.State):
                 validity_map["ansible_port"] = False
 
         # Validate volttron_home
-        if working_platform.host.volttron_home in [p.host.volttron_home for p in self.in_file_platforms if p.new_instance == False and p.host.id == working_platform.host.id and self.current_uid != p.platform.safe_platform["config"]["instance_name"]]:
+        if working_platform.host.volttron_home in \
+            [
+                p.host.volttron_home for p in self.in_file_platforms if p.new_instance == False \
+                
+                # Target platforms with the same host
+                and p.host.id == working_platform.host.id \
+                
+                # Ensure we omit the current platform we're on
+                and self.current_uid != p.platform.safe_platform["config"]["instance_name"]
+            ] and working_platform.host.volttron_home != "" \
+            :
+
+            # if above is true
             working_platform.advanced_expanded = True
             valid = False
             validity_map["volttron_home"] = False
 
+        if not vc.check_path(working_platform.host.volttron_home):
+            working_platform.advanced_expanded = True
+            valid = False
+            validity_map["volttron_home_valid_path"] = False
+
         # Validate host configs dir
-        if working_platform.host.host_configs_dir in [p.host.host_configs_dir for p in self.in_file_platforms if p.new_instance == False and p.host.id == working_platform.host.id and self.current_uid != p.platform.safe_platform["config"]["instance_name"]]:
+        if working_platform.host.host_configs_dir in \
+            [
+                p.host.host_configs_dir for p in self.in_file_platforms if p.new_instance == False \
+                and p.host.id == working_platform.host.id \
+                and self.current_uid != p.platform.safe_platform["config"]["instance_name"]
+            ] and working_platform.host.host_configs_dir != "" \
+            :
+            
+            # if above is true
             working_platform.advanced_expanded = True
             valid = False
             validity_map["host_configs_dir"] = False
+
+        if not vc.check_path(working_platform.host.host_configs_dir):
+            working_platform.advanced_expanded = True
+            valid = False
+            validity_map["host_configs_dir_valid_path"] = False
 
         return (valid, validity_map)
 
