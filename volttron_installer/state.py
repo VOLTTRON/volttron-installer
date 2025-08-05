@@ -518,8 +518,8 @@ class PlatformPageState(rx.State):
 
     # Events
     @rx.event
-    async def hydrate_state(self):
-        if self.session_hydrated == False:
+    async def hydrate_state(self, force_hydration: bool = False):
+        if self.session_hydrated == False or force_hydration:
             # Make sure we have a valid 'blank' agent
             blank_agent = AgentModelView(
                     safe_agent={
@@ -790,6 +790,7 @@ class PlatformPageState(rx.State):
         yield NavigationState.route_to_platform(working_platform.platform.config.instance_name)
         logger.debug(f"this is the uid about to deletee: {uid_copy}")
         yield PlatformPageState.delete_temp_uid(uid_copy)
+        yield PlatformPageState.hydrate_state(True)
 
     @rx.event
     async def determine_host_reachability(self, working_platform: Instance):
