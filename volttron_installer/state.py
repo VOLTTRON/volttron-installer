@@ -1379,6 +1379,12 @@ class AgentConfigState(rx.State):
         yield AgentConfigState.flip_draft_visibility
         yield rx.toast.success("Agent configuration saved")
 
+        # Go back to the platform:
+        navigation_state = await self.get_state(NavigationState)
+        yield navigation_state.route_back_to_platform(
+            self.agent_details["uid"]
+        ) 
+
     @rx.event
     def print_config_properties(self, config: ConfigStoreEntryModelView):
         unpacked = config.dict()

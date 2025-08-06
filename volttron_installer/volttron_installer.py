@@ -32,24 +32,6 @@ app = rx.App(
         style=styles.styles
 )
 
-# dynamic routes
-app.add_page(
-    platform_page,
-    route="/platform/[uid]"
-)
-
-# static routes
-app.add_page(
-    new_platform_page,
-    route="/platform/new",
-)
-
-app.add_page(
-    index, 
-    route="/",
-    on_load=PlatformState.hydrate_state
-)
-
 # Register the lifespan task
 app.register_lifespan_task(lifespan)
 
