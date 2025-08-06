@@ -551,12 +551,12 @@ async def bacnet_scan_start_proxy(local_device_address: str | None = None) -> di
     except ApiError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
-@bacnet_scan_tool_router.get("/get_windows_host_ip", response_model=dict[str, str])
-async def bacnet_scan_get_windows_host_ip() -> dict[str, str]:
+@bacnet_scan_tool_router.get("/get_host_ip", response_model=dict)
+async def bacnet_scan_get_host_ip() -> dict:
     # OPTIONAL, for WSL2 users
     from .tool_proxy_factory import ApiError
 
-    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/get_windows_host_ip")
+    url=get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/get_host_ip")
     try:
         response = await ToolProxyFactory.request(
             url,

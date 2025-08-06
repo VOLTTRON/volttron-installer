@@ -212,9 +212,9 @@ async def get_bacnet_local_ip(target_ip: str = None) -> LocalIPModel:
     return await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/get_local_ip", "GET", params=params)
 
 @with_model(WindowsHostIPModel)
-async def get_windows_host_ip() -> WindowsHostIPModel:
+async def get_bacnet_host_ip() -> WindowsHostIPModel:
     """Get Windows host IP address for WSL2 users."""
-    return await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/get_windows_host_ip", "GET")
+    return await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/get_host_ip", "GET")
 
 async def get_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
     return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/{tool_name}/{path}", "GET", **kwargs)

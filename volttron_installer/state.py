@@ -2295,7 +2295,7 @@ class BacnetScanState(rx.State):
             yield rx.toast.info(f"Selected device: {selected_device.object_name}")
     
     @rx.event
-    def set_ip_detection_mode(self, mode: Literal["windows_host_ip", "local_ip"]):
+    def set_ip_detection_mode(self, mode: Literal["host_ip", "local_ip"]):
         """Switch between local IP and Windows host IP mode."""
         self.ip_detection_mode = mode
         yield BacnetScanState.get_network_info()
@@ -2699,8 +2699,8 @@ class BacnetScanState(rx.State):
     @rx.event
     async def handle_get_windows_host_ip(self):
         try:
-            self.windows_host_ip_info = await get_windows_host_ip()
-            self.scan_ip_range.network_string = self.windows_host_ip_info.windows_host_ip.rsplit('.', 1)[0] + ".0/24" # Split at the last period, max 1 split. tack it off with cidr range
+            self.windows_host_ip_info = await get_bacnet_host_ip()
+            self.scan_ip_range.network_string = self.windows_host_ip_info.address.rsplit('.', 1)[0] + ".0/24" # Split at the last period, max 1 split. tack it off with cidr range
             yield rx.toast.success("Retrieved Host IP")
         except Exception as e:
             logger.debug(f"There was an error getting local ip info {e}")

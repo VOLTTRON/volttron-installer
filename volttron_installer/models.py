@@ -89,7 +89,7 @@ class WritePropertyModel(rx.Model):
     property_array_index: str | int = ""
 
 class WindowsHostIPModel(rx.Base):
-    windows_host_ip: str = "" 
+    address: str = "" 
 
 class LocalIPModel(rx.Base):
     local_ip: str = ""

@@ -1412,7 +1412,7 @@ def network_information_card() -> rx.Component:
                                 # Windows Host IP info
                                 rx.fragment(
                                     rx.text("Host IP"),
-                                    rx.text(BacnetScanState.windows_host_ip_info.windows_host_ip),
+                                    rx.text(BacnetScanState.windows_host_ip_info.address),
                                 )
                             ),
                             columns="2",
