@@ -38,7 +38,8 @@ class HostEntry(BaseModel):
             "volttron_venv": "" if self.volttron_venv is None else self.volttron_venv,
             "volttron_home": self.volttron_home,
             "host_configs_dir": "" if self.host_configs_dir is None else self.host_configs_dir,
-            "name": "" if self.name is None else self.name
+            "name": "" if self.name is None else self.name,
+
         }
 
 class ToolRequest(BaseModel):
