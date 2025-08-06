@@ -714,7 +714,7 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                                     margin_top="24px",
                                 ),
                                 rx.cond(
-                                    BacnetScanState.platforms_with_platform_driver.length() != BacnetScanState.selected_platform_uids.length(),
+                                    BacnetScanState.display_selected_platforms_warning,
                                     rx.text(
                                         "One or more selected platforms don't already contain a platform.driver agent, confirming will automatically add a platform.driver agent to the platform along side the registry config within it's config store.",
                                         size="1",
@@ -732,7 +732,7 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                         ),
                         
                         # Second column (30%) - Form entry
-                        rx.box(
+                        rx.vstack(
                             form_entry.form_entry(
                                 "Path",
                                 rx.input(
@@ -748,6 +748,12 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                                     required=True,
                                 ),
                                 required_entry=True,
+                            ),
+                            form_entry.form_entry(
+                                "Add to a new platform",
+                                rx.checkbox(
+                                    name="add_to_new_platform",
+                                ),
                             ),
                             width="100%",  # Take full width of this grid cell
                             margin_top="24px",

@@ -1709,6 +1709,22 @@ class BacnetScanState(rx.State):
 
     # Computed Vars
     @rx.var
+    def display_selected_platforms_warning(self) -> bool:
+        """
+        Return True if any selected platform DOES NOT have a platform driver.
+        This warns users that some selected platforms need a driver to be added.
+        """
+        # Check if any selected platform lacks a driver
+        for platform_uid in self.selected_platform_uids:
+            # If platform not in our dictionary or its value is False
+            if (platform_uid not in self._platforms_have_platform_driver or 
+                not self._platforms_have_platform_driver[platform_uid]):
+                return True
+        
+        # All selected platforms have drivers
+        return False
+    
+    @rx.var
     def platforms_with_platform_driver(self) -> list[str]:
         return self._platforms_have_platform_driver
 
