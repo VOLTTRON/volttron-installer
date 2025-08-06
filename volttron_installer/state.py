@@ -7,7 +7,7 @@ from .utils.conversion_methods import json_string_to_csv_string, csv_string_to_j
 from .utils.validate_content import check_json, check_csv, check_path, check_yaml, check_regular_expression
 from .utils.create_csv_string import create_csv_string, create_and_validate_csv_string
 from .navigation.state import NavigationState
-from .backend.models import AgentType, HostEntry, PlatformConfig, PlatformDefinition, ConfigStoreEntry, AgentDefinition, CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ToolRequest, BACnetDevice
+from .backend.models import AgentType, HostEntry, PlatformConfig, PlatformDefinition, ConfigStoreEntry, AgentDefinition, CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ToolRequest, BACnetDevice, BACnetWritePropertyRequest
 from .utils.create_component_uid import generate_unique_uid
 from .utils.conversion_methods import csv_string_to_usable_dict
 from .utils.validate_content import check_json
@@ -16,9 +16,10 @@ from .utils import delete_file
 from loguru import logger
 from typing import Dict, Optional, List
 from .thin_endpoint_wrappers import *
-import string, random, json, csv, yaml, re, io, asyncio
+import string, random, json, csv, yaml, re, io, asyncio, math
 from copy import deepcopy
 from typing import Literal
+from bacnet_scan_tool.models import ObjectListNamesResponse
 
 class AppState(rx.State):
     """The app state."""
@@ -313,12 +314,14 @@ class PlatformPageState(rx.State):
     # off of it's instance name, and redirect the user to 
     # platforms/x, maybe we might have to delete the old 
     # routing id
+    session_hydrated: bool = False
     platforms: dict[str, Instance] = {
         # "new": Instance(
         #     host=HostEntryModelView(),
         #     platform=PlatformModelView()
         # )
     }
+    _working_platform: Instance = Instance(host=HostEntryModelView(), platform=PlatformModelView())
     list_of_agents: list[AgentModelView] = []
 
     _host_resolvable: bool = True
@@ -335,6 +338,11 @@ class PlatformPageState(rx.State):
     @rx.var(cache=True)
     def current_uid(self) -> str:
         return self.router.page.params.get("uid", "")
+
+    @rx.var
+    def working_platform(self) -> Instance:
+        self._working_platform = self.platforms.get(self.current_uid, Instance(host=HostEntryModelView(), platform=PlatformModelView()))
+        return self._working_platform
 
     @rx.var(cache=True)
     def in_file_platforms(self) -> list[Instance]:
@@ -510,25 +518,27 @@ class PlatformPageState(rx.State):
 
     # Events
     @rx.event
-    async def hydrate_state(self):
-        # Make sure we have a valid 'blank' agent
-        blank_agent = AgentModelView(
-                safe_agent={
-                    "identity" : "",
-                    "source" : "",
-                    "config" : "",
-                    "config_store": {}
-                },
+    async def hydrate_state(self, force_hydration: bool = False):
+        if self.session_hydrated == False or force_hydration:
+            # Make sure we have a valid 'blank' agent
+            blank_agent = AgentModelView(
+                    safe_agent={
+                        "identity" : "",
+                        "source" : "",
+                        "config" : "",
+                        "config_store": {}
+                    },
+                )
+            
+            self.list_of_agents = await __agents_off_catalog__()
+            platforms_from_api = await __instances_from_api__()
+            
+            # Ensure we have a blank agent that the user can edit as they so choose
+            self.list_of_agents.append(
+                blank_agent
             )
-        
-        self.list_of_agents = await __agents_off_catalog__()
-        platforms_from_api = await __instances_from_api__()
-        
-        # Ensure we have a blank agent that the user can edit as they so choose
-        self.list_of_agents.append(
-            blank_agent
-        )
-        self.platforms.update(platforms_from_api)
+            self.platforms.update(platforms_from_api)
+            self.session_hydrated = True
 
     @rx.event(background=True)
     async def delete_temp_uid(self, uid_copy: str):
@@ -539,8 +549,8 @@ class PlatformPageState(rx.State):
         logger.debug(f"this is the list of param afters: {list(self.platforms.keys())}")
 
     @rx.event
-    def handle_adding_agent(self, agent: AgentModelView):
-        working_platform = self.platforms[self.current_uid]
+    def handle_adding_agent(self, agent: AgentModelView, uid: str):
+        working_platform = self.platforms[uid]
 
         # Take a copy of the agent we are adding and make sure we dont have an already existing agent of the same identity
         new_agent: AgentModelView = agent.copy()
@@ -780,6 +790,7 @@ class PlatformPageState(rx.State):
         yield NavigationState.route_to_platform(working_platform.platform.config.instance_name)
         logger.debug(f"this is the uid about to deletee: {uid_copy}")
         yield PlatformPageState.delete_temp_uid(uid_copy)
+        yield PlatformPageState.hydrate_state(True)
 
     @rx.event
     async def determine_host_reachability(self, working_platform: Instance):
@@ -796,6 +807,12 @@ class PlatformPageState(rx.State):
         self._host_resolved = self._host_resolvable
         yield
         return
+
+    @rx.event
+    def cement_registry_config(self, working_platform: Instance):
+        logger.debug("Cementing registry config...")
+        self.platforms[working_platform.platform.config.instance_name] = working_platform
+
 
     # NOTE: i would like to offload the uncaught and valid vars into the state vars because it's easier for the UI to read off of 
     # state vars, for faster development, ive kept these here and i'll change it once it's time to refine the code.
@@ -1565,8 +1582,6 @@ class IndexPageState(rx.State):
             self.selected_tool = tool
         logger.debug(f"Selected tool changed to: {self.selected_tool}")
 
-
-
 class BacnetScanState(rx.State):
     selected_property_tab: Literal["read", "write"] = "read"  # Default to "read" tab
     discovered_devices: list[BACnetDeviceModelView] = []  # Store discovered devices
@@ -1581,7 +1596,25 @@ class BacnetScanState(rx.State):
     _is_write_property_valid: bool = False
     _is_read_property_valid: bool = False
     _warn_ping_range: bool = False
+
+    # Device Points page filters
+    point_table_filter: BACnetPointTableFilter = BACnetPointTableFilter()
+    point_column_filter: BACnetPointColumnFilters = BACnetPointColumnFilters()
+
+    # For all points pagination
+    _point_per_page_limit: int = 20
+    _points_table_page_number: int = 1
     
+    # For selected points pagination
+    _selected_points_per_page_limit: int = 15
+    _selected_points_page_number: int = 1
+
+    # Dialog States
+    dialog_registry_open: bool = False
+    dialog_select_platform_open: bool = False
+    dialog_confirm_add_platform_agent: bool = False
+    selected_platform_uid: str = ""
+
     # Fields
     proxy_field_value: str = ""
 
@@ -1596,64 +1629,77 @@ class BacnetScanState(rx.State):
     # UI driven models
     local_ip_info: LocalIPModel = LocalIPModel()
     windows_host_ip_info: WindowsHostIPModel = WindowsHostIPModel()
+    all_device_scan_point_status: list[BACnetDevicePointScanStatus] = []
+
+
+    _platform_has_platform_driver: bool = True
+
 
     # For bacnet point stuff
-    writable_map = {
-        0: False,  # analog-input
-        1: True,   # analog-output
-        2: False,  # analog-value (temporarily set to False, but these are typically writable)
-        3: False,  # binary-input
-        4: True,   # binary-output
-        5: False,  # binary-value (temporarily set to False, but these are typically writable)
-        6: True,   # calendar
-        7: True,   # command
-        8: False,  # device
-        9: True,   # event-enrollment
-        10: True,  # file
-        11: True,  # group
-        12: True,  # loop
-        13: False, # multi-state-input
-        14: True,  # multi-state-output
-        15: True,  # notification-class
-        16: True,  # program
-        17: True,  # schedule
-        18: False, # averaging
-        19: False, # multi-state-value (temporarily set to False, but these are typically writable)
-        20: False, # trend-log
-        21: False, # life-safety-point
-        22: False, # life-safety-zone
-        23: False, # accumulator
-        24: False, # pulse-converter
-        25: False, # event-log
-        26: True,  # global-group
-        27: False, # trend-log-multiple
-        28: True,  # load-control
-        29: False, # structured-view
-        30: True,  # access-door
-        31: False, # unassigned
-        32: False, # access-credential
-        33: False, # access-point
-        34: True,  # access-rights
-        35: False, # access-user
-        36: False, # access-zone
-        37: False, # credentional-data-input
-        38: False, # network-security (removed)
-        39: False, # bitstring-value (temporarily set to False, but these are typically writable)
-        40: False, # characterstring-value (temporarily set to False, but these are typically writable)
-        41: False, # date-pattern-value (temporarily set to False, but these are typically writable)
-        42: False, # date-value (temporarily set to False, but these are typically writable)
-        43: False, # datetime-pattern-value (temporarily set to False, but these are typically writable)
-        44: False, # datetime-value (temporarily set to False, but these are typically writable)
-        45: False, # integer-value (temporarily set to False, but these are typically writable)
-        46: False, # large-analog-value (temporarily set to False, but these are typically writable)
-        47: False, # octetstring-value (temporarily set to False, but these are typically writable)
-        48: False, # positive-integer-value (temporarily set to False, but these are typically writable)
-        49: False, # time-pattern-value (temporarily set to False, but these are typically writable)
-        50: False, # time-value (temporarily set to False, but these are typically writable)
-        51: True,  # notification-forwarder
-        52: True,  # alert-enrollment
-        53: True,  # channel
-        54: True,  # lighting-output
+    NEVER_WRITABLE: list[int] = [
+        0,
+        3,
+        8,
+        13,
+        37
+    ]
+    writable_map: Dict[int, BACnetObjectType] = {
+        # INPUTS NEVER, some maybe
+        0: BACnetObjectType(value=0, type_name="analog-input", writable=False), # NEVER
+        1: BACnetObjectType(value=1, type_name="analog-output", writable=True),
+        2: BACnetObjectType(value=2, type_name="analog-value", writable=True),
+        3: BACnetObjectType(value=3, type_name="binary-input", writable=False), # NEVER
+        4: BACnetObjectType(value=4, type_name="binary-output", writable=True),
+        5: BACnetObjectType(value=5, type_name="binary-value", writable=True),
+        6: BACnetObjectType(value=6, type_name="calendar", writable=True),
+        7: BACnetObjectType(value=7, type_name="command", writable=False),
+        8: BACnetObjectType(value=8, type_name="device", writable=False), # NEVER
+        9: BACnetObjectType(value=9, type_name="event-enrollment", writable=False),
+        10: BACnetObjectType(value=10, type_name="file", writable=False),
+        11: BACnetObjectType(value=11, type_name="group", writable=False),
+        12: BACnetObjectType(value=12, type_name="loop", writable=False),
+        13: BACnetObjectType(value=13, type_name="multi-state-input", writable=False), # NEVER
+        14: BACnetObjectType(value=14, type_name="multi-state-output", writable=True),
+        15: BACnetObjectType(value=15, type_name="notification-class", writable=True),
+        16: BACnetObjectType(value=16, type_name="program", writable=True),
+        17: BACnetObjectType(value=17, type_name="schedule", writable=True),
+        18: BACnetObjectType(value=18, type_name="averaging", writable=False),
+        19: BACnetObjectType(value=19, type_name="multi-state-value", writable=True),
+        20: BACnetObjectType(value=20, type_name="trend-log", writable=False),
+        21: BACnetObjectType(value=21, type_name="life-safety-point", writable=False),
+        22: BACnetObjectType(value=22, type_name="life-safety-zone", writable=False),
+        23: BACnetObjectType(value=23, type_name="accumulator", writable=False),
+        24: BACnetObjectType(value=24, type_name="pulse-converter", writable=False),
+        25: BACnetObjectType(value=25, type_name="event-log", writable=False),
+        26: BACnetObjectType(value=26, type_name="global-group", writable=False),
+        27: BACnetObjectType(value=27, type_name="trend-log-multiple", writable=False),
+        28: BACnetObjectType(value=28, type_name="load-control", writable=False),
+        29: BACnetObjectType(value=29, type_name="structured-view", writable=False),
+        30: BACnetObjectType(value=30, type_name="access-door", writable=False),
+        31: BACnetObjectType(value=31, type_name="unassigned", writable=False),
+        32: BACnetObjectType(value=32, type_name="access-credential", writable=False),
+        33: BACnetObjectType(value=33, type_name="access-point", writable=False),
+        34: BACnetObjectType(value=34, type_name="access-rights", writable=False),
+        35: BACnetObjectType(value=35, type_name="access-user", writable=False),
+        36: BACnetObjectType(value=36, type_name="access-zone", writable=False),
+        37: BACnetObjectType(value=37, type_name="credentional-data-input", writable=False), # NEVER
+        38: BACnetObjectType(value=38, type_name="network-security", writable=False),
+        39: BACnetObjectType(value=39, type_name="bitstring-value", writable=False),
+        40: BACnetObjectType(value=40, type_name="characterstring-value", writable=False),
+        41: BACnetObjectType(value=41, type_name="date-pattern-value", writable=False),
+        42: BACnetObjectType(value=42, type_name="date-value", writable=False),
+        43: BACnetObjectType(value=43, type_name="datetime-pattern-value", writable=False),
+        44: BACnetObjectType(value=44, type_name="datetime-value", writable=False),
+        45: BACnetObjectType(value=45, type_name="integer-value", writable=False),
+        46: BACnetObjectType(value=46, type_name="large-analog-value", writable=False),
+        47: BACnetObjectType(value=47, type_name="octetstring-value", writable=False),
+        48: BACnetObjectType(value=48, type_name="positive-integer-value", writable=False),
+        49: BACnetObjectType(value=49, type_name="time-pattern-value", writable=False),
+        50: BACnetObjectType(value=50, type_name="time-value", writable=False),
+        51: BACnetObjectType(value=51, type_name="notification-forwarder", writable=False),
+        52: BACnetObjectType(value=52, type_name="alert-enrollment", writable=False),
+        53: BACnetObjectType(value=53, type_name="channel", writable=False),
+        54: BACnetObjectType(value=54, type_name="lighting-output", writable=False),
     }
 
     # important event, actually spins up the tool when the page loads.
@@ -1669,6 +1715,77 @@ class BacnetScanState(rx.State):
 
 
     # Computed Vars
+    @rx.var
+    def platform_has_platform_driver(self) -> bool:
+        if self.selected_platform_uid == "":
+            return True
+        return self._platform_has_platform_driver
+        
+
+    # For point pagination
+    @rx.var
+    def total_pages(self) -> int:
+        """Calculate the total number of pages based on filtered points count."""
+        if self.selected_device is None or not self.filtered_points_with_indices:
+            return 1
+        
+        # Use the length of filtered points
+        total_filtered_points = len(self.filtered_points_with_indices)
+        return max(1, math.ceil(total_filtered_points / self._point_per_page_limit))
+
+    @rx.var
+    def points_table_page_number(self) -> int:
+        """Current page number, clamped to valid range."""
+        # Ensure page number is within bounds
+        if self._points_table_page_number < 1:
+            return 1
+        elif self._points_table_page_number > self.total_pages:
+            return self.total_pages
+        return self._points_table_page_number
+
+    @rx.var
+    def next_page_allowed(self) -> bool:
+        """Whether there's a next page available."""
+        return self.points_table_page_number < self.total_pages
+
+    @rx.var
+    def prev_page_allowed(self) -> bool:
+        """Whether there's a previous page available."""
+        return self.points_table_page_number > 1
+
+    @rx.var
+    def points_to_load(self) -> list[tuple[int, BACnetDevicePointModelView]]:
+        """Get the points for the current page with their original indices."""
+        filtered_points = self.filtered_points_with_indices
+        
+        if not filtered_points:
+            return []
+        
+        page_view_low = (self.points_table_page_number - 1) * self._point_per_page_limit
+        page_view_high = min(page_view_low + self._point_per_page_limit, len(filtered_points))
+        
+        # Safety check to prevent out-of-bounds errors
+        if page_view_low >= len(filtered_points):
+            page_view_low = 0
+            page_view_high = min(self._point_per_page_limit, len(filtered_points))
+        
+        return filtered_points[page_view_low:page_view_high]
+
+    @rx.event
+    def save_point_table_filters(self, form_data: dict):
+        # Update filters based on form data
+        filters = {
+            "volttron_point_name": form_data.get("volttron_point_name") == "on",
+            "units": form_data.get("units") == "on",
+            "object_type": form_data.get("object_type") == "on",
+            "present_value": form_data.get("present_value") == "on",
+            "writable": form_data.get("writable") == "on",
+            "index": form_data.get("index") == "on",
+            "notes": form_data.get("notes") == "on",
+        }
+        self.point_column_filter=BACnetPointColumnFilters(**filters)
+        self._points_table_page_number = 1  # Reset to first page when filters change
+
     @rx.var
     def warn_ping_range(self) -> bool: 
         self._warn_ping_range = "/" in self.scan_ip_range.network_string
@@ -1701,23 +1818,454 @@ class BacnetScanState(rx.State):
         self._is_write_property_valid = True
         return self._is_write_property_valid
 
+    # For selected points pagination
     @rx.var
     def selected_points(self) -> list[BACnetDevicePointModelView]:
         if self.selected_device is not None:
-            return [point for point in self.selected_device.points]
+            return [point for point in self.selected_device.points if point.selected]
         return []
     
+    @rx.var
+    def selected_points_total(self) -> int:
+        """Get the total count of selected points."""
+        return len(self.selected_points)
+
+    @rx.var
+    def selected_points_total_pages(self) -> int:
+        """Calculate the total number of pages for selected points."""
+        if not self.selected_points:
+            return 1
+        return max(1, math.ceil(self.selected_points_total / self._selected_points_per_page_limit))
+
+    @rx.var
+    def selected_points_page_number(self) -> int:
+        """Get the current page number for selected points, with bounds checking."""
+        # Ensure page number is within bounds
+        if self._selected_points_page_number < 1:
+            return 1
+        elif self._selected_points_page_number > self.selected_points_total_pages:
+            return self.selected_points_total_pages
+        return self._selected_points_page_number
+
+    @rx.var
+    def paginated_selected_points(self) -> list[BACnetDevicePointModelView]:
+        """Get the selected points for the current page only."""
+        all_selected = self.selected_points
+        
+        if not all_selected:
+            return []
+        
+        start_idx = (self.selected_points_page_number - 1) * self._selected_points_per_page_limit
+        end_idx = min(start_idx + self._selected_points_per_page_limit, len(all_selected))
+        
+        # Safety check
+        if start_idx >= len(all_selected):
+            start_idx = 0
+            end_idx = min(self._selected_points_per_page_limit, len(all_selected))
+        
+        return all_selected[start_idx:end_idx]
+
+    @rx.var
+    def selected_points_has_next_page(self) -> bool:
+        """Whether there's a next page available for selected points."""
+        return self.selected_points_page_number < self.selected_points_total_pages
+
+    @rx.var
+    def selected_points_has_prev_page(self) -> bool:
+        """Whether there's a previous page available for selected points."""
+        return self.selected_points_page_number > 1
+
+    @rx.var
+    def filtered_points_with_indices(self) -> list[tuple[int, BACnetDevicePointModelView]]:
+        """Get all points that match the current filter, with their original indices."""
+        if self.selected_device is None or not self.selected_device.points:
+            return []
+        
+        # Apply filters to the points
+        filtered_points = []
+        for i, point in enumerate(self.selected_device.points):
+            # Check each filter field independently
+            # Skip if any filter doesn't match its corresponding field
+            # Only apply filters for columns that are visible (not toggled off)
+            
+            # Check volttron_point_name filter - only if column is visible
+            if (self.point_column_filter.volttron_point_name and 
+                self.point_table_filter.volttron_point_name and 
+                self.point_table_filter.volttron_point_name.lower() not in str(point.volttron_point_name or "").lower()):
+                continue
+            
+            # Check units filter - only if column is visible
+            if (self.point_column_filter.units and 
+                self.point_table_filter.units and 
+                self.point_table_filter.units.lower() not in str(point.units or "").lower()):
+                continue
+            
+            # Check object_type filter - only if column is visible
+            if (self.point_column_filter.object_type and 
+                self.point_table_filter.object_type and 
+                self.point_table_filter.object_type.lower() not in str(point.object_type or "").lower()):
+                continue
+            
+            # Check writable filter - only if column is visible
+            if self.point_column_filter.writable and self.point_table_filter.writable:
+                writable_filter = self.point_table_filter.writable.lower()
+                point_writable_str = str(point.writable).lower()
+                
+                # Filter for "true"/"false" or partial matches like "t" for true
+                if writable_filter not in point_writable_str and (
+                    (writable_filter.startswith("t") and not point.writable) or
+                    (writable_filter.startswith("f") and point.writable)
+                ):
+                    continue
+            
+            # Check present_value filter - only if column is visible
+            if (self.point_column_filter.present_value and 
+                self.point_table_filter.present_value and 
+                self.point_table_filter.present_value.lower() not in str(point.present_value or "").lower()):
+                continue
+            
+            # Check index filter - only if column is visible
+            if (self.point_column_filter.index and 
+                self.point_table_filter.index and 
+                self.point_table_filter.index.lower() not in str(point.index or "").lower()):
+                continue
+            
+            # Check notes filter - only if column is visible
+            if (self.point_column_filter.notes and 
+                self.point_table_filter.notes and 
+                self.point_table_filter.notes.lower() not in str(point.notes or "").lower()):
+                continue
+            
+            # If we get here, the point passed all filters
+            filtered_points.append((i, point))
+        
+        return filtered_points
+
+    @rx.var
+    def filtered_points(self) -> list[BACnetDevicePointModelView]:
+        """Return just the filtered points."""
+        return [point for _, point in self.filtered_points_with_indices]
+
     # Events
+    # Background tasks
+    @rx.event(background=True)
+    async def scan_for_points(self, device: BACnetDeviceModelView, device_index: int, total_points_amount: int):
+        """Background task to scan for points from an object list."""
+        logger.debug(f"Starting background point scan for device {device.scanned_ip_target}")
+        
+        # Create status object and add it to the list
+        status_id = len(self.all_device_scan_point_status)
+        device_name = device.object_name
+        
+        # Get device index
+        device_object_index: list[str] = device.deviceIdentifier.split(",")
+        device_identifier: str = device_object_index[1]
+
+        status = BACnetDevicePointScanStatus(
+            message=f"Scanning {total_points_amount} points on device: {device_name}...",
+            device_name=device_name,
+            percent_finished=0,
+            object_name=device.object_name  # Using the device's object_name
+        )
+        
+        async with self:
+            self.all_device_scan_point_status.append(status)
+        yield BacnetScanState.update_ui()
+        
+        try:
+            # Calculate total pages needed
+            total_pages = (total_points_amount + self._point_per_page_limit - 1) // self._point_per_page_limit
+            logger.debug(f"Scanning {total_points_amount} points across {total_pages} pages")
+            
+            # Clear existing points if needed
+            device.points = []
+            
+            # Update status
+            async with self:
+                self.all_device_scan_point_status[status_id].message = f"Preparing to scan {total_points_amount} points..."
+            yield BacnetScanState.update_ui()
+            
+            # Iterate through all pages
+            points_processed = 0
+            for current_page in range(1, total_pages + 1):
+                logger.debug(f"Requesting page {current_page} of {total_pages}")
+                
+                # Update status - indicate how many points we've processed and how many more to go
+                points_so_far = min(points_processed, total_points_amount)
+                
+                async with self:
+                    self.all_device_scan_point_status[status_id].message = f"Reading points {points_so_far+1}-{min(points_so_far+self._point_per_page_limit, total_points_amount)} of {total_points_amount}..."
+                    self.all_device_scan_point_status[status_id].percent_finished = int(points_so_far / total_points_amount * 100)
+                yield BacnetScanState.update_ui()
+                
+                res: ObjectListNamesResponse = await read_bacnet_object_list_names(
+                    BACnetReadObjectListRequest(
+                        device_address=device.scanned_ip_target,
+                        device_object_identifier=device.deviceIdentifier,
+                        page_size=self._point_per_page_limit,
+                        page=current_page
+                    )
+                )
+                
+                if res.status != "done":
+                    logger.error(f"Error getting points {points_so_far+1}-{min(points_so_far+self._point_per_page_limit, total_points_amount)}: {res.error}")
+                    async with self:
+                        self.all_device_scan_point_status[status_id].message = f"Error retrieving points {points_so_far+1}-{min(points_so_far+self._point_per_page_limit, total_points_amount)}: {res.error}"
+                    yield BacnetScanState.update_ui()
+                    points_processed += self._point_per_page_limit  # Move to next page even if there was an error
+                    continue
+                    
+                # Update status - processing points
+                points_in_page = len(res.results)
+                async with self:
+                    self.all_device_scan_point_status[status_id].message = f"Processing {points_in_page} points ({points_so_far+1}-{points_so_far+points_in_page} of {total_points_amount})..."
+                yield BacnetScanState.update_ui()
+                    
+                # Process the results for this page
+                for i, (object_identifier, properties) in enumerate(res.results.items()):
+                    try:
+                        # Occasionally update processing status
+                        if i % 5 == 0:  # Update every 5 points
+                            async with self:
+                                self.all_device_scan_point_status[status_id].message = f"Processing point {points_so_far+i+1} of {total_points_amount}..."
+                                self.all_device_scan_point_status[status_id].percent_finished = int(
+                                    (points_so_far + i) / total_points_amount * 100
+                                )
+                            yield BacnetScanState.update_ui()
+                        
+                        # Parse the object identifier to get type and instance
+                        obj_parts = object_identifier.split(",")
+                        if len(obj_parts) != 2:
+                            logger.warning(f"Invalid object identifier format: {object_identifier}")
+                            continue
+                            
+                        object_type = obj_parts[0]
+                        index_value = obj_parts[1]
+                        
+                        # Make sure we are skipping the the "host" device within the points
+                        if f"{index_value}" == f"{device_identifier}":
+                            logger.info("Skipping `host` device of the points within the object-list")
+                            continue
+
+                        # Extract properties
+                        point_name = properties.object_name or f"Unknown-{object_identifier}"
+                        units = properties.units
+                        present_value = properties.present_value
+                        
+                        # Determine if point is writable and never writable
+                        writable: bool = False
+                        never_writable: bool = False
+                        for k, v in self.writable_map.items():
+                            if v.type_name == object_type:
+                                writable=v.writable
+                                if k in self.NEVER_WRITABLE:
+                                    never_writable = True
+                                break
+                        else:
+                            logger.warning(f"Object type {object_type} not found in writable map, using default, writable=False, never_writable=False")
+                        
+                        # Lets try to read property the notes
+                        try:
+                            type_int = ""
+                            for k, v in self.writable_map.items():
+                                if v.type_name == object_type:
+                                    type_int = v.type_name
+                                    break
+                            else:
+                                logger.warning(f"Object type {object_type} not found in writable map, using default")
+                                type_int = "unknown"
+                                
+                            res_notes = await read_bacnet_property(
+                                BACnetReadPropertyRequest(
+                                    device_address=device.scanned_ip_target,
+                                    object_identifier=f"{type_int},{index_value}",
+                                    property_identifier="notes"
+                                ),
+                                TIMEOUT=0.05
+                            )
+                            data = res_notes.json()
+                            
+                            # Extract notes value from response if available
+                            notes_value = ""  # Default value
+                            
+                            logger.debug(f"Response for notes property: {data}")
+                            notes_value=data["result"]["_value"]                            
+                            logger.debug(f"Retrieved notes for {object_identifier}: {notes_value}")
+                            
+                        except Exception as e:
+                            # If notes property read fails, use default value of ""
+                            notes_value = ""
+                            logger.debug(f"Failed to read notes property for {object_identifier}: {e}")
+                        except Exception as e:
+                            import traceback
+                            logger.debug(f"an error occurred: {traceback.format_exc()}")
+                            
+                        # Create point model
+                        point = BACnetDevicePointModelView(
+                            device_name=point_name,
+                            volttron_point_name=point_name,
+                            writable=writable,
+                            present_value=present_value if present_value is not None else "",
+                            units=units if units is not None else "",
+                            notes=notes_value,
+                            index=index_value,
+                            object_type=object_type,
+                            never_writable=never_writable
+                        )
+                        point.safe_point = point.to_dict()
+                        point.set_write_request_target(device.scanned_ip_target, object_identifier)
+                        
+                        # Add point to device
+                        device.points.append(point)
+                        logger.debug(f"Added point: {point_name} ({object_identifier})")
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing point {object_identifier}: {e}")
+                
+                # Update UI after each page to show progress
+                points_processed += points_in_page
+                points_processed_so_far = min(points_processed, total_points_amount)
+                
+                async with self:
+                    self.discovered_devices[device_index] = device
+                    self.all_device_scan_point_status[status_id].message = f"Scanned {points_processed_so_far} of {total_points_amount} points"
+                    self.all_device_scan_point_status[status_id].percent_finished = int(points_processed_so_far / total_points_amount * 100)
+                yield BacnetScanState.update_ui()
+                
+                # Optional: Add a small delay to avoid overwhelming the device
+                await asyncio.sleep(0.5)
+                
+            # Update status to show completion
+            async with self:
+                self.all_device_scan_point_status[status_id].message = f"Completed scan of {len(device.points)} points for {device_name}"
+                self.all_device_scan_point_status[status_id].percent_finished = 100
+            yield BacnetScanState.update_ui()
+            
+        except Exception as e:
+            logger.error(f"Failed during point scan: {e}")
+            async with self:
+                self.all_device_scan_point_status[status_id].message = f"Error during scan: {str(e)}"
+                self.all_device_scan_point_status[status_id].percent_finished = 100
+            yield BacnetScanState.update_ui()
+        
+        logger.debug(f"Completed background point scan for device {device.scanned_ip_target}")
+        
+        # Final UI update
+        yield BacnetScanState.update_ui()
+        
+        # Remove status after 5 seconds
+        await asyncio.sleep(5)
+        async with self:
+            if status_id < len(self.all_device_scan_point_status):
+                self.all_device_scan_point_status.pop(status_id)
+        yield BacnetScanState.update_ui()
+
+    @rx.event
+    def update_ui(self): yield
+        
+    # For points pagination
+    @rx.event
+    def next_point_page(self):
+        """Go to the next page if available."""
+        if self.next_page_allowed:
+            self._points_table_page_number += 1
+
+    @rx.event
+    def prev_point_page(self):
+        """Go to the previous page if available."""
+        if self.prev_page_allowed:
+            self._points_table_page_number -= 1
+    
+    # May use one day
+    @rx.event
+    def go_to_point_page(self, page_number: int):
+        """Go to a specific page."""
+        if 1 <= page_number <= self.total_pages:
+            self._points_table_page_number = page_number
+
+    # For selected points pagination
+    @rx.event
+    def selected_points_next_page(self):
+        """Go to the next page of selected points if available."""
+        if self.selected_points_has_next_page:
+            self._selected_points_page_number += 1
+
+    @rx.event
+    def selected_points_prev_page(self):
+        """Go to the previous page of selected points if available."""
+        if self.selected_points_has_prev_page:
+            self._selected_points_page_number -= 1
+            
+    @rx.event
+    def selected_points_go_to_page(self, page: int):
+        """Go to a specific page of selected points."""
+        if 1 <= page <= self.selected_points_total_pages:
+            self._selected_points_page_number = page
+    
+    # Dialog events
+    @rx.event
+    def open_registry_dialog(self):
+        self.dialog_registry_open = True
+        self.dialog_select_platform_open = False
+
+    @rx.event
+    def open_select_platform_dialog(self):
+        self.dialog_registry_open = False
+        self.dialog_select_platform_open = True
+
+    @rx.event
+    def close_dialogs(self):
+        self.selected_platform_uid = ""
+        self.dialog_registry_open = False
+        self.dialog_select_platform_open = False
+
+    @rx.event
+    def on_selected_points_dialog_close(self):
+        self._selected_points_page_number = 1
+
+    @rx.event
+    def filter_form_submit(self, form_data: dict):
+        # Start with the current filter values
+        current_filter = self.point_table_filter
+        
+        # Create a new filter object preserving all existing values
+        self.point_table_filter = BACnetPointTableFilter(
+            # For each field, use the form data if provided, otherwise keep existing value
+            volttron_point_name=form_data.get("volttron_point_name", current_filter.volttron_point_name),
+            units=form_data.get("units", current_filter.units),
+            object_type=form_data.get("object_type", current_filter.object_type),
+            writable=form_data.get("writable", current_filter.writable).strip() if form_data.get("writable") is not None else current_filter.writable,
+            present_value=form_data.get("present_value", current_filter.present_value),
+            index=form_data.get("index", current_filter.index),
+            notes=form_data.get("notes", current_filter.notes)
+        )
+
+    @rx.event
+    def clear_point_filter(self, field: str):
+        change: dict[str, str] = self.point_table_filter.dict()
+        change[field] = ""  # Clear the specified field
+        self.point_table_filter = BACnetPointTableFilter(
+            **change
+        )
+        self._selected_points_page_number = 1
+
     @rx.event
     def toggle_select_all_points(self, checked: bool):
         self.selected_device.select_all_points = checked
         for point in self.selected_device.points:
             point.selected=checked
 
+        # Reset to first page when selections change
+        self._selected_points_page_number = 1
+
     @rx.event
     def handle_device_check(self, device_index: int, checked: bool):
+        device_index = self.get_absolute_index(device_index)
         self.selected_device.select_all_points = False
         self.selected_device.points[device_index].selected = checked
+        
+        # Reset to first page when selections change
+        self._selected_points_page_number = 1
 
     @rx.event
     def handle_proxy_field_edit(self, value: str):
@@ -1753,7 +2301,7 @@ class BacnetScanState(rx.State):
             yield rx.toast.info(f"Selected device: {selected_device.object_name}")
     
     @rx.event
-    def set_ip_detection_mode(self, mode: Literal["windows_host_ip", "local_ip"]):
+    def set_ip_detection_mode(self, mode: Literal["host_ip", "local_ip"]):
         """Switch between local IP and Windows host IP mode."""
         self.ip_detection_mode = mode
         yield BacnetScanState.get_network_info()
@@ -1900,6 +2448,86 @@ class BacnetScanState(rx.State):
         """Handle input change for the main IP address field."""
         self.ip_address = value
 
+    # Handle Device Point editing
+    @rx.event
+    def handle_present_value_edit(self, index: int, value: str):
+        index = self.get_absolute_index(index)
+        self.selected_device.points[index].present_value = value
+
+    @rx.event
+    def enable_device_point_present_value_edit(self, index: int):
+        index = self.get_absolute_index(index)
+        self.selected_device.points[index].present_value_editing = True
+    
+    @rx.event
+    def disable_device_point_present_value_edit(self, index: int):
+        index = self.get_absolute_index(index)
+        self.selected_device.points[index].present_value_editing = False
+
+    @rx.event
+    def cancel_device_point_present_value_edit(self, index: int):
+        absolute_index = self.get_absolute_index(index)
+        yield BacnetScanState.disable_device_point_present_value_edit(index)
+        yield
+        self.selected_device.points[absolute_index].present_value = self.selected_device.points[absolute_index].safe_point['present_value']
+        yield
+
+    @rx.event
+    def save_device_point_present_value_edit(self, index: int):
+        absolute_index = self.get_absolute_index(index)
+        yield BacnetScanState.disable_device_point_present_value_edit(index)
+        yield
+        self.selected_device.points[absolute_index].safe_point = self.selected_device.points[absolute_index].to_dict()
+        yield
+        yield BacnetScanState.handle_write_property(
+            self.selected_device.points[absolute_index],
+            "present-value",
+            self.selected_device.points[absolute_index].safe_point["present_value"],
+            8
+        )
+
+    @rx.event
+    def flip_device_point_writable(self, index: int):
+        """Toggle the writable state of a device point."""
+        index = self.get_absolute_index(index)
+        point = self.selected_device.points[index]
+        point.writable = not point.writable
+        # Update the writable map for this object type
+        if point.object_type in self.writable_map:
+            self.writable_map[point.object_type].writable = point.writable
+
+
+    @rx.event
+    def handle_volttron_point_name_value_edit(self, index: int, value: str):
+        index = self.get_absolute_index(index)
+        self.selected_device.points[index].volttron_point_name = value
+
+    @rx.event
+    def enable_device_point_volttron_point_name_value_edit(self, index: int):
+        index = self.get_absolute_index(index)
+        self.selected_device.points[index].volttron_point_name_editing = True
+    
+    @rx.event
+    def disable_device_point_volttron_point_name_value_edit(self, index: int):
+        index = self.get_absolute_index(index)
+        self.selected_device.points[index].volttron_point_name_editing = False
+
+    @rx.event
+    def cancel_device_point_volttron_point_name_value_edit(self, index: int):
+        absolute_index = self.get_absolute_index(index)
+        yield BacnetScanState.disable_device_point_volttron_point_name_value_edit(index)
+        yield
+        self.selected_device.points[absolute_index].volttron_point_name = self.selected_device.points[absolute_index].safe_point['volttron_point_name']
+        yield
+
+    @rx.event
+    def save_device_point_volttron_point_name_value_edit(self, index: int):
+        absolute_index = self.get_absolute_index(index)
+        yield BacnetScanState.disable_device_point_volttron_point_name_value_edit(index)
+        yield
+        self.selected_device.points[absolute_index].safe_point = self.selected_device.points[absolute_index].to_dict()
+        yield
+
 
     # Handle the actual endpoint actions/functionality
     @rx.event
@@ -1937,143 +2565,67 @@ class BacnetScanState(rx.State):
     @rx.event
     async def handle_scan_ip_range(self):
         """Handle the Scan IP Range form submission."""
+        from bacnet_scan_tool.models import ScanResponse
         if not self.proxy_up:
             yield rx.toast.error("Proxy must be started first.")
             return
+        yield
         self.scanning_bacnet_range = True
-        yield rx.toast.info(f"Scanning network: {self.scan_ip_range.network_string}")
+        yield
         
         try:
-            scan_results: BACnetScanResults = await scan_bacnet_ip_range(self.scan_ip_range.network_string)
+            scan_results: ScanResponse = await scan_bacnet_subnet(self.scan_ip_range.network_string)
             
             # Get devices 
             devices = [
                 BACnetDeviceModelView(
-                **device.model_dump(),
-                ) for device in scan_results.devices
+                    deviceIdentifier = device.deviceIdentifier,
+                    device_instance=device.device_instance,
+                    scanned_ip_target = device.address,
+                    vendorId = device.vendorID,
+                )
+                for device in scan_results.devices
             ]
+            logger.debug(f"devices we found: {devices}")
 
             # Read device all on each of our devices[]
-            for device in devices:
+            for device_index, device in enumerate(devices):
                 logger.debug(f"this is our device we are operating on: {device}")
-
                 try:            
                     res = await read_bacnet_device_all(
                             BACnetReadDeviceAllRequest(
                                 device_address=device.scanned_ip_target,
                                 device_object_identifier=device.deviceIdentifier
-                            )
+                            ),
+                            timeout=30.0
                         )
                     if res.get("status") == "error":
                         logger.debug(f"this is our res: {res}")
-                        raise Exception(f"Error occured calling api though thin endpoint wrapper")
+                        raise Exception(f"Error occurred calling api though thin endpoint wrapper")
                 except Exception as e:
                     import traceback
-                    logger.debug(f"An error occured running scan: {traceback.format_exc()}")
-                    break
-
+                    logger.debug(f"An error occurred reading device {device.scanned_ip_target}: {traceback.format_exc()}")
+                    device.object_name="UNKNOWN"
+                    device.read_device_all_failed = True
+                    continue  # Skip this device and move to the next one instead of breaking
+                
+                # Only execute these lines if the device was successfully read
+                device.object_name = res["properties"].get("object-name", "UNKNOWN")
                 points: list = res["properties"]["object-list"]
-                logger.debug(f"we are going to go through {len(points) - 1}")
-                logger.debug(f"sike we only getting 50")
-                # go through each object-list item, skip the first one which is ours, then read property the stuff
-                for obj in points[1:21]:
-                    logger.debug(f"Processing object: {obj}")
-                    
-                    object_identifier: str = f"{obj[0]},{obj[1]}"
-                    logger.debug(f"Created object_identifier: {object_identifier}")
-                    
-                    writable: bool = self.writable_map[obj[0]]
-                    logger.debug(f"Object type {obj[0]} is writable: {writable}")
-                    
-                    # Getting point name
-                    logger.debug(f"Step 1: Getting point name for {object_identifier} at {device.scanned_ip_target}")
-                    point_name_response = await read_bacnet_property(
-                        BACnetReadPropertyRequest(
-                            device_address=device.scanned_ip_target,
-                            object_identifier=object_identifier,
-                            property_identifier="object-name"
-                        )
-                    )
-                    logger.debug(f"Point name response received: {point_name_response}")
-                    point_name = point_name_response["result"]["_value"]
-                    logger.debug(f"Point name extracted: {point_name}")
-                    
-                    # Getting units
-                    logger.debug(f"Step 2: Getting units for {object_identifier} at {device.scanned_ip_target}")
-                    try:
-                        units_response = await read_bacnet_property(
-                            BACnetReadPropertyRequest(
-                                device_address=device.scanned_ip_target,
-                                object_identifier=object_identifier,
-                                property_identifier="units"
-                            )
-                        )
-                        logger.debug(f"Units response received: {units_response}")
-                        units = units_response["result"]["_value"]
-                        logger.debug(f"Units extracted: {units}")
-                    except Exception as e:
-                        logger.error(f"Failed to get units: {e}")
-                        units = "unknown"
-                        logger.debug(f"Using default units: {units}")
-                    
-                    # Getting present value
-                    logger.debug(f"Step 3: Getting present value for {object_identifier} at {device.scanned_ip_target}")
-                    try:
-                        present_value_response = await read_bacnet_property(
-                            BACnetReadPropertyRequest(
-                                device_address=device.scanned_ip_target,
-                                object_identifier=object_identifier,
-                                property_identifier="present-value"
-                            )
-                        )
-                        logger.debug(f"Present value response received: {present_value_response}")
-                        present_value = present_value_response["result"]["_value"]
-                        logger.debug(f"Present value extracted: {present_value}")
-                    except Exception as e:
-                        logger.error(f"Failed to get present value: {e}")
-                        present_value = "N/A"
-                        logger.debug(f"Using default present value: {present_value}")
-                    
-                    # Getting Notes
-                    logger.debug(f"Step 4: Getting notes for {object_identifier} at {device.scanned_ip_target}")
-                    try:
-                        notes_value_response = await read_bacnet_property(
-                            BACnetReadPropertyRequest(
-                                device_address=device.scanned_ip_target,
-                                object_identifier=object_identifier,
-                                property_identifier="notes"
-                            ),
-                            timeout=4.0
-                        )
-                        logger.debug(f"Notes value response received: {notes_value_response}")
-                        notes_value = notes_value_response["result"]["_value"]
-                        logger.debug(f"Notes value extracted: {notes_value}")
-                    except Exception as e:
-                        logger.error(f"Failed to get notes value: {e}")
-                        notes_value = "N/A"
-                        logger.debug(f"Using default notes value: {notes_value}")
-
-                    # Create and add the point to device
-                    logger.debug(f"Step 5: Creating point model for {point_name}")
-                    point = BACnetDevicePointModelView(
-                        device_name=point_name,
-                        writable=writable,
-                        present_value=present_value,
-                        units=units,
-                        notes=notes_value
-                    )
-                    logger.debug(f"Point created: {point}")
-                    
-                    logger.debug(f"Step 5: Adding point to device {device}")
-                    device.points.append(point)
-                    logger.debug(f"Point added to device successfully. Device now has {len(device.points)} points.")
+                points_amount: int = len(points) - 1
+                logger.debug(f"we have {points_amount} points to scan for on device {device.scanned_ip_target}")
+                # logger.debug(f"we are going to go through {len(points) - 1}")
+                # logger.debug(f"sike we only getting 50")
+                
+                # Launch background task to scan for points
+                yield BacnetScanState.scan_for_points(device, device_index, points_amount) 
 
             logger.debug(f"this is our scan results: {scan_results}")
             self.discovered_devices = devices
             yield rx.toast.success("IP Range scan completed.")
         except:
             import traceback
-            logger.debug(f"An error occured running scan: {traceback.format_exc()}")
+            logger.debug(f"An error occurred running scan: {traceback.format_exc()}")
         
         self.scanning_bacnet_range = False
     
@@ -2104,17 +2656,40 @@ class BacnetScanState(rx.State):
         yield rx.toast.success("Read Property completed.")
     
     @rx.event
-    async def handle_write_property(self):
+    async def handle_write_property(
+        self, 
+        point: BACnetDevicePointModelView, 
+        property_identifier: str, 
+        value: Any,
+        priority: int, 
+        property_array_index: int | None = None
+    ):
         """Handle the Write Property form submission."""
         if not self.proxy_up:
             yield rx.toast.error("Proxy must be started first.")
             return
-            
+
         yield rx.toast.info(f"Writing to property on {self.write_property.device_address}")
-        
-        # TODO: Implement actual BACnet write logic here
-        import asyncio
-        await asyncio.sleep(1)
+        logger.debug(f"Writing `{property_identifier}` with value: `{value}` on address: `{self.write_property.device_address}`")
+
+        try:
+            logger.debug(f"Writing bacnet property: {property_identifier}, to target: {point.write_request_target}, value: {value}")
+            response = await write_bacnet_property(
+                BACnetWritePropertyRequest(
+                    **point.write_request_target,
+                    # device_address="130.20.24.157",
+                    # object_identifier="2,3000112",
+                    # ==============================
+                    property_identifier=property_identifier,
+                    value=value,
+                    priority=priority
+                    # Omit property_array_index for now 
+                )
+            )
+            logger.debug(f"we have written and this is our response: {response}")
+        except:
+            import traceback
+            logger.debug(f"An error occurred writing property {traceback.format_exc()}")
         
         yield rx.toast.success("Write Property completed.")
 
@@ -2130,8 +2705,344 @@ class BacnetScanState(rx.State):
     @rx.event
     async def handle_get_windows_host_ip(self):
         try:
-            self.windows_host_ip_info = await get_windows_host_ip()
-            self.scan_ip_range.network_string = self.windows_host_ip_info.windows_host_ip.rsplit('.', 1)[0] + ".0/24" # Split at the last period, max 1 split. tack it off with cidr range
+            self.windows_host_ip_info = await get_bacnet_host_ip()
+            self.scan_ip_range.network_string = self.windows_host_ip_info.address.rsplit('.', 1)[0] + ".0/24" # Split at the last period, max 1 split. tack it off with cidr range
             yield rx.toast.success("Retrieved Host IP")
         except Exception as e:
             logger.debug(f"There was an error getting local ip info {e}")
+
+    # Other
+    @rx.event
+    async def select_platform_for_registry_config(self, uid: str):
+        self.selected_platform_uid = uid if self.selected_platform_uid != uid else ""
+
+        platform_state = await self.get_state(PlatformPageState)
+        platform = platform_state.platforms.get(uid)
+        if not platform:
+            self._platform_has_platform_driver = True
+            return
+        
+        self._platform_has_platform_driver = "platform.driver" in platform.platform.agents
+        return
+
+    @rx.event
+    def on_add_to_registry_config_confirm(self, form_data):
+        """Handle the confirmation to add selected points to registry config."""
+        if self.selected_platform_uid == "":
+            # yield rx.toast.error("No platform selected for registry config.")
+            return
+        
+        logger.debug(f"selected platform UID: {self.selected_platform_uid}")
+        platform_uid = self.selected_platform_uid
+
+        path = form_data.get("path", "")
+        if path == "":
+            yield rx.toast.error("Path cannot be empty.")
+            return
+
+        # Close any open dialogs
+        yield BacnetScanState.close_dialogs()
+        
+        # Convert selected points to CSV format
+        csv_data = self._convert_selected_points_to_csv()
+        escaped_csv_data = csv_data.replace("'", "\\'")
+        
+        # Add the registry config to the platform
+        yield BacnetScanState.on_add_to_registry_config(platform_uid, path, escaped_csv_data)
+
+    # TODO move all the stuff handiling adding the actual config store entry to its designated state and method
+    @rx.event
+    async def on_add_to_registry_config(self, platform_uid: str, path: str, escaped_csv_data: str):
+        """Add selected BACnet points to a platform.driver registry configuration."""
+        # Close any open dialogs
+        yield BacnetScanState.close_dialogs()
+                
+        
+        # Step 1: Ensure platform.driver agent exists
+        # yield BacnetScanState.ensure_platform_driver_exists(platform_uid)
+        # we need tto shove the method in here to ensure that it runs one at a time...
+        platform_page_state: PlatformPageState = await self.get_state(PlatformPageState)
+        platform = platform_page_state.platforms.get(platform_uid)
+        if not platform:
+            logger.debug(f"Platform with UID {platform_uid} not found.")
+            logger.debug(f"Available platforms: {list(platform_page_state.platforms.keys())}")
+            yield rx.toast.error("Platform not found")
+            return
+        
+        # Find and add platform.driver agent
+        if "platform.driver" not in platform.platform.agents:
+            for agent in platform_page_state.list_of_agents:
+                if agent.identity == "platform.driver":
+                    yield PlatformPageState.handle_adding_agent(agent, platform_uid)
+        # ===============================================================
+
+        # Step 2: Add the registry config to the platform.driver agent
+        yield BacnetScanState.add_config_to_platform_driver(
+            platform_uid, 
+            escaped_csv_data,
+            path
+        )
+
+    @rx.event
+    async def ensure_platform_driver_exists(self, platform_uid: str):
+        """Make sure the platform has a platform.driver agent.
+        
+        Returns:
+            bool: True if platform.driver exists or was successfully added, False otherwise.
+        """
+        platform_page_state: PlatformPageState = await self.get_state(PlatformPageState)
+        platform = platform_page_state.platforms.get(platform_uid)
+        if not platform:
+            return
+        
+        # Check if platform.driver already exists
+        if "platform.driver" in platform.platform.agents:
+            return 
+        
+        # Find and add platform.driver agent
+        for agent in platform_page_state.list_of_agents:
+            if agent.identity == "platform.driver":
+                yield PlatformPageState.handle_adding_agent(agent, platform_uid)
+                # We need to check if the agent was actually added
+                return 
+        
+        # Couldn't find platform.driver in available agents
+        yield rx.toast.error("Could not add platform.driver agent")
+    
+    @rx.event
+    async def add_config_to_platform_driver(
+        self, 
+        platform_uid: str, 
+        csv_value: str,
+        path: str
+    ):
+        """Add a config store entry with the CSV value to the platform.driver agent."""
+        platform_page_state: PlatformPageState = await self.get_state(PlatformPageState)
+        platform = platform_page_state.platforms.get(platform_uid)
+        if "platform.driver" not in platform.platform.agents:
+            yield rx.toast.error("Platform or platform.driver agent not found")
+        
+        # Get the platform.driver agent
+        driver_agent = platform.platform.agents.get("platform.driver", None)
+        if driver_agent is None:
+            logger.debug(f"an error occurred, here are the list of agents on the platform: {platform.platform.agents.keys()}")
+            yield rx.toast.error("Platform.driver agent not found on platform")
+            return
+
+        # Create and add the config store entry
+        component_id = generate_unique_uid()
+        config_entry = self._create_config_store_entry(path, csv_value, component_id)
+        driver_agent.config_store.append(config_entry)
+        
+        # Save the config store entry
+
+        # NOTE: This is largely a copy and paste job from AgentConfigState.save_config_store_entry
+        # TODO: make the function referenced above more modular and not tied to AgentConfigState variables
+        list_of_config_paths: list[tuple[str, str]] = [
+            (entry_.safe_entry["path"], entry_.component_id) for entry_ in driver_agent.config_store
+        ]
+        # Check if the path exists and belongs to a different component
+        for path, component_id in list_of_config_paths:
+            if config_entry.path == "" or (config_entry.path == path and config_entry.component_id != component_id):
+                # This check catches all empty paths or duplicate paths
+                yield rx.toast.error(f"Config path is already in use.")
+                return
+        config_entry.safe_entry = config_entry.dict()
+        logger.debug(f"this is the config_entry's safe dict: {config_entry.safe_entry}")
+        config_entry.uncommitted=False
+        logger.debug(f"going through the agent's config store, here they are:")
+        for driver_agent_config in driver_agent.config_store:
+            logger.debug(f"safe dict: {driver_agent_config.safe_entry}")
+
+        # Finalize and save the agent
+        driver_agent.is_new = False
+        driver_agent.safe_agent = driver_agent.to_dict()
+        
+        # Update the platform state
+        # yield PlatformPageState.cement_registry_config(platform)
+        yield rx.toast.success("BACnet points added to registry")
+
+    # Exporting
+    @rx.event
+    def export_to_csv(self):
+        csv_data = self._convert_selected_points_to_csv()
+
+        escaped_csv_data = csv_data.replace("'", "\\'")  # Escape single quotes in CSV content
+        
+        # JavaScript code for invoking the "Save As" dialog
+        js_code = f"""
+            if (window.showSaveFilePicker) {{
+                // Use File System Access API for explicit Save As dialog
+                async function saveFile() {{
+                    try {{
+                        const options = {{
+                            suggestedName: 'points',
+                            types: [{{
+                                description: 'CSV file',
+                                accept: {{
+                                    'text/csv': ['.csv']
+                                }}
+                            }}]
+                        }};
+                        const fileHandle = await window.showSaveFilePicker(options);
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(`{escaped_csv_data}`);
+                        await writable.close();
+                        return true;  // Indicate success
+                    }} catch (err) {{
+                        // Check if this is an abort error (user canceled)
+                        if (err.name === 'AbortError') {{
+                            // console.log('User canceled the save dialog');
+                            return false;  // User canceled
+                        }} else {{
+                            // console.error('Save As failed:', err);
+                            return false;  // Other error
+                        }}
+                    }}
+                }}
+                
+                saveFile();  // We don't need to catch here as we already handle errors inside
+            }} else {{
+                // Fallback to Blob saving
+                try {{
+                    const blob = new Blob([`{escaped_csv_data}`], {{ type: 'text/csv;charset=utf-8' }});
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = 'bacnet_points.csv';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(link.href);
+                }} catch (err) {{
+                   // console.error('Fallback save method failed:', err);
+                }}
+            }}
+        """
+        return rx.call_script(js_code)
+
+    # Resetting methods
+    @rx.event
+    def reset_point_table_filters(self):
+        self.point_column_filter = BACnetPointColumnFilters()
+
+    def get_absolute_index(self, relative_index: int) -> int:
+        """
+        Convert a relative index (page position) to an absolute index in the original points list.
+        
+        Args:
+            relative_index: The index within the current page view
+            
+        Returns:
+            The absolute index in the original points list
+        """
+        points_to_load = self.points_to_load
+        
+        if not points_to_load or relative_index >= len(points_to_load):
+            return -1  # Invalid index
+        
+        # Get the original index stored in the tuple
+        original_index, _ = points_to_load[relative_index]
+        return original_index
+    
+    def apply_point_table_filters(self, filters: BACnetPointTableFilter) -> list[tuple[int, BACnetDevicePointModelView]]:
+        """
+        Apply filters to the data points and return filtered results with their original indices.
+        
+        Args:
+            filters: BACnetPointTableFilter instance containing filter criteria
+            
+        Returns:
+            List of tuples (original_index, point)
+        """
+        if self.selected_device is None:
+            return []
+        
+        # Start with all points and their original indices
+        points_with_indices = list(enumerate(self.selected_device.points))
+        
+        # Define a helper function to apply a single filter
+        def apply_filter(points_with_indices, filter_value, column_enabled, attr_name):
+            if filter_value == "" or not column_enabled:
+                return points_with_indices
+            
+            return [
+                (idx, point) for idx, point in points_with_indices 
+                if filter_value.lower() in str(getattr(point, attr_name, "")).lower()
+            ]
+        
+        # Apply each filter sequentially
+        filter_specs = [
+            (filters.volttron_point_name, self.point_column_filter.volttron_point_name, "volttron_point_name"),
+            (filters.units, self.point_column_filter.units, "units"),
+            (filters.object_type, self.point_column_filter.object_type, "object_type"),
+            (filters.writable, self.point_column_filter.writable, "writable"),
+            (filters.present_value, self.point_column_filter.present_value, "present_value"),
+            (filters.index, self.point_column_filter.index, "index"),
+            (filters.notes, self.point_column_filter.notes, "notes")
+        ]
+        
+        # Apply each filter in sequence
+        for filter_value, column_enabled, attr_name in filter_specs:
+            points_with_indices = apply_filter(points_with_indices, filter_value, column_enabled, attr_name)
+        
+        return points_with_indices
+
+    def _convert_selected_points_to_csv(self) -> str:
+        """Convert selected_points to CSV string with mapped column names."""
+        # Define the CSV columns and their mapping to model fields
+        columns = [
+            ("Point Name", "device_name"),
+            ("VOLTTRON Point Name", "volttron_point_name"),
+            ("Units", "units"),
+            ("BACnet Object Type", "object_type"),
+            ("Property", "present_value"),
+            ("Writable", "writable"),
+            ("Index", "index"),
+            ("Notes", "notes"),
+        ]
+        fieldnames = [field for _, field in columns]
+        header = [col for col, _ in columns]
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(header)
+
+        for point in self.selected_points:
+            point_dict = point.dict() if hasattr(point, "dict") else point.__dict__
+            row = []
+            for header_cell, field in columns:
+                if header_cell == "Property":
+                    value = "presentValue"
+                    row.append(value)
+                    continue
+
+                value = point_dict.get(field, "")
+                if isinstance(value, bool):
+                    value = "TRUE" if value else "FALSE"
+                row.append(value)
+            writer.writerow(row)
+
+        csv_data = output.getvalue()
+        output.close()
+        return csv_data
+
+    def _create_config_store_entry(self, path: str, csv_value: str, component_id: str) -> ConfigStoreEntryModelView:
+        """Create a new ConfigStoreEntryModelView with the provided values."""
+        new_entry = ConfigStoreEntryModelView(
+            path=path,
+            data_type="CSV",
+            value=csv_value,
+            component_id=component_id,
+            safe_entry={
+                "path": path,
+                "data_type": "CSV",
+                "value": csv_value,
+            }
+        )
+        
+        # Process CSV data
+        usable_csv = csv_string_to_usable_dict(csv_value)
+        new_entry.csv_variants["Custom"] = usable_csv
+        new_entry.safe_entry = new_entry.dict()
+        
+        return new_entry

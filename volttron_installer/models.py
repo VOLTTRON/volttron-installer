@@ -89,9 +89,38 @@ class WritePropertyModel(rx.Model):
     property_array_index: str | int = ""
 
 class WindowsHostIPModel(rx.Base):
-    windows_host_ip: str = "" 
+    address: str = "" 
 
 class LocalIPModel(rx.Base):
     local_ip: str = ""
     subnet_mask: str = ""
     cidr: str = ""
+
+class BACnetPointTableFilter(rx.Base):
+    volttron_point_name: str = ""
+    units: str = ""
+    object_type: str = ""
+    writable: str = ""
+    present_value: str = ""
+    index: str = ""
+    notes: str = ""
+
+class BACnetPointColumnFilters(rx.Base):
+    volttron_point_name: bool = True
+    units: bool = True
+    object_type: bool = True
+    writable: bool = True
+    present_value: bool = True
+    index: bool = True
+    notes: bool = True
+
+class BACnetObjectType(rx.Base):
+    value: int
+    type_name: str
+    writable: bool
+
+class BACnetDevicePointScanStatus(rx.Base):
+    object_name: str
+    message: str
+    device_name: str
+    percent_finished: int

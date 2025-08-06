@@ -1,5 +1,5 @@
 import reflex as rx
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 class ConfigStoreEntryModelView(rx.Base):
     path: str = ""
@@ -7,7 +7,13 @@ class ConfigStoreEntryModelView(rx.Base):
     value: str = ""
 
     contains_errors: bool = False
-    safe_entry: dict[str, Any] = {}
+    safe_entry: dict[str, Any] = {
+        "path": "",
+        "data_type": "JSON",
+        "value": "",
+        "component_id": "_",
+        "csv_variants": ""
+    }
     component_id: str = "_"
 
     uncommitted: bool = True
@@ -104,6 +110,8 @@ class AgentModelView(rx.Base):
     routing_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        # from loguru import logger
+        # logger.debug(f"config store: {self.config_store}")
         return {
             "identity": self.identity,
             "source": self.source,
@@ -181,24 +189,51 @@ class PlatformModelView(rx.Base):
     
 class BACnetDevicePointModelView(rx.Base):
     device_name: str
+    volttron_point_name: str
     writable: bool
-    present_value: str
-    units: str | int
+    object_type: str
+    present_value: str = ""
+    units: str | int = ""
+    index: str | int # should really only be an int but strings are needed for the ui (text fields)
     notes: str
 
+    write_request_target: dict = {}
+
     # UI driven field
+    never_writable: bool = False
     selected: bool = False
+    present_value_editing: bool = False
+    volttron_point_name_editing: bool = False
+    safe_point: dict = {}
+    
+    def set_write_request_target(self, device_address: str, object_identifier: str):
+        self.write_request_target={
+            "device_address": device_address,
+            "object_identifier": object_identifier
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "device_name": self.device_name,
+            "volttron_point_name": self.volttron_point_name,
+            "units": self.units,
+            "object_type": self.object_type,
+            "present_value": self.present_value,
+            "writable": self.writable,
+            "index": self.index,
+            "notes": self.notes
+        }
 
 class BACnetDeviceModelView(rx.Base):
-    pduSource: str
+    object_name: str = "" # This will be added later in the scan of a subnet 
     deviceIdentifier: str
-    maxAPDULengthAccepted: int
-    segmentationSupported: str
-    vendorID: int
-    object_name: str
+    maxAPDULengthAccepted: Optional[int] = None
+    segmentationSupported: Optional[str] = None
+    vendorID: Optional[int] = None
     scanned_ip_target: str
     device_instance: int
     points: list[BACnetDevicePointModelView] = []
 
     # UI driven field
     select_all_points: bool = False
+    read_device_all_failed: bool = False

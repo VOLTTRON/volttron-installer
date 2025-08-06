@@ -5,9 +5,11 @@ from ..backend.models import AgentType, HostEntry, PlatformDefinition, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ReachableResponse, \
     PlatformDeploymentStatus, CreateAgentRequest, ToolRequest, ToolStatusResponse, \
     BACnetReadDeviceAllRequest, BACnetDevice, BACnetReadPropertyRequest, BACnetScanResults, \
-    BACnetWritePropertyRequest
+    BACnetWritePropertyRequest, BACnetReadObjectListRequest
 from ..models import WindowsHostIPModel, LocalIPModel
 from rxconfig import config
+
+from bacnet_scan_tool.models import ScanResponse, ObjectListNamesResponse
 
 API_BASE_URL = f"{config.api_url}"
 API_PREFIX = "/api"
@@ -210,9 +212,9 @@ async def get_bacnet_local_ip(target_ip: str = None) -> LocalIPModel:
     return await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/get_local_ip", "GET", params=params)
 
 @with_model(WindowsHostIPModel)
-async def get_windows_host_ip() -> WindowsHostIPModel:
+async def get_bacnet_host_ip() -> WindowsHostIPModel:
     """Get Windows host IP address for WSL2 users."""
-    return await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/get_windows_host_ip", "GET")
+    return await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/get_host_ip", "GET")
 
 async def get_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
     return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/{tool_name}/{path}", "GET", **kwargs)
@@ -234,14 +236,24 @@ async def start_bacnet_proxy(local_device_address: str = None) -> dict[str, str]
     response = await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/start_proxy", "POST", params=data)
     return response.json()
 
-@with_model(BACnetScanResults)
-async def scan_bacnet_ip_range(network_str: str) -> BACnetScanResults:
+@with_model(ScanResponse)
+async def scan_bacnet_subnet(network_str: str) -> ScanResponse:
     """Scan a BACnet IP range for devices."""
     return await proxy_request(
-        f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/bacnet/scan_ip_range",
+        f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/bacnet/scan_subnet",
         "POST",
         timeout=600.0,
         params={"network_str": network_str}
+    )
+
+@with_model(ObjectListNamesResponse)
+async def read_bacnet_object_list_names(request: BACnetReadObjectListRequest) -> ObjectListNamesResponse:
+    """Read object list names from a BACnet device."""
+    return await proxy_request(
+        f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/bacnet/read_object_list_names",
+        "POST",
+        timeout=60.0,
+        params=request.model_dump()
     )
 
 async def read_bacnet_property(request: BACnetReadPropertyRequest, TIMEOUT: float=60.0):
@@ -254,10 +266,10 @@ async def read_bacnet_property(request: BACnetReadPropertyRequest, TIMEOUT: floa
     )
     return response.json()
 
-async def write_bacnet_property(request: BACnetWritePropertyRequest) -> dict[str, str]:
+async def write_bacnet_property(request: BACnetWritePropertyRequest):
     """Write a property to a BACnet device."""
     from loguru import logger
-    logger.debug(request.model_dump())
+    logger.debug(f"we got hit with: {request.model_dump()}")
     response = await proxy_request(
         f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/write_property",
         "POST",
@@ -265,7 +277,7 @@ async def write_bacnet_property(request: BACnetWritePropertyRequest) -> dict[str
     )
     return response.json()
 
-async def read_bacnet_device_all(request: BACnetReadDeviceAllRequest) -> dict:
+async def read_bacnet_device_all(request: BACnetReadDeviceAllRequest, timeout: float = 600.0) -> dict:
     """Read all properties from a BACnet device."""
     try:
         from loguru import logger
@@ -273,7 +285,7 @@ async def read_bacnet_device_all(request: BACnetReadDeviceAllRequest) -> dict:
         response = await proxy_request(
             f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/bacnet/read_device_all",
             "POST",
-            timeout=600.0,
+            timeout=timeout,
             json=request.model_dump()
         )
         return response.json()
