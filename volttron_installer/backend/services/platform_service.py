@@ -32,7 +32,16 @@ class PlatformService:
         temp['config']['instance-name'] = temp['config'].pop('instance_name')
         temp['config']['messagebus']= temp['config'].pop('message_bus')
         temp['config']['address']=temp['config'].pop('vip_address')
-    
+        for x in temp['agents']:
+            temp['agents'][x]['agent_enabled'] =temp['agents'][x].pop('enabled')
+            temp['agents'][x]['agent_config']=temp['agents'][x].pop('config')
+            temp['agents'][x]['agent_tag']='listener'
+            temp['agents'][x]['agent_pypi_package']=temp['agents'][x].pop('pypi_package')
+            temp['agents'][x]['agent_pypi_package'] = 'volttron-listener'
+            temp['agents'][x]['agent_running']=temp['agents'][x].pop('running')
+            temp['agents'][x]['agent_state']=temp['agents'][x].pop('state')
+            
+        logger.debug(f"Temp contains: {temp}")
         async with aiofiles.open(definition_path.joinpath(f"{normalized_name}.yml"), 'w') as file:
             await file.write(yaml.dump(temp))
 
@@ -61,6 +70,8 @@ class PlatformService:
         if definition_path.exists():
             temp = definition.model_dump()
             temp['config']['instance-name'] = temp['config'].pop('instance_name')
+            temp['config']['messagebus']= temp['config'].pop('message_bus')
+            temp['config']['address']=temp['config'].pop('vip_address')
             async with aiofiles.open(definition_path, 'w') as file:
                 await file.write(yaml.dump(temp))
         else:
@@ -110,6 +121,7 @@ class PlatformService:
         if platform is None:
             raise FileNotFoundError(f"Platform {platform_id} not found.")
         platform.agents[agent.identity] = agent
+        logger.debug(f"agent is: {agent}")
         await self._update_platform(platform_id, platform)
 
     async def update_agent(self, platform_id: str, agent_id: str, updated_agent: AgentDefinition):

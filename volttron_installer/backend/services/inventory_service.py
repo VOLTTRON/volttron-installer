@@ -2,7 +2,7 @@ import yaml
 import threading
 from pathlib import Path
 from typing import Dict, Optional
-
+from loguru import logger
 from volttron_installer.settings import get_settings
 from ..models import HostEntry
 
@@ -35,7 +35,7 @@ class InventoryService:
         """Add a host to the inventory"""
         if entry.volttron_venv == "Null" or entry.volttron_venv =="":
             del entry.volttron_venv
-            
+        entry.host_configs_dir = f".{entry.name}_config"    
         with self._lock:
             self._internal_state['all']['hosts'][entry.name] = entry.model_dump()
             yaml.dump(self._internal_state, self.inventory_path.open('w'))
