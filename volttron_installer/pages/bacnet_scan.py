@@ -734,6 +734,14 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                         # Second column (30%) - Form entry
                         rx.vstack(
                             form_entry.form_entry(
+                                "Add to a new platform",
+                                rx.checkbox(
+                                    checked=BacnetScanState.selected_platform_form.add_to_new_platform,
+                                    on_change=lambda v: BacnetScanState.toggle_add_to_new_platform(v),
+                                    name="add_to_new_platform",
+                                ),
+                            ),
+                            form_entry.form_entry(
                                 "Path",
                                 rx.input(
                                     placeholder="Provide a path to save the registry config file",
@@ -741,7 +749,8 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                                     default_value="points.csv",
                                     name="path",
                                     disabled=rx.cond(
-                                        BacnetScanState.selected_platform_uids.length() == 0, # & make new platform checkbox is false
+                                        (BacnetScanState.selected_platform_uids.length() == 0)
+                                        & (BacnetScanState.selected_platform_form.add_to_new_platform == False),
                                         True,
                                         False
                                     ),
@@ -780,7 +789,8 @@ def add_to_registry_config_file_dialog() -> rx.Component:
                             size="2",
                             type="submit",
                             disabled=rx.cond(
-                                BacnetScanState.selected_platform_uids.length() == 0, # & add to new platform checkbox == false
+                                (BacnetScanState.selected_platform_uids.length() == 0)
+                                & (BacnetScanState.selected_platform_form.add_to_new_platform == False),
                                 True,
                                 False
                             ),

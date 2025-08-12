@@ -643,8 +643,8 @@ class PlatformPageState(rx.State):
         yield rx.toast.info("Changes Reverted.")
 
     @rx.event
-    async def generate_new_platform(self):
-        new_uid = self.generate_unique_uid()
+    def generate_new_platform(self, defined_uid: str = None):
+        new_uid = self.generate_unique_uid() if defined_uid is None else defined_uid
         new_host = HostEntryModelView(id="", ansible_user="", ansible_host="")
         new_platform = PlatformModelView(config=PlatformConfigModelView(), in_file=False)
         new_platform.safe_platform = new_platform.to_dict()
@@ -1623,7 +1623,7 @@ class BacnetScanState(rx.State):
     local_ip_info: LocalIPModel = LocalIPModel()
     windows_host_ip_info: WindowsHostIPModel = WindowsHostIPModel()
     all_device_scan_point_status: list[BACnetDevicePointScanStatus] = []
-
+    selected_platform_form: SelectedPlatformForm = SelectedPlatformForm()
 
     _platforms_have_platform_driver: list[str] = []
 
@@ -1717,8 +1717,7 @@ class BacnetScanState(rx.State):
         # Check if any selected platform lacks a driver
         for platform_uid in self.selected_platform_uids:
             # If platform not in our dictionary or its value is False
-            if (platform_uid not in self._platforms_have_platform_driver or 
-                not self._platforms_have_platform_driver[platform_uid]):
+            if platform_uid not in self._platforms_have_platform_driver:
                 return True
         
         # All selected platforms have drivers
@@ -2221,6 +2220,7 @@ class BacnetScanState(rx.State):
 
     @rx.event
     def close_dialogs(self):
+        self.selected_platform_form.add_to_new_platform = False
         self.selected_platform_uids = []
         self.dialog_registry_open = False
         self.dialog_select_platform_open = False
@@ -2741,11 +2741,15 @@ class BacnetScanState(rx.State):
         logger.debug(f"Selected platforms: {self.selected_platform_uids}")
         logger.debug(f"Platforms with platform.drivers: {self._platforms_have_platform_driver}")
         return
+    
+    @rx.event
+    def toggle_add_to_new_platform(self, value):
+        self.selected_platform_form.add_to_new_platform = value
 
     @rx.event
     def on_add_to_registry_config_confirm(self, form_data):
         """Handle the confirmation to add selected points to registry config."""
-        if not hasattr(self, "selected_platform_uids") or not self.selected_platform_uids:
+        if not hasattr(self, "selected_platform_uids") or not self.selected_platform_uids and self.selected_platform_form.add_to_new_platform == False:
             logger.debug("No platforms selected for registry config. Or cancelled")
             return
             
@@ -2766,6 +2770,15 @@ class BacnetScanState(rx.State):
         # Add the registry config to each selected platform
         for platform_uid in self.selected_platform_uids:
             yield BacnetScanState.on_add_to_registry_config(platform_uid, path, escaped_csv_data)
+
+        add_to_new_platform: bool = form_data.get("add_to_new_platform") == "on"
+
+        if add_to_new_platform:
+            generated_uid = generate_unique_uid()
+            yield rx.toast.info("Routing to the new platform...")
+            yield PlatformPageState.generate_new_platform(generated_uid)
+            yield BacnetScanState.on_add_to_registry_config(generated_uid, path, escaped_csv_data)
+            self.selected_platform_form.add_to_new_platform = False
 
     @rx.event
     async def on_add_to_registry_config(self, platform_uid: str, path: str, escaped_csv_data: str):
