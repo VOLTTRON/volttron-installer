@@ -2003,7 +2003,8 @@ class BacnetScanState(rx.State):
                         device_address=device.scanned_ip_target,
                         device_object_identifier=device.deviceIdentifier,
                         page_size=self._point_per_page_limit,
-                        page=current_page
+                        page=current_page,
+                        force_fresh_read=True
                     )
                 )
                 
@@ -2575,6 +2576,8 @@ class BacnetScanState(rx.State):
         
         try:
             scan_results: ScanResponse = await scan_bacnet_subnet(self.scan_ip_range.network_string)
+            logger.debug(f"Raw scan_results: {scan_results}")
+            logger.debug(f"scan_results.devices: {scan_results.devices}")
             
             # Get devices 
             devices = [
@@ -2610,8 +2613,37 @@ class BacnetScanState(rx.State):
                     continue  # Skip this device and move to the next one instead of breaking
                 
                 # Only execute these lines if the device was successfully read
-                device.object_name = res["properties"].get("object-name", "UNKNOWN")
-                points: list = res["properties"]["object-list"]
+                logger.debug(f"Device {device.scanned_ip_target} response structure: {list(res.keys())}")
+                
+                # Check the response structure - it could be either format
+                if "result" in res:
+                    # Successful response format: {"result": {...}, "error": {...}}
+                    device.object_name = res["result"].get("object-name", "UNKNOWN")
+                    
+                    # Check if object-list exists in the result
+                    if "object-list" not in res["result"]:
+                        logger.debug(f"Device {device.scanned_ip_target} does not have 'object-list' property. Available properties: {list(res['result'].keys())}")
+                        device.read_device_all_failed = True
+                        continue  # Skip this device and move to the next one
+                    
+                    points: list = res["result"]["object-list"]
+                elif "properties" in res:
+                    # Error response format: {"status": "error", "properties": "", "error": ...}
+                    logger.debug(f"Device {device.scanned_ip_target} returned error response format: {res}")
+                    device.object_name = "UNKNOWN"
+                    device.read_device_all_failed = True
+                    continue  # Skip this device and move to the next one
+                else:
+                    # Unknown response format
+                    logger.debug(f"Device {device.scanned_ip_target} returned unknown response format. Response keys: {list(res.keys())}")
+                    device.object_name = "UNKNOWN"
+                    device.read_device_all_failed = True
+                    continue  # Skip this device and move to the next one
+                
+                if not points or len(points) <= 1:
+                    logger.debug(f"Device {device.scanned_ip_target} has no scannable points (object-list length: {len(points) if points else 0})")
+                    continue  # Skip devices with no points to scan
+                
                 points_amount: int = len(points) - 1
                 logger.debug(f"we have {points_amount} points to scan for on device {device.scanned_ip_target}")
                 # logger.debug(f"we are going to go through {len(points) - 1}")
