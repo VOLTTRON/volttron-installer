@@ -2048,10 +2048,17 @@ class BacnetScanState(rx.State):
                             logger.info("Skipping `host` device of the points within the object-list")
                             continue
 
-                        # Extract properties
-                        point_name = properties.object_name or f"Unknown-{object_identifier}"
-                        units = properties.units
-                        present_value = properties.present_value
+                        # Extract properties - handle both dict and object formats
+                        if isinstance(properties, dict):
+                            # Dictionary format from API response
+                            point_name = properties.get("object_name") or f"Unknown-{object_identifier}"
+                            units = properties.get("units")
+                            present_value = properties.get("present_value")
+                        else:
+                            # Object format (fallback for other response types)
+                            point_name = getattr(properties, 'object_name', None) or f"Unknown-{object_identifier}"
+                            units = getattr(properties, 'units', None)
+                            present_value = getattr(properties, 'present_value', None)
                         
                         # Determine if point is writable and never writable
                         writable: bool = False
@@ -2065,41 +2072,42 @@ class BacnetScanState(rx.State):
                         else:
                             logger.warning(f"Object type {object_type} not found in writable map, using default, writable=False, never_writable=False")
                         
-                        # Lets try to read property the notes
+                        # Try to read the notes property (optional - not all devices/points support this)
+                        notes_value = ""  # Default value
                         try:
-                            type_int = ""
+                            # Only attempt to read notes for known object types (skip if type is unknown)
+                            type_int = None
                             for k, v in self.writable_map.items():
                                 if v.type_name == object_type:
                                     type_int = v.type_name
                                     break
-                            else:
-                                logger.warning(f"Object type {object_type} not found in writable map, using default")
-                                type_int = "unknown"
+                            
+                            # Only try to read notes if we have a valid object type 
+                            # and it's not one of the problem types
+                            if type_int and type_int not in ["unknown", "device", "network-port"]:
+                                res_notes = await read_bacnet_property(
+                                    BACnetReadPropertyRequest(
+                                        device_address=device.scanned_ip_target,
+                                        object_identifier=f"{type_int},{index_value}",
+                                        property_identifier="description"  # Use 'description' instead of 'notes'
+                                    ),
+                                    TIMEOUT=0.05
+                                )
+                                data = res_notes.json()
                                 
-                            res_notes = await read_bacnet_property(
-                                BACnetReadPropertyRequest(
-                                    device_address=device.scanned_ip_target,
-                                    object_identifier=f"{type_int},{index_value}",
-                                    property_identifier="notes"
-                                ),
-                                TIMEOUT=0.05
-                            )
-                            data = res_notes.json()
-                            
-                            # Extract notes value from response if available
-                            notes_value = ""  # Default value
-                            
-                            logger.debug(f"Response for notes property: {data}")
-                            notes_value=data["result"]["_value"]                            
-                            logger.debug(f"Retrieved notes for {object_identifier}: {notes_value}")
-                            
+                                # Extract notes value from response if available
+                                if "result" in data and "_value" in data["result"]:
+                                    notes_value = data["result"]["_value"]
+                                    logger.debug(f"Retrieved description for {object_identifier}: {notes_value}")
+                                else:
+                                    logger.debug(f"No description value found for {object_identifier}")
+                            else:
+                                logger.debug(f"Skipping notes read for {object_identifier} (type: {object_type})")
+                                
                         except Exception as e:
                             # If notes property read fails, use default value of ""
                             notes_value = ""
-                            logger.debug(f"Failed to read notes property for {object_identifier}: {e}")
-                        except Exception as e:
-                            import traceback
-                            logger.debug(f"an error occurred: {traceback.format_exc()}")
+                            logger.debug(f"Failed to read description property for {object_identifier}: {e}")
                             
                         # Create point model
                         point = BACnetDevicePointModelView(
@@ -2627,6 +2635,18 @@ class BacnetScanState(rx.State):
                         continue  # Skip this device and move to the next one
                     
                     points: list = res["result"]["object-list"]
+                elif "properties" in res and "result" in res["properties"]:
+                    # New response format: {"status": "done", "properties": {"result": {...}}, "error": ...}
+                    logger.debug(f"Device {device.scanned_ip_target} using properties.result format")
+                    device.object_name = res["properties"]["result"].get("object-name", "UNKNOWN")
+                    
+                    # Check if object-list exists in the result
+                    if "object-list" not in res["properties"]["result"]:
+                        logger.debug(f"Device {device.scanned_ip_target} does not have 'object-list' property. Available properties: {list(res['properties']['result'].keys())}")
+                        device.read_device_all_failed = True
+                        continue  # Skip this device and move to the next one
+                    
+                    points: list = res["properties"]["result"]["object-list"]
                 elif "properties" in res:
                     # Error response format: {"status": "error", "properties": "", "error": ...}
                     logger.debug(f"Device {device.scanned_ip_target} returned error response format: {res}")
