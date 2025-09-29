@@ -3,7 +3,7 @@ from .settings import get_settings
 from .model_views import *
 from .utils.create_component_uid import generate_unique_uid
 from .models import *
-from .utils.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
+from .utils.conversion_methods import json_string_to_csv_string, csv_string_to_usable_dict, identify_string_format, csv_string_to_json_string
 from .utils.validate_content import check_json, check_csv, check_path, check_yaml, check_regular_expression
 from .utils.create_csv_string import create_csv_string, create_and_validate_csv_string
 from .navigation.state import NavigationState
@@ -16,6 +16,7 @@ from .utils import delete_file
 from loguru import logger
 from typing import Dict, Optional, List
 from .thin_endpoint_wrappers import *
+from .thin_endpoint_wrappers import discover_networks  # Explicit import for the new function
 import string, random, json, csv, yaml, re, io, asyncio, math
 from copy import deepcopy
 from typing import Literal
@@ -1586,7 +1587,7 @@ class BacnetScanState(rx.State):
     selected_property_tab: Literal["read", "write"] = "read"  # Default to "read" tab
     discovered_devices: list[BACnetDeviceModelView] = []  # Store discovered devices
     selected_device: BACnetDeviceModelView | None = None  # Store the currently selected device
-    ip_detection_mode: Literal["", "local_ip", "windows_host_ip"] = ""  # "local_ip", "windows_host_ip" or ""
+    ip_detection_mode: Literal["", "local_ip", "windows_host_ip", "network_discovery"] = ""  # "local_ip", "windows_host_ip", "network_discovery" or ""
     expanded_device_index: int = -1
 
     scanning_bacnet_range: bool = False
@@ -1629,6 +1630,10 @@ class BacnetScanState(rx.State):
     # UI driven models
     local_ip_info: LocalIPModel = LocalIPModel()
     windows_host_ip_info: WindowsHostIPModel = WindowsHostIPModel()
+    network_discovery_info: NetworkDiscoveryModel = NetworkDiscoveryModel()
+    discovered_networks: list[str] = []  # Store the list of discovered networks
+    selected_network: str = ""  # Currently selected network for scanning
+    is_discovering_networks: bool = False  # Loading state for network discovery
     all_device_scan_point_status: list[BACnetDevicePointScanStatus] = []
 
 
@@ -2310,8 +2315,8 @@ class BacnetScanState(rx.State):
             yield rx.toast.info(f"Selected device: {selected_device.object_name}")
     
     @rx.event
-    def set_ip_detection_mode(self, mode: Literal["host_ip", "local_ip"]):
-        """Switch between local IP and Windows host IP mode."""
+    def set_ip_detection_mode(self, mode: Literal["windows_host_ip", "local_ip", "network_discovery"]):
+        """Switch between local IP, Windows host IP, and network discovery mode."""
         self.ip_detection_mode = mode
         yield BacnetScanState.get_network_info()
 
@@ -2322,8 +2327,10 @@ class BacnetScanState(rx.State):
         yield rx.toast.info(f"Retrieving network information...")        
         if self.ip_detection_mode == "local_ip":
             yield BacnetScanState.handle_get_local_ip()
-        else:
+        elif self.ip_detection_mode == "windows_host_ip":
             yield BacnetScanState.handle_get_windows_host_ip()
+        elif self.ip_detection_mode == "network_discovery":
+            yield BacnetScanState.handle_discover_networks()
 
         self.pinging_ip = False
         yield
@@ -2762,6 +2769,42 @@ class BacnetScanState(rx.State):
             yield rx.toast.success("Retrieved Host IP")
         except Exception as e:
             logger.debug(f"There was an error getting local ip info {e}")
+
+    @rx.event
+    async def handle_discover_networks(self):
+        """Handle comprehensive network discovery."""
+        try:
+            # Set loading state
+            self.is_discovering_networks = True
+            self.discovered_networks = []  # Clear previous results
+            yield  # Yield to update UI immediately
+            
+            # Perform the discovery
+            self.network_discovery_info = await discover_networks(verbose=False)
+            
+            # Process results
+            if self.network_discovery_info.status == "done":
+                self.discovered_networks = self.network_discovery_info.networks
+                # Auto-select the first network if available
+                if self.discovered_networks:
+                    self.selected_network = self.discovered_networks[0]
+                    self.scan_ip_range.network_string = self.selected_network
+                yield rx.toast.success(f"Discovered {len(self.discovered_networks)} networks using comprehensive analysis")
+            else:
+                yield rx.toast.error(f"Network discovery failed: {self.network_discovery_info.error}")
+        except Exception as e:
+            logger.debug(f"There was an error during network discovery: {e}")
+            yield rx.toast.error("Network discovery failed")
+        finally:
+            # Always clear loading state
+            self.is_discovering_networks = False
+
+    @rx.event
+    def select_discovered_network(self, network: str):
+        """Select a discovered network for scanning."""
+        self.selected_network = network
+        self.scan_ip_range.network_string = network
+        yield rx.toast.info(f"Selected network: {network}")
 
     # Other
     @rx.event

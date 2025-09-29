@@ -6,7 +6,7 @@ from ..backend.models import AgentType, HostEntry, PlatformDefinition, \
     PlatformDeploymentStatus, CreateAgentRequest, ToolRequest, ToolStatusResponse, \
     BACnetReadDeviceAllRequest, BACnetDevice, BACnetReadPropertyRequest, BACnetScanResults, \
     BACnetWritePropertyRequest, BACnetReadObjectListRequest
-from ..models import WindowsHostIPModel, LocalIPModel
+from ..models import WindowsHostIPModel, LocalIPModel, NetworkDiscoveryModel
 from rxconfig import config
 
 from bacnet_scan_tool.models import ScanResponse, ObjectListNamesResponse
@@ -215,6 +215,12 @@ async def get_bacnet_local_ip(target_ip: str = None) -> LocalIPModel:
 async def get_bacnet_host_ip() -> WindowsHostIPModel:
     """Get Windows host IP address for WSL2 users."""
     return await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/get_host_ip", "GET")
+
+@with_model(NetworkDiscoveryModel)
+async def discover_networks(verbose: bool = False) -> NetworkDiscoveryModel:
+    """Discover available networks for BACnet scanning using comprehensive network analysis."""
+    params = {"verbose": verbose}
+    return await proxy_request(f"{API_BASE_URL}{BACNET_SCAN_TOOL_PREFIX}/discover_networks", "GET", params=params)
 
 async def get_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
     return await proxy_request(f"{API_BASE_URL}{TOOL_PROXY_PREFIX}/{tool_name}/{path}", "GET", **kwargs)

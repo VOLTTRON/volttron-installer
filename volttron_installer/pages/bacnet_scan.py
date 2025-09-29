@@ -1384,7 +1384,7 @@ def network_information_card() -> rx.Component:
                 rx.text("Network Information", as_="label", html_for="local-ip"),
                 rx.cond(
                     BacnetScanState.ip_detection_mode=="",
-                    rx.text("Click the button to retrieve specific network information", size="2", color="gray"),
+                    rx.text("Click a button to retrieve network information", size="2", color="gray"),
                     rx.cond(
                         BacnetScanState.pinging_ip,
                         rx.hstack(
@@ -1397,26 +1397,87 @@ def network_information_card() -> rx.Component:
                             align="center",
                             justify="center"
                         ),
-                        rx.grid(
+                        rx.cond(
+                            BacnetScanState.ip_detection_mode=="local_ip",
+                            # Local IP info
+                            rx.grid(
+                                rx.text("Local IP"),
+                                rx.text(BacnetScanState.local_ip_info.local_ip),
+                                rx.text("Subnet Mask"),
+                                rx.text(BacnetScanState.local_ip_info.subnet_mask),
+                                rx.text("CIDR Notation"),
+                                rx.text(BacnetScanState.local_ip_info.cidr),
+                                columns="2",
+                                spacing="2"
+                            ),
                             rx.cond(
-                                BacnetScanState.ip_detection_mode=="local_ip",
-                                # Local IP info
-                                rx.fragment(
-                                    rx.text("Local IP"),
-                                    rx.text(BacnetScanState.local_ip_info.local_ip),
-                                    rx.text("Subnet Mask"),
-                                    rx.text(BacnetScanState.local_ip_info.subnet_mask),
-                                    rx.text("CIDR Notation"),
-                                    rx.text(BacnetScanState.local_ip_info.cidr)
-                                ),
+                                BacnetScanState.ip_detection_mode=="windows_host_ip",
                                 # Windows Host IP info
-                                rx.fragment(
+                                rx.grid(
                                     rx.text("Host IP"),
                                     rx.text(BacnetScanState.windows_host_ip_info.address),
+                                    columns="2",
+                                    spacing="2"
+                                ),
+                                # Network Discovery info
+                                rx.vstack(
+                                    rx.cond(
+                                        BacnetScanState.is_discovering_networks,
+                                        # Loading state
+                                        rx.vstack(
+                                            rx.hstack(
+                                                rx.spinner(size="3"),
+                                                rx.text("Discovering networks...", weight="bold"),
+                                                spacing="2",
+                                                align="center"
+                                            ),
+                                            rx.text("This may take a few seconds", size="2", color="gray"),
+                                            spacing="2",
+                                            align="center"
+                                        ),
+                                        # Results or no results
+                                        rx.vstack(
+                                            rx.text(
+                                                rx.cond(
+                                                    BacnetScanState.discovered_networks,
+                                                    "Networks discovered",
+                                                    "No networks discovered yet"
+                                                ), 
+                                                weight="bold"
+                                            ),
+                                            rx.cond(
+                                                BacnetScanState.discovered_networks,
+                                                rx.vstack(
+                                                    rx.text("Select a network to scan:", size="2", color="gray"),
+                                                    rx.foreach(
+                                                        BacnetScanState.discovered_networks,
+                                                        lambda network: rx.button(
+                                                            rx.hstack(
+                                                                rx.icon("wifi", size=16),
+                                                                rx.text(network),
+                                                                justify="start",
+                                                                align="center",
+                                                                spacing="2"
+                                                            ),
+                                                            on_click=BacnetScanState.select_discovered_network(network),
+                                                            variant=rx.cond(BacnetScanState.selected_network != network, "outline", "solid"),
+                                                            size="2",
+                                                            width="100%"
+                                                        )
+                                                    ),
+                                                    spacing="1",
+                                                    width="100%"
+                                                ),
+                                                rx.text("No networks found", size="2", color="red")
+                                            ),
+                                            spacing="2",
+                                            width="100%"
+                                        )
+                                    ),
+                                    spacing="2",
+                                    width="100%"
                                 )
-                            ),
-                            columns="2",
-                            spacing="2"
+                            )
                         )
                     )
                 ),
@@ -1424,22 +1485,6 @@ def network_information_card() -> rx.Component:
             margin_bottom="0.8rem"
         ),
         rx.hstack(  # CardFooter
-            # rx.button(
-            #     rx.cond(
-            #         (BacnetScanState.ip_detection_mode=="local_ip") & 
-            #         (BacnetScanState.pinging_ip),
-            #         rx.spinner(),    
-            #         rx.icon("wifi", size=16),
-            #     ),
-            #     rx.text("Get Local IP"),
-            #     on_click=lambda: BacnetScanState.set_ip_detection_mode("local_ip"),
-            #     disabled=rx.cond(
-            #         (BacnetScanState.pinging_ip) | (BacnetScanState.proxy_up == False),
-            #         True,
-            #         False
-            #     ),
-            #     variant="solid"
-            # ),
             rx.button(
                 rx.cond(
                     (BacnetScanState.ip_detection_mode=="windows_host_ip") & 
@@ -1454,8 +1499,26 @@ def network_information_card() -> rx.Component:
                     True,
                     False
                 ),
+                variant="outline",
+                width="48%",
+                justify="center",
+            ),
+            rx.button(
+                rx.cond(
+                    (BacnetScanState.ip_detection_mode=="network_discovery") & 
+                    (BacnetScanState.pinging_ip),
+                    rx.spinner(),
+                    rx.icon("wifi", size=16),
+                ),
+                rx.text("Discover Networks"),
+                on_click=lambda: BacnetScanState.set_ip_detection_mode("network_discovery"),
+                disabled=rx.cond(
+                    (BacnetScanState.pinging_ip) | (BacnetScanState.proxy_up == False),
+                    True,
+                    False
+                ),
                 variant="solid",
-                width="100%",
+                width="48%",
                 justify="center",
             ),
             justify="between",

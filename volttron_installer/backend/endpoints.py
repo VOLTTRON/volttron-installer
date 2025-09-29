@@ -573,6 +573,23 @@ async def bacnet_scan_get_host_ip() -> dict:
         return data
     except ApiError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+@bacnet_scan_tool_router.get("/discover_networks", response_model=dict)
+async def bacnet_discover_networks(verbose: bool = False) -> dict:
+    """Discover available networks for BACnet scanning using comprehensive network analysis."""
+    from .tool_proxy_factory import ApiError
+
+    url = get_api_url.get_api_url("/api/tool_proxy/bacnet_scan_tool/discover_networks")
+    try:
+        response = await ToolProxyFactory.request(
+            url,
+            "GET",
+            params={"verbose": verbose}
+        )
+        data = response.json()
+        return data
+    except ApiError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
     
 @bacnet_scan_tool_router.post("/bacnet/scan_subnet", response_model=ScanResponse)
 async def bacnet_scan_subnet(network_str: str | None = None) -> dict[str, str]:
