@@ -131,3 +131,7 @@ class BACnetDevicePointScanStatus(rx.Base):
     message: str
     device_name: str
     percent_finished: int
+
+class SelectedPlatformForm(rx.Base):
+    path: str = ""
+    add_to_new_platform: bool = False
