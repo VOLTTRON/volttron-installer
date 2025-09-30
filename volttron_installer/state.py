@@ -2116,7 +2116,7 @@ class BacnetScanState(rx.State):
                                 logger.debug(f"Skipping notes read for {object_identifier} (type: {object_type})")
                                 
                         except Exception as e:
-                            # If notes property read fails, use default value of ""
+                            # If description property read fails, use default value of ""
                             notes_value = ""
                             logger.debug(f"Failed to read description property for {object_identifier}: {e}")
                             
