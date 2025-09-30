@@ -272,13 +272,54 @@ def configuration_tab_content() -> rx.Component:
                                             )
                                         ),
                                         form_entry.form_entry(
+                                            "Host Configs Directory",
+                                            rx.input(
+                                                value= working_platform.host.host_configs_dir,
+                                                on_change=lambda v: State.update_detail("host_configs_dir", v),
+                                                size="3",
+                                                required=True,
+                                            ),
+                                            below_component= rx.fragment(
+                                                rx.cond(
+                                                    State.connection_host_configs_dir_validity == False,
+                                                    rx.text(
+                                                        "This must be unique for every VOLTTRON under the same host.", 
+                                                        color_scheme="red"
+                                                    )
+                                                ),
+                                                rx.cond(
+                                                    State.connection_host_configs_dir_path_validity == False,
+                                                    rx.text(
+                                                        "Must be a valid path.", 
+                                                        color_scheme="red"
+                                                    )
+                                                ),
+                                            )
+                                        ),
+                                        form_entry.form_entry(
                                             "VOLTTRON Home",
                                             rx.input(
                                                 value= State.working_platform.host.volttron_home,
                                                 on_change=lambda v: State.update_detail("volttron_home", v),
                                                 size="3",
                                                 required=True,
-                                            )
+                                            ),
+                                            below_component=rx.fragment(
+                                                rx.cond(
+                                                    State.connection_volttron_home_validity == False,
+                                                    rx.text(
+                                                        "This must be unique for every VOLTTRON under the same host.", 
+                                                        color_scheme="red"
+                                                    )
+                                                ),
+                                                rx.cond(
+                                                    State.connection_volttron_home_path_validity == False,
+                                                    rx.text(
+                                                        "Must be a valid path.", 
+                                                        color_scheme="red"
+                                                    )
+                                                )
+                                            ),
                                         ),
                                     )
                                 ),

@@ -138,7 +138,7 @@ class HostEntryModelView(rx.Base):
     https_proxy: str = ""
     volttron_venv: str = ""
     volttron_home: str = "~/.volttron"
-    host_configs_dir: str | None = None
+    host_configs_dir: str = "~/.volttron"
 
     def to_dict(self) -> dict[str, str]:
         return {
