@@ -2083,7 +2083,7 @@ class BacnetScanState(rx.State):
                         else:
                             logger.warning(f"Object type {object_type} not found in writable map, using default, writable=False, never_writable=False")
                         
-                        # Try to read the notes property (optional - not all devices/points support this)
+                        # Try to read the description property (optional - not all devices/points support this)
                         notes_value = ""  # Default value
                         try:
                             # Only attempt to read notes for known object types (skip if type is unknown)
