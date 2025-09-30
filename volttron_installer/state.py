@@ -3,7 +3,7 @@ from .settings import get_settings
 from .model_views import *
 from .utils.create_component_uid import generate_unique_uid
 from .models import *
-from .utils.conversion_methods import json_string_to_csv_string, csv_string_to_json_string, identify_string_format, csv_string_to_usable_dict
+from .utils.conversion_methods import json_string_to_csv_string, csv_string_to_usable_dict, identify_string_format, csv_string_to_json_string
 from .utils.validate_content import check_json, check_csv, check_path, check_yaml, check_regular_expression
 from .utils.create_csv_string import create_csv_string, create_and_validate_csv_string
 from .navigation.state import NavigationState
@@ -16,6 +16,7 @@ from .utils import delete_file
 from loguru import logger
 from typing import Dict, Optional, List
 from .thin_endpoint_wrappers import *
+from .thin_endpoint_wrappers import discover_networks  # Explicit import for the new function
 import string, random, json, csv, yaml, re, io, asyncio, math
 from copy import deepcopy
 from typing import Literal
@@ -1586,7 +1587,7 @@ class BacnetScanState(rx.State):
     selected_property_tab: Literal["read", "write"] = "read"  # Default to "read" tab
     discovered_devices: list[BACnetDeviceModelView] = []  # Store discovered devices
     selected_device: BACnetDeviceModelView | None = None  # Store the currently selected device
-    ip_detection_mode: Literal["", "local_ip", "windows_host_ip"] = ""  # "local_ip", "windows_host_ip" or ""
+    ip_detection_mode: Literal["", "local_ip", "windows_host_ip", "network_discovery"] = ""  # "local_ip", "windows_host_ip", "network_discovery" or ""
     expanded_device_index: int = -1
 
     scanning_bacnet_range: bool = False
@@ -1629,6 +1630,16 @@ class BacnetScanState(rx.State):
     # UI driven models
     local_ip_info: LocalIPModel = LocalIPModel()
     windows_host_ip_info: WindowsHostIPModel = WindowsHostIPModel()
+    network_discovery_info: NetworkDiscoveryModel = NetworkDiscoveryModel()
+    discovered_networks: list[str] = []  # Store the list of discovered networks
+    selected_network: str = ""  # Currently selected network for scanning
+    is_discovering_networks: bool = False  # Loading state for network discovery
+    
+    # Info dialog states
+    show_proxy_info_dialog: bool = False
+    show_network_info_dialog: bool = False
+    show_scan_info_dialog: bool = False
+    
     all_device_scan_point_status: list[BACnetDevicePointScanStatus] = []
 
 
@@ -2003,7 +2014,8 @@ class BacnetScanState(rx.State):
                         device_address=device.scanned_ip_target,
                         device_object_identifier=device.deviceIdentifier,
                         page_size=self._point_per_page_limit,
-                        page=current_page
+                        page=current_page,
+                        force_fresh_read=True
                     )
                 )
                 
@@ -2047,10 +2059,17 @@ class BacnetScanState(rx.State):
                             logger.info("Skipping `host` device of the points within the object-list")
                             continue
 
-                        # Extract properties
-                        point_name = properties.object_name or f"Unknown-{object_identifier}"
-                        units = properties.units
-                        present_value = properties.present_value
+                        # Extract properties - handle both dict and object formats
+                        if isinstance(properties, dict):
+                            # Dictionary format from API response
+                            point_name = properties.get("object_name") or f"Unknown-{object_identifier}"
+                            units = properties.get("units")
+                            present_value = properties.get("present_value")
+                        else:
+                            # Object format (fallback for other response types)
+                            point_name = getattr(properties, 'object_name', None) or f"Unknown-{object_identifier}"
+                            units = getattr(properties, 'units', None)
+                            present_value = getattr(properties, 'present_value', None)
                         
                         # Determine if point is writable and never writable
                         writable: bool = False
@@ -2064,41 +2083,42 @@ class BacnetScanState(rx.State):
                         else:
                             logger.warning(f"Object type {object_type} not found in writable map, using default, writable=False, never_writable=False")
                         
-                        # Lets try to read property the notes
+                        # Try to read the description property (optional - not all devices/points support this)
+                        notes_value = ""  # Default value
                         try:
-                            type_int = ""
+                            # Only attempt to read notes for known object types (skip if type is unknown)
+                            type_int = None
                             for k, v in self.writable_map.items():
                                 if v.type_name == object_type:
                                     type_int = v.type_name
                                     break
-                            else:
-                                logger.warning(f"Object type {object_type} not found in writable map, using default")
-                                type_int = "unknown"
+                            
+                            # Only try to read notes if we have a valid object type 
+                            # and it's not one of the problem types
+                            if type_int and type_int not in ["unknown", "device", "network-port"]:
+                                res_notes = await read_bacnet_property(
+                                    BACnetReadPropertyRequest(
+                                        device_address=device.scanned_ip_target,
+                                        object_identifier=f"{type_int},{index_value}",
+                                        property_identifier="description"  # Use 'description' instead of 'notes'
+                                    ),
+                                    TIMEOUT=0.05
+                                )
+                                data = res_notes.json()
                                 
-                            res_notes = await read_bacnet_property(
-                                BACnetReadPropertyRequest(
-                                    device_address=device.scanned_ip_target,
-                                    object_identifier=f"{type_int},{index_value}",
-                                    property_identifier="notes"
-                                ),
-                                TIMEOUT=0.05
-                            )
-                            data = res_notes.json()
-                            
-                            # Extract notes value from response if available
-                            notes_value = ""  # Default value
-                            
-                            logger.debug(f"Response for notes property: {data}")
-                            notes_value=data["result"]["_value"]                            
-                            logger.debug(f"Retrieved notes for {object_identifier}: {notes_value}")
-                            
+                                # Extract notes value from response if available
+                                if "result" in data and "_value" in data["result"]:
+                                    notes_value = data["result"]["_value"]
+                                    logger.debug(f"Retrieved description for {object_identifier}: {notes_value}")
+                                else:
+                                    logger.debug(f"No description value found for {object_identifier}")
+                            else:
+                                logger.debug(f"Skipping notes read for {object_identifier} (type: {object_type})")
+                                
                         except Exception as e:
-                            # If notes property read fails, use default value of ""
+                            # If description property read fails, use default value of ""
                             notes_value = ""
-                            logger.debug(f"Failed to read notes property for {object_identifier}: {e}")
-                        except Exception as e:
-                            import traceback
-                            logger.debug(f"an error occurred: {traceback.format_exc()}")
+                            logger.debug(f"Failed to read description property for {object_identifier}: {e}")
                             
                         # Create point model
                         point = BACnetDevicePointModelView(
@@ -2301,8 +2321,8 @@ class BacnetScanState(rx.State):
             yield rx.toast.info(f"Selected device: {selected_device.object_name}")
     
     @rx.event
-    def set_ip_detection_mode(self, mode: Literal["host_ip", "local_ip"]):
-        """Switch between local IP and Windows host IP mode."""
+    def set_ip_detection_mode(self, mode: Literal["windows_host_ip", "local_ip", "network_discovery"]):
+        """Switch between local IP, Windows host IP, and network discovery mode."""
         self.ip_detection_mode = mode
         yield BacnetScanState.get_network_info()
 
@@ -2313,8 +2333,10 @@ class BacnetScanState(rx.State):
         yield rx.toast.info(f"Retrieving network information...")        
         if self.ip_detection_mode == "local_ip":
             yield BacnetScanState.handle_get_local_ip()
-        else:
+        elif self.ip_detection_mode == "windows_host_ip":
             yield BacnetScanState.handle_get_windows_host_ip()
+        elif self.ip_detection_mode == "network_discovery":
+            yield BacnetScanState.handle_discover_networks()
 
         self.pinging_ip = False
         yield
@@ -2575,6 +2597,8 @@ class BacnetScanState(rx.State):
         
         try:
             scan_results: ScanResponse = await scan_bacnet_subnet(self.scan_ip_range.network_string)
+            logger.debug(f"Raw scan_results: {scan_results}")
+            logger.debug(f"scan_results.devices: {scan_results.devices}")
             
             # Get devices 
             devices = [
@@ -2610,8 +2634,49 @@ class BacnetScanState(rx.State):
                     continue  # Skip this device and move to the next one instead of breaking
                 
                 # Only execute these lines if the device was successfully read
-                device.object_name = res["properties"].get("object-name", "UNKNOWN")
-                points: list = res["properties"]["object-list"]
+                logger.debug(f"Device {device.scanned_ip_target} response structure: {list(res.keys())}")
+                
+                # Check the response structure - it could be either format
+                if "result" in res:
+                    # Successful response format: {"result": {...}, "error": {...}}
+                    device.object_name = res["result"].get("object-name", "UNKNOWN")
+                    
+                    # Check if object-list exists in the result
+                    if "object-list" not in res["result"]:
+                        logger.debug(f"Device {device.scanned_ip_target} does not have 'object-list' property. Available properties: {list(res['result'].keys())}")
+                        device.read_device_all_failed = True
+                        continue  # Skip this device and move to the next one
+                    
+                    points: list = res["result"]["object-list"]
+                elif "properties" in res and "result" in res["properties"]:
+                    # New response format: {"status": "done", "properties": {"result": {...}}, "error": ...}
+                    logger.debug(f"Device {device.scanned_ip_target} using properties.result format")
+                    device.object_name = res["properties"]["result"].get("object-name", "UNKNOWN")
+                    
+                    # Check if object-list exists in the result
+                    if "object-list" not in res["properties"]["result"]:
+                        logger.debug(f"Device {device.scanned_ip_target} does not have 'object-list' property. Available properties: {list(res['properties']['result'].keys())}")
+                        device.read_device_all_failed = True
+                        continue  # Skip this device and move to the next one
+                    
+                    points: list = res["properties"]["result"]["object-list"]
+                elif "properties" in res:
+                    # Error response format: {"status": "error", "properties": "", "error": ...}
+                    logger.debug(f"Device {device.scanned_ip_target} returned error response format: {res}")
+                    device.object_name = "UNKNOWN"
+                    device.read_device_all_failed = True
+                    continue  # Skip this device and move to the next one
+                else:
+                    # Unknown response format
+                    logger.debug(f"Device {device.scanned_ip_target} returned unknown response format. Response keys: {list(res.keys())}")
+                    device.object_name = "UNKNOWN"
+                    device.read_device_all_failed = True
+                    continue  # Skip this device and move to the next one
+                
+                if not points or len(points) <= 1:
+                    logger.debug(f"Device {device.scanned_ip_target} has no scannable points (object-list length: {len(points) if points else 0})")
+                    continue  # Skip devices with no points to scan
+                
                 points_amount: int = len(points) - 1
                 logger.debug(f"we have {points_amount} points to scan for on device {device.scanned_ip_target}")
                 # logger.debug(f"we are going to go through {len(points) - 1}")
@@ -2710,6 +2775,73 @@ class BacnetScanState(rx.State):
             yield rx.toast.success("Retrieved Host IP")
         except Exception as e:
             logger.debug(f"There was an error getting local ip info {e}")
+
+    @rx.event
+    async def handle_discover_networks(self):
+        """Handle comprehensive network discovery."""
+        try:
+            # Set loading state
+            self.is_discovering_networks = True
+            self.discovered_networks = []  # Clear previous results
+            yield  # Yield to update UI immediately
+            
+            # Perform the discovery
+            self.network_discovery_info = await discover_networks(verbose=False)
+            
+            # Process results
+            if self.network_discovery_info.status == "done":
+                self.discovered_networks = self.network_discovery_info.networks
+                # Auto-select the first network if available
+                if self.discovered_networks:
+                    self.selected_network = self.discovered_networks[0]
+                    self.scan_ip_range.network_string = self.selected_network
+                yield rx.toast.success(f"Discovered {len(self.discovered_networks)} networks using comprehensive analysis")
+            else:
+                yield rx.toast.error(f"Network discovery failed: {self.network_discovery_info.error}")
+        except Exception as e:
+            logger.debug(f"There was an error during network discovery: {e}")
+            yield rx.toast.error("Network discovery failed")
+        finally:
+            # Always clear loading state
+            self.is_discovering_networks = False
+
+    @rx.event
+    def select_discovered_network(self, network: str):
+        """Select a discovered network for scanning."""
+        self.selected_network = network
+        self.scan_ip_range.network_string = network
+        yield rx.toast.info(f"Selected network: {network}")
+
+    # Info dialog handlers
+    @rx.event
+    def show_proxy_info(self):
+        """Show BACnet proxy information dialog."""
+        self.show_proxy_info_dialog = True
+    
+    @rx.event
+    def hide_proxy_info(self):
+        """Hide BACnet proxy information dialog."""
+        self.show_proxy_info_dialog = False
+    
+    @rx.event
+    def show_network_info(self):
+        """Show network information dialog."""
+        self.show_network_info_dialog = True
+    
+    @rx.event
+    def hide_network_info(self):
+        """Hide network information dialog."""
+        self.show_network_info_dialog = False
+    
+    @rx.event
+    def show_scan_info(self):
+        """Show scan for devices information dialog."""
+        self.show_scan_info_dialog = True
+    
+    @rx.event
+    def hide_scan_info(self):
+        """Hide scan for devices information dialog."""
+        self.show_scan_info_dialog = False
 
     # Other
     @rx.event

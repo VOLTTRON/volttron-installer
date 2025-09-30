@@ -96,6 +96,13 @@ class LocalIPModel(rx.Base):
     subnet_mask: str = ""
     cidr: str = ""
 
+class NetworkDiscoveryModel(rx.Base):
+    status: str = ""
+    networks: list[str] = []
+    summary: dict = {}
+    message: str = ""
+    error: str | None = None
+
 class BACnetPointTableFilter(rx.Base):
     volttron_point_name: str = ""
     units: str = ""

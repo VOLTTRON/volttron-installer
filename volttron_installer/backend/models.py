@@ -823,3 +823,4 @@ class BACnetReadObjectListRequest(BaseModel):
     device_object_identifier: str
     page: int | None = None
     page_size: int | None = None
+    force_fresh_read: bool = True
