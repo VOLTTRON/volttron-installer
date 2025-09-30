@@ -278,7 +278,14 @@ def configuration_tab_content() -> rx.Component:
                                                 on_change=lambda v: State.update_detail("volttron_home", v),
                                                 size="3",
                                                 required=True,
-                                            )
+                                            ),
+                                            below_component=rx.cond(
+                                                State.volttron_home_validity == False,
+                                                rx.text(
+                                                    "This must be unique for every VOLTTRON under the same host.", 
+                                                    color_scheme="red"
+                                                )
+                                            ),
                                         ),
                                     )
                                 ),
