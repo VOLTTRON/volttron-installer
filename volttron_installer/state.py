@@ -1634,6 +1634,12 @@ class BacnetScanState(rx.State):
     discovered_networks: list[str] = []  # Store the list of discovered networks
     selected_network: str = ""  # Currently selected network for scanning
     is_discovering_networks: bool = False  # Loading state for network discovery
+    
+    # Info dialog states
+    show_proxy_info_dialog: bool = False
+    show_network_info_dialog: bool = False
+    show_scan_info_dialog: bool = False
+    
     all_device_scan_point_status: list[BACnetDevicePointScanStatus] = []
 
 
@@ -2805,6 +2811,37 @@ class BacnetScanState(rx.State):
         self.selected_network = network
         self.scan_ip_range.network_string = network
         yield rx.toast.info(f"Selected network: {network}")
+
+    # Info dialog handlers
+    @rx.event
+    def show_proxy_info(self):
+        """Show BACnet proxy information dialog."""
+        self.show_proxy_info_dialog = True
+    
+    @rx.event
+    def hide_proxy_info(self):
+        """Hide BACnet proxy information dialog."""
+        self.show_proxy_info_dialog = False
+    
+    @rx.event
+    def show_network_info(self):
+        """Show network information dialog."""
+        self.show_network_info_dialog = True
+    
+    @rx.event
+    def hide_network_info(self):
+        """Hide network information dialog."""
+        self.show_network_info_dialog = False
+    
+    @rx.event
+    def show_scan_info(self):
+        """Show scan for devices information dialog."""
+        self.show_scan_info_dialog = True
+    
+    @rx.event
+    def hide_scan_info(self):
+        """Hide scan for devices information dialog."""
+        self.show_scan_info_dialog = False
 
     # Other
     @rx.event
