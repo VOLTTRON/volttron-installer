@@ -4,5 +4,4 @@ pydantic
 pydantic-settings
 loguru
 aiofiles
-# -e git+https://github.com/riley206-pnnl/bacnet-scan-tool.git@feature/bacnet-tests#egg=bacnet_scan_tool
--e ../eclipse-bacnet-scan-tool
+-e git+https://github.com/riley206-pnnl/bacnet-scan-tool.git@feature/bacnet-tests#egg=bacnet_scan_tool
