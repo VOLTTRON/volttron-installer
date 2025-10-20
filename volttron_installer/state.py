@@ -185,9 +185,12 @@ async def __agents_off_catalog__() -> list[AgentModelView]:
             AgentModelView(
                 identity=str(identity),
                 source=agent.source,
+                pypi_package = agent.pypi_package,
+                tag = agent.tag,
                 safe_agent={
                     "identity" : identity,
                     "source" : agent.source,
+                    
                     "config" : json.dumps(agent.default_config, indent=4),
                     "config_store" : {
                         path : {
@@ -261,6 +264,7 @@ async def __instances_from_api__() -> dict[str, Instance]:
                             identity=identity,
                             source=agent.source,
                             routing_id=identity,
+                            tag = agent.tag,
                             safe_agent={
                                 "identity" : identity,
                                 "source" : agent.source,
@@ -560,7 +564,8 @@ class PlatformPageState(rx.State):
                     "identity": new_agent.identity,
                     "source": new_agent.source,
                     "config": new_agent.config,
-                    "config_store" : agent.safe_agent["config_store"]
+                    "config_store" : agent.safe_agent["config_store"],
+                    "pypi_package": agent.pypi_package
                 }
         logger.debug(f"we added: {new_agent.identity}")
         logger.debug(f" and that safe config store is : {new_agent.safe_agent['config_store']}")
@@ -742,6 +747,8 @@ class PlatformPageState(rx.State):
                     source=agent["source"],
                     config=agent["config"],
                     config_store_allowed=agent["config_store_allowed"],
+                    pypi_package=agent["pypi_package"],
+                    tag=agent["tag"],
                     config_store={
                         path: ConfigStoreEntry(
                             path=path,

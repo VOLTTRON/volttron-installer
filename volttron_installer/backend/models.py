@@ -90,8 +90,8 @@ class SuccessResponse(BaseModel):
     object: BaseModel = None
 
 class AgentDefinition(BaseModel):
-    """Represents an agent definition with validation in model_post_init"""
-    identity: str
+    """Represents an agent definition with validation in model_post_init, and translation back from file in trans_from_file"""
+    identity: str | None = None
     state: str = "present"
     running: bool = True
     enabled: bool = False
@@ -107,15 +107,59 @@ class AgentDefinition(BaseModel):
             "identity": self.identity,
             "config_store" : self.config_store
         }
-
+    def trans_from_file(self, AgentTranslation):
+        self.identity = AgentTranslation.identity
+        self.state= AgentTranslation.agent_state
+        self.running = AgentTranslation.agent_running
+        self.enabled = AgentTranslation.agent_enabled
+        self.tag = AgentTranslation.agent_tag
+        self.pypi_package= AgentTranslation.agent_pypi_package
+        self.source = AgentTranslation.source
+        self.config = AgentTranslation.agent_config
+        self.config_store= AgentTranslation.config_store
+        self.config_store_allowed= AgentTranslation.config_store_allowed
+        
+        
     def model_post_init(self, __context):
         if self.pypi_package is None and self.source is None:
             logger.error(f"Agent {self.identity}: Neither pypi_package nor source is set")
             raise ValidationError("Either pypi_package or source must be set.")
-        elif self.pypi_package is not None and self.source is not None:
-            logger.error(f"Agent {self.identity}: Both pypi_package and source are set")
-            raise ValidationError("Only one of pypi_package or source can be set.")
+        
         logger.debug(f"Initialized agent definition for {self.identity}")
+
+class AgentTranslation(BaseModel):
+    """Represents the translated agent applicable to current Ansible version with translation in trans_from_file"""
+    
+    identity: str |None = None
+    agent_enabled: bool=False 
+    agent_config: str | None = None
+    agent_tag: str | None = None 
+    agent_pypi_package: str | None = None
+    agent_running: bool = True
+    agent_state: str = "present" 
+    source: str | None = None 
+    config_store: dict[str, ConfigStoreEntry] = {}
+    config_store_allowed: bool = True
+    
+    def trans_from_file(self, AgentDefinition): 
+        self.identity =  AgentDefinition.identity
+        self.agent_enabled =  AgentDefinition.enabled
+        self.agent_config =  AgentDefinition.config
+        self.agent_tag =  AgentDefinition.tag
+        self.agent_pypi_package =  AgentDefinition.pypi_package
+        self.agent_running =  AgentDefinition.running
+        self.agent_state =  AgentDefinition.state
+        self.source  = AgentDefinition.source
+        self.config_store =  AgentDefinition.config_store
+        self.config_store_allowed = AgentDefinition.config_store_allowed
+            
+            
+    
+        
+
+                   
+        
+    
 
 class CreateAgentRequest(BaseModel):
     """Request model for creating an agent"""
@@ -128,9 +172,6 @@ class CreateAgentRequest(BaseModel):
         if self.pypi_package is None and self.source is None:
             logger.error(f"Agent {self.identity}: Neither pypi_package nor source is set")
             raise ValidationError("Either pypi_package or source must be set.")
-        elif self.pypi_package is not None and self.source is not None:
-            logger.error(f"Agent {self.identity}: Both pypi_package and source are set")
-            raise ValidationError("Only one of pypi_package or source can be set.")
         logger.debug(f"Initialized agent creation request for {self.identity}")
 
 class AgentType(BaseModel):
@@ -141,23 +182,24 @@ class AgentType(BaseModel):
     source: str | None = None
     pypi_package: str | None = None
     config_store_allowed: bool = True
+    tag: str | None = None
 
 class AgentCatalog(BaseModel):
     """Catalog of default agents available with default configurations"""
     agents: dict[str, AgentType] = {
         "listener": AgentType(
             identity="listener",
-            default_config={
-                "agentid": "listener",
-                "message": "Hello, World!",
-                "log-level": "INFO"
-            },
+            default_config='listener.json' ,
             default_config_store={},
             config_store_allowed=False,
-            source="examples/ListenerAgent"
+            source="examples/ListenerAgent",
+            pypi_package="volttron-listener",
+            tag="listener",
         ),
         "platform.driver": AgentType(
             identity="platform.driver",
+            pypi_package='volttron-platform-driver',
+            tag = 'drivers',
             default_config={
                 "driver_scrape_interval": 0.05,
                 "publish_breadth_first_all": False,
@@ -720,7 +762,7 @@ class KeyValuePair(BaseModel):
 
 
 class PlatformConfig(BaseModel):
-    """Represents the platform configuration"""
+    """Represents the platform configuration with translation"""
     instance_name: str = "volttron1"
     vip_address: str = "tcp://127.0.0.1:22916"
     message_bus: Literal["zmq"] = "zmq"
@@ -739,13 +781,31 @@ class PlatformConfig(BaseModel):
         if not re.match(r'^[\w-]+$', v):
             raise ValueError("instance_name must contain only letters, numbers, hyphens, and underscores")
         return v
+    
+    def trans_from_file(self, ConfigTranslation):
+        self.instance_name = ConfigTranslation.instance_name
+        self.vip_address = ConfigTranslation.address
+        self.message_bus = ConfigTranslation.messagebus
 
+class ConfigTranslation(BaseModel):
+    """Represents a configuration translated for current Ansible version, with function trans_from_file"""
+    
+    instance_name: str = None
+    address:str = None
+    messagebus: Literal["zmq"] = "zmq"
+    
+    def trans_from_file(self, PlatformConfig):
+        self.instance_name =  PlatformConfig.instance_name
+        self.address = PlatformConfig.vip_address
+        self.messagebus = PlatformConfig.message_bus
+    
+    
     
 
 class PlatformDefinition(BaseModel):
     """
     Represents the platform definition with methods to add configuration items.
-    
+    translates current Ansible version naming convention to installer naming convention
     Attributes:
         host_id (str): A reference to the `id` field of a `HostEntry` instance, 
                        representing a unique VOLTTRON instance connection point.
@@ -753,12 +813,49 @@ class PlatformDefinition(BaseModel):
         agents (dict[str, AgentDefinition]): A dictionary mapping agent names 
                                              to their definitions.
     """
-    host_id: str
+    host_id: str = None
     config: PlatformConfig = PlatformConfig()
     agents: dict[str, AgentDefinition] = {}
+    
+    def trans_from_file(self, PlatformTranslation):
+        self.config.trans_from_file(PlatformTranslation.config)
+        self.host_id = PlatformTranslation.host_id
+        for key,value in PlatformTranslation.agents.items():
+            trans = AgentDefinition(source = "x")
+            trans.trans_from_file(value)
+            self.agents.update({key: trans})
+        
 
     def __getitem__(self, item):
         return self.config[item]
+        
+class PlatformTranslation(BaseModel):
+    """
+    Represents the platform definition with methods to add configuration items.
+    translates installer naming conventions to Ansible naming conventions
+    Attributes:
+        host_id (str): A reference to the `id` field of a `HostEntry` instance, 
+                       representing a unique VOLTTRON instance connection point.
+        config (PlatformTranslation): The configuration specific to the platform.
+        agents (dict[str, AgentTranslation]): A dictionary mapping agent names 
+                                             to their definitions.
+    """
+    host_id: str = None
+    config: ConfigTranslation = ConfigTranslation()
+    agents: dict[str, AgentTranslation] = {}
+
+    def trans_from_file(self, PlatformDefinition):
+        self.config.trans_from_file(PlatformDefinition.config)
+        self.host_id = PlatformDefinition.host_id
+        for key, value in PlatformDefinition.agents.items():
+
+            trans = AgentTranslation()
+            trans.trans_from_file(value)
+            self.agents.update({key: trans})
+                
+    def __getitem__(self, item):
+        return self.config[item]
+    
 
 class CreatePlatformRequest(PlatformDefinition):
     """Request model for creating a platform"""

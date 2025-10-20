@@ -90,6 +90,8 @@ class AgentModelView(rx.Base):
     source: str = ""
     config: str = ""
     config_store: list[ConfigStoreEntryModelView] = []
+    pypi_package: str | None = None
+    tag: str | None = None
 
     contains_errors: bool = False
     is_new: bool = False
@@ -109,6 +111,8 @@ class AgentModelView(rx.Base):
             "source": self.source,
             "config": self.config,
             "config_store_allowed": self.config_store_allowed,
+            "pypi_package": self.pypi_package,
+            "tag": self.tag,
             "config_store": {
                 config["path"]: {
                     "path": config["path"],
