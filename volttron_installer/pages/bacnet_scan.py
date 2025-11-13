@@ -1756,7 +1756,7 @@ def render() -> rx.Component:
                 # Centered content container
                 rx.vstack(
                     rx.cond(
-                        ToolState.running_tools.contains("bacnet_scan_tool") == False,
+                        ToolState.running_tools.contains("bacnet_scan_api") == False,
                         rx.fragment(
                             rx.hstack(
                                 rx.hstack(
@@ -2093,7 +2093,7 @@ def scan_info_dialog():
     )
 
 
-@rx.page(route="/tools/bacnet_scan", on_load=ToolState.start_tool("bacnet_scan_tool"))
+@rx.page(route="/tools/bacnet_scan", on_load=ToolState.start_tool("bacnet_scan_api"))
 def bacnet_scan_page() -> rx.Component:
     return app_layout_sidebar.app_layout_sidebar(
         render()

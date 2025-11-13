@@ -20,7 +20,7 @@ from .thin_endpoint_wrappers import discover_networks  # Explicit import for the
 import string, random, json, csv, yaml, re, io, asyncio, math
 from copy import deepcopy
 from typing import Literal
-from bacnet_scan_tool.models import ObjectListNamesResponse
+from bacnet_scan_api.models import ObjectListNamesResponse
 
 class AppState(rx.State):
     """The app state."""
@@ -60,9 +60,9 @@ class ToolState(rx.State):
     
     # Tool configuration
     tool_configs: dict[str, ToolRequest] = {
-        "bacnet_scan_tool": ToolRequest(
-            tool_name="bacnet_scan_tool",
-            module_path="bacnet_scan_tool.main:app",
+        "bacnet_scan_api": ToolRequest(
+            tool_name="bacnet_scan_api",
+            module_path="bacnet_scan_api.main:app",
         ),
         # Add other tools as we go
     }
@@ -1719,7 +1719,7 @@ class BacnetScanState(rx.State):
         await start_tool(
             ToolRequest(
                 tool_name=value,
-                module_path="bacnet_scan_tool.main:app",
+                module_path="bacnet_scan_api.main:app",
                 use_poetry=False
             )
         )
@@ -2587,7 +2587,7 @@ class BacnetScanState(rx.State):
     @rx.event
     async def handle_scan_ip_range(self):
         """Handle the Scan IP Range form submission."""
-        from bacnet_scan_tool.models import ScanResponse
+        from bacnet_scan_api.models import ScanResponse
         if not self.proxy_up:
             yield rx.toast.error("Proxy must be started first.")
             return

@@ -9,7 +9,7 @@ from ..backend.models import AgentType, HostEntry, PlatformDefinition, \
 from ..models import WindowsHostIPModel, LocalIPModel, NetworkDiscoveryModel
 from rxconfig import config
 
-from bacnet_scan_tool.models import ScanResponse, ObjectListNamesResponse
+from bacnet_scan_api.models import ScanResponse, ObjectListNamesResponse
 
 API_BASE_URL = f"{config.api_url}"
 API_PREFIX = "/api"
@@ -22,7 +22,7 @@ MANAGE_TOOLS_PREFIX = f"{API_PREFIX}/manage_tools"
 TOOL_PROXY_PREFIX = f"{API_PREFIX}/tool_proxy"
 
 TOOLS_PREFIX = f"{API_PREFIX}/tools"
-BACNET_SCAN_TOOL_PREFIX = f"{TOOLS_PREFIX}/bacnet_scan_tool"
+BACNET_SCAN_TOOL_PREFIX = f"{TOOLS_PREFIX}/bacnet_scan_api"
 DEFAULT_TIMEOUT = 5.0  # 5 seconds timeout
 
 T = TypeVar('T')
