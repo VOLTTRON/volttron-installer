@@ -538,6 +538,7 @@ def configuration_tab_content() -> rx.Component:
                                     rx.button(
                                         "Submit",
                                         on_click=lambda: State.handle_deploy(),
+                                        
                                         disabled=rx.cond(
                                             State.password_field=="",
                                             True,

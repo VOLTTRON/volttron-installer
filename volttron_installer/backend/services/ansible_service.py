@@ -1,8 +1,9 @@
 import asyncio
 from pathlib import Path
 import subprocess
+from queue import Queue
 from typing import Optional
-from .. models import HostEntry, PlatformDeploymentStatus
+from .. models import HostEntry, PlatformDeploymentStatus, PlaybookInput
 from .. services.inventory_service import get_inventory_service, InventoryService
 from .. services.platform_service import get_platform_service, PlatformService
 import json
@@ -25,7 +26,7 @@ class AnsibleService:
         self.playbook_dir = playbook_dir
             
 
-    async def run_playbook(self, playbook_name: str, hosts: str | list[str], password: str = None, extra_vars: dict = None) -> tuple[int, str, str]:
+    async def run_playbook(self, playbook_queue: Queue):
         """Run an Ansible playbook asynchronously
 
         Args:
@@ -37,58 +38,62 @@ class AnsibleService:
         Returns:
             Tuple of (return_code, stdout, stderr)
         """
-        inventory_service = await get_inventory_service()
-        cmd:str
-        output_cmd: str
-        pass_holder = "********"
-        if password == None: 
-            cmd = ["ansible-playbook","-i", inventory_service.inventory_path.as_posix()]
-        else:
-            cmd = ["sshpass","-p", password, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix(),"--extra-vars", f'ansible_become_pass="{password}"']
-            output_cmd = ["sshpass","-p", pass_holder, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix(),"--extra-vars", f'ansible_become_pass="{pass_holder}"']
+        cmd_list = []
+        
+        
+        while not playbook_queue.empty():
+            playbook_instance = playbook_queue.get()
+            inventory_service = await get_inventory_service()
+            cmd:str
+            output_cmd: str
+            pass_holder = "********"
+            if playbook_instance.password == None: 
+                cmd = ["ansible-playbook","-i", inventory_service.inventory_path.as_posix()]
+            else:
+                cmd = ["sshpass","-p", playbook_instance.password, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix(),"--extra-vars", f'ansible_become_pass="{playbook_instance.password}"']
+                logger.debug(f"the password is {playbook_instance.password}")
+                #output_cmd = ["sshpass","-p", pass_holder, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix(),"--extra-vars", f'ansible_become_pass="{pass_holder}"']
 
-        logger.debug(f"Running playbook {playbook_name} on hosts {hosts} cmd: {output_cmd}")
-        # if connection:
-        #     cmd.extend(["--connection", connection])
+            # if connection:
+            #     cmd.extend(["--connection", connection])
 
-        # Merge default vars with provided vars
-        # default_vars = {
-        #     "ansible_ssh_common_args": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-        # }
-        # if extra_vars:
-        #     default_vars.update(extra_vars)
+            # Merge default vars with provided vars
+            # default_vars = {
+            #     "ansible_ssh_common_args": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+            # }
+            # if extra_vars:
+            #     default_vars.update(extra_vars)
 
-        # cmd.extend(["-e", json.dumps(default_vars)])
-        # Ensure playbooks are run based on volttron.deployment
-        if not playbook_name.startswith('volttron.deployment.'):
-            playbook_name = f'volttron.deployment.{playbook_name}'
+            # cmd.extend(["-e", json.dumps(default_vars)])
+            # Ensure playbooks are run based on volttron.deployment
+            if not playbook_instance.playbook_name.startswith('volttron.deployment.'):
+                playbook_instance.playbook_name = f'volttron.deployment.{playbook_instance.playbook_name}'
 
-        # Convert collection path to actual playbook file
-        # playbook_file = playbook_name if playbook_name.endswith(".yml") else f"{playbook_name}.yml"
-        # cmd.append(str(self.playbook_dir / playbook_file))
-        cmd.append(playbook_name)
-        output_cmd.append(playbook_name)
-        # Set environment variables
-        env = os.environ.copy()
+            # Convert collection path to actual playbook file
+            # playbook_file = playbook_name if playbook_name.endswith(".yml") else f"{playbook_name}.yml"
+            # cmd.append(str(self.playbook_dir / playbook_file))
+            cmd.append(playbook_instance.playbook_name)
+            #output_cmd.append(playbook_instance.playbook_name)
+            # Set environment variables
+            cmd_list.append(cmd)
+            env = os.environ.copy()
         #env['ANSIBLE_HOST_KEY_CHECKING'] = 'False'
         #env['ANSIBLE_SSH_ARGS'] = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+        logger.debug("Playbook queue commands are populated")
+        logger.debug(cmd_list)
+        process_queue = []
+        for x in cmd_list:
+            process =  await asyncio.create_subprocess_exec(
+                *x,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Redirect stderr to stdout
+                bufsize=0,
+                universal_newlines=False,
+                env=env
+            )
+            process_queue.append(process)
+        return process_queue
         
-        logger.debug(f"Executing command: {' '.join(output_cmd)}")
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env
-        )
-
-        stdout, stderr = await process.communicate()
-
-        logger.debug(f"Playbook output: {stdout.decode() if stdout else stderr.decode()}")
-        return (
-            process.returncode,
-            stdout.decode() if stdout else "",
-            stderr.decode() if stderr else ""
-        )
     
     async def run_module(self, module_name: str, *args) -> tuple[int, str, str]:
         """Run an Ansible module asynchronously

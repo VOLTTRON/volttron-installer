@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Optional
 from ..utils import get_api_url
+from queue import Queue
+
 import os, asyncio
 
 from volttron_installer.backend.tool_manager import ToolManager
@@ -31,7 +33,8 @@ from .models import (
     BACnetReadPropertyRequest,
     BACnetScanResults,
     BACnetWritePropertyRequest,
-    BACnetReadDeviceAllRequest
+    BACnetReadDeviceAllRequest,
+    PlaybookInput
 )
 
 TOOLS_PREFIX = "/tools"
@@ -319,59 +322,30 @@ async def task_status(id: str):
 async def deploy_platform(platform_id: str, password:str,
                           ansible: AnsibleService = Depends(get_ansible_service),
                           platform_service: PlatformService = Depends(get_platform_service)):
+    print("Queue is populated")
 
     """Deploys a platform using Ansible"""
     try:
         platform_service = await get_platform_service()
         platform = await platform_service.get_platform(platform_id)
+        
         if platform is None:
             raise HTTPException(status_code=404, detail="Platform not found")
+        deployment_queue = Queue()
+        deployment_queue.put(PlaybookInput(playbook_name="host_config", hosts= platform.host_id, password= password))
+        deployment_queue.put(PlaybookInput(playbook_name="install_platform", hosts= platform.host_id, password= password, extra_vars=platform.config.model_dump()))
+        deployment_queue.put(PlaybookInput(playbook_name="run_platforms", hosts= platform.host_id, password= password, extra_vars=platform.config.model_dump()))
+        deployment_queue.put(PlaybookInput(playbook_name="configure_agents", hosts= platform.host_id, password= password, extra_vars=platform.config.model_dump()))
+        response = await ansible.run_playbook(deployment_queue)
         
-        ret, stdout, stderr = await ansible.run_playbook("host_config", platform.host_id, password)
-
-        if ret != 0:
-             raise HTTPException(
-                status_code=500,
-                detail=f"Ansible deployment failed: {stderr or stdout}"
-            )
-        hosts=platform.host_id,
-        return_code, stdout, stderr = await ansible.run_playbook(
-            "install_platform",
-            hosts,
-            password,
-            extra_vars=platform.config.model_dump()
-        )
-
-        if return_code != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Ansible deployment failed: {stderr or stdout}"
-            )
+        for x in response:
+            stdout, stderr = await x.communicate()
+            print(x.returncode)
+            print(f"STDOUT IS: {stdout}, STDERR IS: {stderr}")
+            if stderr != None:
+                return {"status": "Error", "output": "error"}
         
-        return_code, stdout, stderr = await ansible.run_playbook(
-            "run_platforms",
-            hosts,
-            password,
-            extra_vars=platform.config.model_dump()
-        )
-
-        if return_code != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Ansible deployment failed: {stderr or stdout}"
-            )
-        return_code, stdout, stderr = await ansible.run_playbook(
-            "configure_agents",
-            hosts,
-            password,
-            extra_vars=platform.config.model_dump()
-        )
-        if return_code != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Ansible deployment failed: {stderr or stdout}"
-            )
-        return {"status": "success", "output": stdout}
+        return {"status": "success", "output": "x1"}
         
 
 

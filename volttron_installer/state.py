@@ -322,6 +322,7 @@ class PlatformPageState(rx.State):
         #     platform=PlatformModelView()
         # )
     }
+    is_loading: bool = False
     list_of_agents: list[AgentModelView] = []
 
     _host_resolvable: bool = True
@@ -709,13 +710,18 @@ class PlatformPageState(rx.State):
             setattr(working_platform.platform.config, field, value)
 
     @rx.event
+    async def loading_message(self):
+        yield rx.toast.success("Loading installation")
+
+    @rx.event
     async def handle_deploy(self):
         working_platform: Instance = self.platforms[self.current_uid]
         try:
             response = await deploy_platform(working_platform.platform.config.instance_name, working_platform.password)
             working_platform.deployed = True
-            logger.debug(f"response: {response.json()}")
+            print(response)
             yield rx.toast.success("Deployed Successfully!")
+            
         except Exception as e:
             logger.debug(f"there was an error deploying platform {working_platform.platform.config.instance_name}. e: {e}")
             yield rx.toast.error(f"There was an error deploying platform: {working_platform.platform.config.instance_name}")

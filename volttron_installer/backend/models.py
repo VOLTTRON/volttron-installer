@@ -9,6 +9,15 @@ import re
 
 logger = logging.getLogger(__name__)
 
+class PlaybookInput(BaseModel):
+    playbook_name: str
+    hosts: str | list[str]
+    password: str = None
+    extra_vars: dict = None
+
+
+
+
 class HostEntry(BaseModel):
     """
     A `HostEntry` represents a single entry in the inventory.  It is a single
@@ -189,7 +198,9 @@ class AgentCatalog(BaseModel):
     agents: dict[str, AgentType] = {
         "listener": AgentType(
             identity="listener",
-            default_config='listener.json' ,
+            default_config={
+                "runtime_limit": 3600
+                },
             default_config_store={},
             config_store_allowed=False,
             source="examples/ListenerAgent",

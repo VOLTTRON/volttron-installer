@@ -21,7 +21,7 @@ TOOL_PROXY_PREFIX = f"{API_PREFIX}/tool_proxy"
 
 TOOLS_PREFIX = f"{API_PREFIX}/tools"
 BACNET_SCAN_TOOL_PREFIX = f"{TOOLS_PREFIX}/bacnet_scan_tool"
-DEFAULT_TIMEOUT = 5.0  # 5 seconds timeout
+DEFAULT_TIMEOUT = 200.0  # 5 seconds timeout
 
 T = TypeVar('T')
 
