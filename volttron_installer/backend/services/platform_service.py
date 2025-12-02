@@ -1,11 +1,11 @@
 from pathlib import Path
 import asyncio
 from typing import Optional
-
+from loguru import logger
 import aiofiles
 import yaml
 
-from volttron_installer.backend.models import PlatformDefinition, AgentDefinition
+from volttron_installer.backend.models import PlatformDefinition, AgentDefinition, PlatformTranslation
 from volttron_installer.settings import get_settings
 from volttron_installer.backend.utils import normalize_name_for_file
 from volttron_installer.backend.services.inventory_service import get_inventory_service
@@ -28,8 +28,13 @@ class PlatformService:
         normalized_name = normalize_name_for_file(definition.config.instance_name)
         definition_path = self.platform_dir / normalized_name
         definition_path.mkdir(parents=True, exist_ok=True)
+        translation = PlatformTranslation()
+        translation.trans_from_file(definition)
+        temp = translation.model_dump()
+        temp["config"]["instance-name"] = temp["config"].pop("instance_name")
         async with aiofiles.open(definition_path.joinpath(f"{normalized_name}.yml"), 'w') as file:
-            await file.write(yaml.dump(definition.model_dump()))
+            await file.write(yaml.dump(temp))
+
 
     async def get_platform(self, instance_name: str) -> Optional[PlatformDefinition]:
         async with self._lock:
@@ -41,7 +46,11 @@ class PlatformService:
         if definition_path.exists():
             async with aiofiles.open(definition_path, 'r') as file:
                 data = yaml.safe_load(await file.read())
-                return PlatformDefinition(**data)
+                data["config"]["instance_name"] = data["config"].pop("instance-name")
+                platformdef = PlatformDefinition()
+                p = PlatformTranslation(**data)
+                platformdef.trans_from_file(p)
+                return platformdef
         return None
 
     async def update_platform(self, instance_name: str, updated_definition: PlatformDefinition):
@@ -53,8 +62,11 @@ class PlatformService:
         normalized_name = normalize_name_for_file(instance_name)
         definition_path = self.platform_dir / instance_name / f"{normalized_name}.yml"
         if definition_path.exists():
+            translation = PlatformTranslation()
+            translation.CompleteTranslation(updated_definition)
+            temp = translation.model_dump()
             async with aiofiles.open(definition_path, 'w') as file:
-                await file.write(yaml.dump(updated_definition.model_dump()))
+                await file.write(yaml.dump(temp))
         else:
             raise FileNotFoundError(f"Platform definition for {instance_name} not found.")
 
@@ -83,7 +95,12 @@ class PlatformService:
                 if definition_path.exists():
                     async with aiofiles.open(definition_path, 'r') as file:
                         data = yaml.safe_load(await file.read())
-                        platforms.append(PlatformDefinition(**data))
+                        data["config"]["instance_name"] = data["config"].pop("instance-name")
+                        platformdef = PlatformDefinition()
+                        p = PlatformTranslation(**data)
+                        platformdef.trans_from_file(p)
+                        platforms.append(platformdef) 
+                        
         return platforms
 
     async def get_platform_instance_names(self) -> list[str]:
@@ -102,6 +119,7 @@ class PlatformService:
         if platform is None:
             raise FileNotFoundError(f"Platform {platform_id} not found.")
         platform.agents[agent.identity] = agent
+        logger.debug(f"agent is: {agent}")
         await self._update_platform(platform_id, platform)
 
     async def update_agent(self, platform_id: str, agent_id: str, updated_agent: AgentDefinition):

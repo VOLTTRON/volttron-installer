@@ -1,4 +1,3 @@
-import reflex as rx
 from .settings import get_settings
 from .model_views import *
 from .utils.create_component_uid import generate_unique_uid
@@ -186,9 +185,12 @@ async def __agents_off_catalog__() -> list[AgentModelView]:
             AgentModelView(
                 identity=str(identity),
                 source=agent.source,
+                pypi_package = agent.pypi_package,
+                tag = agent.tag,
                 safe_agent={
                     "identity" : identity,
                     "source" : agent.source,
+                    
                     "config" : json.dumps(agent.default_config, indent=4),
                     "config_store" : {
                         path : {
@@ -240,6 +242,7 @@ async def __instances_from_api__() -> dict[str, Instance]:
             ansible_user=working_host_entry.ansible_user,
             ansible_host=working_host_entry.ansible_host,
             # For later type validation
+            host_configs_dir=working_host_entry.host_configs_dir,
             ansible_port=str(working_host_entry.ansible_port),
             http_proxy=working_host_entry.http_proxy,
             https_proxy=working_host_entry.https_proxy,
@@ -261,6 +264,7 @@ async def __instances_from_api__() -> dict[str, Instance]:
                             identity=identity,
                             source=agent.source,
                             routing_id=identity,
+                            tag = agent.tag,
                             safe_agent={
                                 "identity" : identity,
                                 "source" : agent.source,
@@ -318,6 +322,7 @@ class PlatformPageState(rx.State):
         #     platform=PlatformModelView()
         # )
     }
+    is_loading: bool = False
     list_of_agents: list[AgentModelView] = []
 
     _host_resolvable: bool = True
@@ -560,7 +565,8 @@ class PlatformPageState(rx.State):
                     "identity": new_agent.identity,
                     "source": new_agent.source,
                     "config": new_agent.config,
-                    "config_store" : agent.safe_agent["config_store"]
+                    "config_store" : agent.safe_agent["config_store"],
+                    "pypi_package": agent.pypi_package
                 }
         logger.debug(f"we added: {new_agent.identity}")
         logger.debug(f" and that safe config store is : {new_agent.safe_agent['config_store']}")
@@ -704,13 +710,18 @@ class PlatformPageState(rx.State):
             setattr(working_platform.platform.config, field, value)
 
     @rx.event
+    async def loading_message(self):
+        yield rx.toast.success("Loading installation")
+
+    @rx.event
     async def handle_deploy(self):
         working_platform: Instance = self.platforms[self.current_uid]
         try:
             response = await deploy_platform(working_platform.platform.config.instance_name, working_platform.password)
             working_platform.deployed = True
-            logger.debug(f"response: {response.json()}")
+            print(response)
             yield rx.toast.success("Deployed Successfully!")
+            
         except Exception as e:
             logger.debug(f"there was an error deploying platform {working_platform.platform.config.instance_name}. e: {e}")
             yield rx.toast.error(f"There was an error deploying platform: {working_platform.platform.config.instance_name}")
@@ -742,6 +753,8 @@ class PlatformPageState(rx.State):
                     source=agent["source"],
                     config=agent["config"],
                     config_store_allowed=agent["config_store_allowed"],
+                    pypi_package=agent["pypi_package"],
+                    tag=agent["tag"],
                     config_store={
                         path: ConfigStoreEntry(
                             path=path,
@@ -752,7 +765,7 @@ class PlatformPageState(rx.State):
                 ) for identity, agent in working_platform.platform.to_dict()["agents"].items()
             }
         )
-
+        
         logger.debug(f"this is the uid copy: {uid_copy}")
         if working_platform.platform.config.instance_name in [p.config.instance_name for p in all_platforms]:
             logger.debug("yes we have committed this already")

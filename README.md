@@ -23,6 +23,30 @@ When running on bare metal, ensure your system has:
   sudo apt install -y build-essential libffi-dev libssl-dev git python3-dev python3-venv unzip
   ```
 
+### Generating SSH Key
+
+To run the installer, there must be a secure SSH Key for each host. To generate these 
+keys, you first need to generate your private key:
+
+   *Note: The keygen will ask to create a directory:
+   ``` /home/$USER/.ssh```
+   . Simply click enter and allow the automatic location be used. This will assist in Known Hosts Generation.*
+
+   - **Generate Key**
+      
+      ```bash
+      ssh-keygen -t rsa
+      ```
+
+### Generating Known Hosts
+For each host, you must add it to the known_hosts file. You can do so by running:
+
+- **Generate Known Hosts**
+   ```bash
+   ssh -i ~/.ssh/id_rsa <hostname>
+   ```
+
+
 ## Installation Options
 
 ### Option 1: Direct Installation with Pip
@@ -35,12 +59,18 @@ When running on bare metal, ensure your system has:
 
 2. **Install VOLTTRON Installer**
    ```bash
-   pip install git+https://github.com/VOLTTRON/volttron-installer.git@develop
+   pip install git+https://github.com/VOLTTRON/volttron-installer.git,develop
    ```
+3. **Install VOLTTRON Ansible**
+      
+      ```bash
+      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
+      ```
+      *For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
 
-3. **Run the Installer**
+4. **Run the Installer**
    ```bash
-   volttron-installer
+   reflex run
    ```
 
 ### Option 2: Development Installation
@@ -62,10 +92,14 @@ When running on bare metal, ensure your system has:
    pip install -r requirements.txt
    pip install -e .
    ```
-
-4. **Run the Installer**
+4. **Install VOLTTRON Ansible**
+      ```bash
+      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
+      ```
+      *For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
+5. **Run the Installer**
    ```bash
-   volttron-installer
+   reflex run
    ```
 
 ### Option 3: Using VS Code Dev Containers
@@ -85,22 +119,27 @@ The repository includes a Dev Container configuration that allows you to develop
    git clone https://github.com/VOLTTRON/volttron-installer.git
    cd volttron-installer
    ```
+2. **Install VOLTTRON Ansible**
+      ```bash
+      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
+      ```
+   *For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
 
-2. **Open in VS Code**
+3. **Open in VS Code**
    ```bash
    code .
    ```
 
-3. **Reopen in Container**
+4. **Reopen in Container**
    When prompted by VS Code, click "Reopen in Container" or use the command palette (F1) and select "Remote-Containers: Reopen in Container".
 
-4. **Testing Pull Requests**
+5. **Testing Pull Requests**
    Once the container is running, you can test pull requests using the included script:
    ```bash
    test-pr [PR-NUMBER]
    ```
 
-5. **Clean Up After Testing**
+6. **Clean Up After Testing**
    When finished testing, clean up using:
    ```bash
    cleanup-pr
@@ -111,7 +150,7 @@ The repository includes a Dev Container configuration that allows you to develop
 After installation, run the VOLTTRON Installer:
 
 ```bash
-volttron-installer
+reflex run
 ```
 
 Follow the interactive prompts to configure your VOLTTRON installation.

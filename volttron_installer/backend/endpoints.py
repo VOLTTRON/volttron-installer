@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Optional
 from ..utils import get_api_url
+from queue import Queue
+
 import os, asyncio
 
 from volttron_installer.backend.tool_manager import ToolManager
@@ -31,7 +33,8 @@ from .models import (
     BACnetReadPropertyRequest,
     BACnetScanResults,
     BACnetWritePropertyRequest,
-    BACnetReadDeviceAllRequest
+    BACnetReadDeviceAllRequest,
+    PlaybookInput
 )
 
 TOOLS_PREFIX = "/tools"
@@ -82,6 +85,7 @@ async def add_host(host_entry: CreateOrUpdateHostEntryRequest):
             http_proxy=host_entry.http_proxy,
             https_proxy=host_entry.https_proxy,
             volttron_venv=host_entry.volttron_venv,
+            volttron_home= host_entry.volttron_home,
             host_configs_dir=host_entry.host_configs_dir,
             name = host_entry.name
         )
@@ -318,35 +322,32 @@ async def task_status(id: str):
 async def deploy_platform(platform_id: str, password:str,
                           ansible: AnsibleService = Depends(get_ansible_service),
                           platform_service: PlatformService = Depends(get_platform_service)):
+    print("Queue is populated")
 
     """Deploys a platform using Ansible"""
     try:
         platform_service = await get_platform_service()
         platform = await platform_service.get_platform(platform_id)
+        
         if platform is None:
             raise HTTPException(status_code=404, detail="Platform not found")
+        deployment_queue = Queue()
+        deployment_queue.put(PlaybookInput(playbook_name="host_config", hosts= platform.host_id, password= password))
+        deployment_queue.put(PlaybookInput(playbook_name="install_platform", hosts= platform.host_id, password= password, extra_vars=platform.config.model_dump()))
+        deployment_queue.put(PlaybookInput(playbook_name="run_platforms", hosts= platform.host_id, password= password, extra_vars=platform.config.model_dump()))
+        deployment_queue.put(PlaybookInput(playbook_name="configure_agents", hosts= platform.host_id, password= password, extra_vars=platform.config.model_dump()))
+        response = await ansible.run_playbook(deployment_queue)
         
-        ret, stdout, stderr = await ansible.run_playbook("host_config", platform.host_id, password)
+        for x in response:
+            stdout, stderr = await x.communicate()
+            print(x.returncode)
+            print(f"STDOUT IS: {stdout}, STDERR IS: {stderr}")
+            if stderr != None:
+                return {"status": "Error", "output": "error"}
+        
+        return {"status": "success", "output": "x1"}
+        
 
-        if ret != 0:
-             raise HTTPException(
-                status_code=500,
-                detail=f"Ansible deployment failed: {stderr or stdout}"
-            )
-        hosts=platform.host_id,
-        return_code, stdout, stderr = await ansible.run_playbook(
-            "install_platform",
-            hosts,
-            password,
-            extra_vars=platform.config.model_dump()
-        )
-
-        if return_code != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Ansible deployment failed: {stderr or stdout}"
-            )
-        return {"status": "success", "output": stdout}
 
     except Exception as e:
         raise HTTPException(
@@ -376,17 +377,23 @@ async def deploy_platform(platform_id: str, password:str,
 #         )
 
 @ansible_router.post("/ansible/start_platform")
-async def start_platform(platform_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
+async def start_platform(password: str, platform_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
     """Starts a platform using Ansible"""
+    
+    address = await ansible.get_host_entry_by_id(platform_id)
+
     try:
         return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
-            f"cd {platform_id} && ./start-volttron"
+            f"cd {platform_id} && ./start-volttron",
+            inventory = address.id + ",",
+            connection=address.ansible_connection,
+            password = password
         )
 
         if return_code != 0:
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to start platform: {stderr or stdout}"
+                detail=f"{return_code}Failed to start platform: {stderr or stdout}"
             )
         return {"status": "success", "output": stdout}
 
