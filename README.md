@@ -10,6 +10,17 @@ The VOLTTRON Installer provides:
 - Support for both development and production deployments
 - Integration with building systems and IoT devices
 
+## Repository Structure
+
+This project depends on several related repositories that are currently under development:
+
+- **volttron-installer** (this repository) - Main installer application
+- **eclipse-bacnet-scan-tool** - BACnet device scanning and discovery tool
+- **lib-protocol-proxy-fixed** - Core protocol proxy library
+- **lib-protocol-proxy-bacnet-fixed** - BACnet-specific protocol proxy implementation
+
+> **Note**: These dependencies are currently in development and not yet published to PyPI. See the [Development Installation](#option-2-development-installation) section for setup instructions.
+
 ## System Requirements
 
 ### Base System Requirements
@@ -49,99 +60,145 @@ For each host, you must add it to the known_hosts file. You can do so by running
 
 ## Installation Options
 
-### Option 1: Direct Installation with Pip
+Important: As of January 2026, installation requires cloning multiple repositories because components are not yet published to PyPI.
 
-1. **Create a Virtual Environment** (recommended)
+1. [**Option 1: Pixi (Recommended)**](#option-1-pixi-recommended) - Easiest setup, handles Python & dependencies automatically.
+2. [**Option 2: Manual Development Setup**](#option-2-manual-development-setup) - Requires manually installing Python 3.10 and managing virtualenvs.
+3. [**Option 3: VS Code Dev Containers**](#option-3-using-vs-code-dev-containers) - Docker-based isolated environment.
+
+---
+
+### Prerequisites (All Options)
+
+Regardless of the installation method, you must first clone the required repositories into a common workspace.
+
+**Dependency Chain:**
+- `volttron-installer` (main project)
+  - → `eclipse-bacnet-scan-tool`
+    - → `lib-protocol-proxy-fixed`
+    - → `lib-protocol-proxy-bacnet-fixed`
+
+**1. Clone Repositories**
+
+You can use the provided helper script to clone all required repositories at once:
+
+```bash
+# Make script executable
+chmod +x setup-repos.sh
+
+# Run script
+./setup-repos.sh
+```
+
+Alternatively, you can clone them manually:
+
+```bash
+# Create workspace directory
+mkdir -p ~/WORK/VOLTTRON
+cd ~/WORK/VOLTTRON
+
+# 1. Clone Installer (this repo)
+git clone https://github.com/riley206-pnnl/volttron-installer.git
+cd volttron-installer
+git checkout develop
+
+# 2. Clone Dependencies (siblings in ~/WORK/VOLTTRON/)
+cd ~/WORK/VOLTTRON
+git clone -b develop https://github.com/riley206-pnnl/eclipse-bacnet-scan-tool.git
+git clone -b bus_adapter_changes https://github.com/riley206-pnnl/lib-protocol-proxy-fixed.git
+```
+
+> **Note**: These steps are critical. The installer expects these folders to exist at `../[package-name]`.
+
+---
+
+### Option 1: Pixi (Recommended)
+
+[Pixi](https://prefix.dev/) is a package manager that handles Python installation and environment setup automatically. It is the easiest way to get started.
+
+1. **Install Pixi** (if not already installed):
    ```bash
-   python3 -m venv venv
+   curl -fsSL https://pixi.sh/install.sh | bash
+   source ~/.bashrc
+   ```
+
+2. **Install Dependencies**:
+   Navigate to the installer directory and run our setup task:
+   ```bash
+   cd ~/WORK/VOLTTRON/volttron-installer
+   pixi run install-deps
+   ```
+
+3. **Install VOLTTRON Ansible**:
+   ```bash
+   ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
+   ```
+
+4. **Run the Application**:
+   ```bash
+   pixi run run
+   ```
+
+---
+
+### Option 2: Manual Development Setup
+
+If you prefer to manage Python manually, you must ensure you are using **Python 3.10**.
+
+**Prerequisites:**
+- Python 3.10 (We recommend using [pyenv](https://github.com/pyenv/pyenv))
+
+1. **Create Virtual Environment**:
+   ```bash
+   cd ~/WORK/VOLTTRON/volttron-installer
+   python3.10 -m venv venv
    source venv/bin/activate
    ```
 
-2. **Install VOLTTRON Installer**
+2. **Install Dependencies**:
+   Install the local packages in editable mode:
    ```bash
-   pip install git+https://github.com/VOLTTRON/volttron-installer.git,develop
-   ```
-3. **Install VOLTTRON Ansible**
-      
-      ```bash
-      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
-      ```
-      *For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
-
-4. **Run the Installer**
-   ```bash
-   reflex run
-   ```
-
-### Option 2: Development Installation
-
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/VOLTTRON/volttron-installer.git
-   cd volttron-installer
-   ```
-
-2. **Create and Activate Virtual Environment**
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-
-3. **Install in Development Mode**
-   ```bash
+   # Install local dependencies
+   pip install -e ../lib-protocol-proxy-fixed
+   pip install -e ../lib-protocol-proxy-bacnet-fixed
+   pip install -e ../eclipse-bacnet-scan-tool
+   
+   # Install Installer requirements
    pip install -r requirements.txt
    pip install -e .
    ```
-4. **Install VOLTTRON Ansible**
-      ```bash
-      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
-      ```
-      *For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
-5. **Run the Installer**
+
+3. **Install VOLTTRON Ansible**:
+   ```bash
+   ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
+   ```
+
+4. **Run the Application**:
    ```bash
    reflex run
    ```
 
+---
+
 ### Option 3: Using VS Code Dev Containers
 
-The repository includes a Dev Container configuration that allows you to develop and test the project in a consistent environment.
+The project includes a Dev Container configuration for development in Docker.
 
-#### Prerequisites
+1. **Open in VS Code**:
+   Open the `volttron-installer` folder in VS Code.
 
-- [VS Code](https://code.visualstudio.com/download)
-- [Docker](https://docs.docker.com/get-docker/)
-- [VS Code Remote - Containers Extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+2. **Reopen in Container**:
+   Run "Remote-Containers: Reopen in Container" from the command palette.
 
-#### Steps
-
-1. **Clone the Repository**
+3. **Install Ansible**:
+   Once inside the container terminal:
    ```bash
-   git clone https://github.com/VOLTTRON/volttron-installer.git
-   cd volttron-installer
-   ```
-2. **Install VOLTTRON Ansible**
-      ```bash
-      ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
-      ```
-   *For more information, see the VOLTTRON Ansible repository at https://github.com/eclipse-volttron/volttron-ansible.git*
-
-3. **Open in VS Code**
-   ```bash
-   code .
+   ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
    ```
 
-4. **Reopen in Container**
-   When prompted by VS Code, click "Reopen in Container" or use the command palette (F1) and select "Remote-Containers: Reopen in Container".
-
-5. **Testing Pull Requests**
-   Once the container is running, you can test pull requests using the included script:
+4. **Testing Pull Requests**:
    ```bash
    test-pr [PR-NUMBER]
-   ```
-
-6. **Clean Up After Testing**
-   When finished testing, clean up using:
-   ```bash
    cleanup-pr
    ```
 

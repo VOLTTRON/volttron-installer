@@ -1,7 +1,8 @@
 reflex==0.7.11
 python-dotenv==1.0.1
-pydantic
+pydantic>=2.10.0,<2.11.0
 pydantic-settings
+sqlmodel==0.0.28
 loguru
 aiofiles
-eclipse-bacnet-scan-api
+-e ../eclipse-bacnet-scan-tool

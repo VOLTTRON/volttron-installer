@@ -189,3 +189,6 @@ package.json
 
 data/
 uploaded_files/
+
+# Pixi environment
+.pixi/
