@@ -16,7 +16,7 @@ from .utils import delete_file
 from loguru import logger
 from typing import Dict, Optional, List
 from .thin_endpoint_wrappers import *
-from .thin_endpoint_wrappers import discover_networks  # Explicit import for the new function
+from .thin_endpoint_wrappers import discover_networks, ApiError  # Explicit imports
 import string, random, json, csv, yaml, re, io, asyncio, math
 from copy import deepcopy
 from typing import Literal
@@ -342,6 +342,14 @@ class PlatformPageState(rx.State):
     # we can check if the host is reachable or not. if it is, we set this to true.
     _host_resolved: bool = False
 
+    # Deployment progress tracking
+    _is_deploying: bool = False
+    _deployment_status: str = "idle"  # idle, running, success, failed
+    _deployment_logs: list[str] = []
+    _current_task: str = ""
+    _deployment_progress: int = 0  # 0-100
+    _show_deployment_dialog: bool = False
+
 
     # Vars
     @rx.var(cache=True)
@@ -525,6 +533,32 @@ class PlatformPageState(rx.State):
         return self.check_instance_deployable(working_platform)
     # === end of instance validation bars ===
 
+    # === vars for deployment progress ===
+    @rx.var
+    def is_deploying(self) -> bool:
+        return self._is_deploying
+    
+    @rx.var
+    def deployment_status(self) -> str:
+        return self._deployment_status
+    
+    @rx.var
+    def deployment_logs(self) -> list[str]:
+        return self._deployment_logs
+    
+    @rx.var
+    def current_task(self) -> str:
+        return self._current_task
+    
+    @rx.var
+    def deployment_progress(self) -> int:
+        return self._deployment_progress
+    
+    @rx.var
+    def show_deployment_dialog(self) -> bool:
+        return self._show_deployment_dialog
+    # === end of deployment progress vars ===
+
     # Events
     @rx.event
     async def hydrate_state(self, force_hydration: bool = False):
@@ -652,6 +686,35 @@ class PlatformPageState(rx.State):
         yield rx.toast.info("Changes Reverted.")
 
     @rx.event
+    async def handle_delete_platform(self):
+        """Delete the current platform from both the backend and local state."""
+        working_platform: Instance = self.platforms.get(self.current_uid)
+        if working_platform is None:
+            yield rx.toast.error("No platform selected to delete")
+            return
+
+        instance_name = working_platform.platform.config.instance_name
+
+        # Only delete from backend if the platform was previously saved (exists in file)
+        if working_platform.platform.in_file:
+            try:
+                await delete_platform(instance_name)
+            except ApiError as e:
+                yield rx.toast.error(f"Failed to delete platform: {e.detail}")
+                return
+            except Exception as e:
+                yield rx.toast.error(f"Failed to delete platform: {str(e)}")
+                return
+
+        # Remove from local state
+        if self.current_uid in self.platforms:
+            del self.platforms[self.current_uid]
+
+        # Navigate back to index and show success message
+        yield NavigationState.route_to_index()
+        yield rx.toast.success(f"Platform '{instance_name}' has been deleted")
+
+    @rx.event
     async def generate_new_platform(self):
         new_uid = self.generate_unique_uid()
         new_host = HostEntryModelView(id="", ansible_user="", ansible_host="")
@@ -707,6 +770,29 @@ class PlatformPageState(rx.State):
         working_platform_instance.password = value
 
     @rx.event
+    def use_local_details(self):
+        import getpass
+        current_user = getpass.getuser()
+        
+        # Get the current platform instance
+        working_platform = self.platforms[self.current_uid]
+        
+        # Update Host Entry details for localhost
+        working_platform.host.ansible_host = "localhost"
+        working_platform.host.id = "localhost"
+        working_platform.host.ansible_user = current_user
+        working_platform.host.ansible_port = "22"
+        
+        # Update validation states since we trust localhost
+        self._host_resolved = True
+        self._host_resolvable = True
+        
+        # Check for uncaught changes
+        working_platform.uncaught = working_platform.has_uncaught_changes()
+        
+        yield rx.toast.info("Filled with local connection details")
+
+    @rx.event
     def update_detail(self, field: str, value):
         working_platform_instance = self.platforms[self.current_uid]
         if field == "id":
@@ -726,14 +812,53 @@ class PlatformPageState(rx.State):
     @rx.event
     async def handle_deploy(self):
         working_platform: Instance = self.platforms[self.current_uid]
+        
+        # Show deployment dialog and initialize state
+        self._show_deployment_dialog = True
+        self._is_deploying = True
+        self._deployment_status = "running"
+        self._deployment_logs = []
+        self._current_task = "Initializing deployment..."
+        self._deployment_progress = 0
+        yield
+        
         try:
             response = await deploy_platform(working_platform.platform.config.instance_name, working_platform.password)
+            response_data = response.json()
+            
+            # Parse the output and extract task information
+            output = response_data.get("output", "")
+            tasks = response_data.get("tasks", [])
+            
+            # Update logs with full output
+            for line in output.split('\n'):
+                if line.strip():
+                    self._deployment_logs.append(line)
+            
+            # Mark as deployed
             working_platform.deployed = True
-            logger.debug(f"response: {response.json()}")
+            logger.debug(f"response: {response_data}")
+            
+            # Update deployment state to success
+            self._deployment_status = "success"
+            self._is_deploying = False
+            self._current_task = f"Deployment completed successfully ({len(tasks)} tasks executed)"
+            self._deployment_progress = 100
             yield rx.toast.success("Deployed Successfully!")
         except Exception as e:
             logger.debug(f"there was an error deploying platform {working_platform.platform.config.instance_name}. e: {e}")
+            
+            # Update deployment state to failed
+            self._deployment_status = "failed"
+            self._is_deploying = False
+            self._current_task = f"Deployment failed: {str(e)}"
+            self._deployment_logs.append(f"ERROR: {str(e)}")
             yield rx.toast.error(f"There was an error deploying platform: {working_platform.platform.config.instance_name}")
+
+    @rx.event
+    def close_deployment_dialog(self):
+        """Close the deployment progress dialog"""
+        self._show_deployment_dialog = False
 
     @rx.event
     async def handle_save(self):
@@ -785,7 +910,8 @@ class PlatformPageState(rx.State):
         
         host_request = working_platform.host.to_dict()
         host_request["ansible_port"] = int(host_request["ansible_port"])
-        host_request["name"] =  working_platform.platform.config.instance_name
+        # Use 'instance_name' to avoid Ansible reserved keyword 'name' conflict
+        host_request["instance_name"] = working_platform.platform.config.instance_name
         request = CreateOrUpdateHostEntryRequest(**host_request)
 
         await add_host(request)
@@ -1438,7 +1564,11 @@ class AgentConfigState(rx.State):
         platform_state: PlatformPageState = await self.get_state(PlatformPageState)
         if self.agent_details["uid"] == "":
             return (valid, validity_map)
-        
+
+        # Check if the platform still exists (may have been deleted)
+        if self.agent_details["uid"] not in platform_state.platforms:
+            return (valid, validity_map)
+
         working_platform: Instance = platform_state.platforms[self.agent_details["uid"]]
         
 

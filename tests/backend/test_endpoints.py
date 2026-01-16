@@ -27,7 +27,7 @@ def create_host_entry():
         "volttron_venv": None,
         "volttron_home": "~/.volttron",
         "host_configs_dir": None,
-        "name": "test_host"
+        "instance_name": "test_host"
     })
 
 def test_create_platform_endpoint(create_host_entry):
@@ -206,7 +206,7 @@ def test_create_host_entry():
         "volttron_venv": None,
         "volttron_home": "~/.volttron",
         "host_configs_dir": None,
-        "name": "test_host"
+        "instance_name": "test_host"
     })
     assert response.status_code == 200
     assert response.json()["success"] is True

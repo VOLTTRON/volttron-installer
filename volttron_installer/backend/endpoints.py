@@ -85,7 +85,7 @@ async def add_host(host_entry: CreateOrUpdateHostEntryRequest):
             https_proxy=host_entry.https_proxy,
             volttron_venv=host_entry.volttron_venv,
             host_configs_dir=host_entry.host_configs_dir,
-            name = host_entry.name
+            instance_name=host_entry.instance_name
         )
 
         inventory_service = await get_inventory_service()
@@ -319,36 +319,57 @@ async def task_status(id: str):
 @platform_router.post("/deploy/{platform_id}")
 async def deploy_platform(platform_id: str, password:str,
                           ansible: AnsibleService = Depends(get_ansible_service),
-                          platform_service: PlatformService = Depends(get_platform_service)):
+                          platform_service: PlatformService = Depends(get_platform_service),
+                          inventory_service: InventoryService = Depends(get_inventory_service)):
 
     """Deploys a platform using Ansible"""
     try:
-        platform_service = await get_platform_service()
+        # platform_service = await get_platform_service() # Removed redundant call
         platform = await platform_service.get_platform(platform_id)
         if platform is None:
             raise HTTPException(status_code=404, detail="Platform not found")
         
-        ret, stdout, stderr = await ansible.run_playbook("host_config", platform.host_id, password)
+        # Check if we should ignore host keys
+        # The inventory is keyed by instance name, not host_id
+        ignore_host_keys = False
+        all_hosts = await inventory_service.get_hosts()
+        if platform.config.instance_name in all_hosts:
+            ignore_host_keys = all_hosts[platform.config.instance_name].ignore_host_keys
+
+        # Target the platform instance name in the inventory
+        target_host = platform.config.instance_name
+
+        ret, stdout, stderr = await ansible.run_playbook("host_config", target_host, password, ignore_host_keys=ignore_host_keys)
 
         if ret != 0:
-             raise HTTPException(
+            error_message = _parse_ansible_error(ret, stdout, stderr)
+            raise HTTPException(
                 status_code=500,
-                detail=f"Ansible deployment failed: {stderr or stdout}"
+                detail=f"Host configuration failed: {error_message}"
             )
-        hosts=platform.host_id,
+
         return_code, stdout, stderr = await ansible.run_playbook(
             "install_platform",
-            hosts,
+            target_host,
             password,
-            extra_vars=platform.config.model_dump()
+            extra_vars=platform.config.model_dump(),
+            ignore_host_keys=ignore_host_keys
         )
 
         if return_code != 0:
+            error_message = _parse_ansible_error(return_code, stdout, stderr)
             raise HTTPException(
                 status_code=500,
-                detail=f"Ansible deployment failed: {stderr or stdout}"
+                detail=f"Platform installation failed: {error_message}"
             )
-        return {"status": "success", "output": stdout}
+        
+        # Return full output including both stdout and stderr
+        return {
+            "status": "success", 
+            "output": stdout,
+            "stderr": stderr,
+            "tasks": _parse_ansible_tasks(stdout)
+        }
     
 
     except Exception as e:
@@ -356,6 +377,88 @@ async def deploy_platform(platform_id: str, password:str,
             status_code=500,
             detail=str(e)
         )
+
+def _parse_ansible_tasks(ansible_output: str) -> list[str]:
+    """Parse Ansible output to extract task names"""
+    tasks = []
+    for line in ansible_output.split('\n'):
+        if line.startswith('TASK ['):
+            # Extract task name from "TASK [task name] ***"
+            task_name = line[6:line.rfind(']')].strip()
+            tasks.append(task_name)
+    return tasks
+
+def _parse_ansible_error(return_code: int, stdout: str, stderr: str) -> str:
+    """Parse Ansible output to provide a user-friendly error message.
+
+    Analyzes both stdout and stderr to identify common failure patterns
+    and returns a clear, actionable error message.
+    """
+    import re
+
+    # First, look for specific error messages in fatal/FAILED lines (most reliable)
+    # These lines contain the actual error from Ansible
+    for line in stdout.split('\n'):
+        line_lower = line.lower()
+        if 'fatal:' in line_lower or 'failed!' in line_lower:
+            # Check for specific errors in the fatal line
+            if "incorrect sudo password" in line_lower:
+                return "Authentication failed: The sudo password is incorrect."
+            if "authentication failure" in line_lower:
+                return "Authentication failed: The password is incorrect."
+            if "permission denied" in line_lower:
+                return "Authentication failed: The password is incorrect or the user doesn't have access."
+            if "host key verification failed" in line_lower:
+                return "SSH host key verification failed. Try enabling 'Disable Host Key Checking' in the connection settings."
+            if "sudo: a password is required" in line_lower or "missing sudo password" in line_lower:
+                return "Sudo password required: The remote user needs sudo privileges. Ensure the password is correct."
+            if "not in the sudoers file" in line_lower:
+                return "Permission denied: The remote user is not in the sudoers file and cannot run privileged commands."
+            if "connection refused" in line_lower:
+                return "Connection refused: The SSH service may not be running on the remote host, or the port may be blocked."
+            if "timed out" in line_lower:
+                return "Connection timed out: The host is not responding. Check network connectivity and firewall settings."
+            if "name or service not known" in line_lower or "could not resolve" in line_lower:
+                return "DNS resolution failed: The hostname could not be resolved. Check the hostname or use an IP address instead."
+            if "command not found" in line_lower:
+                return "Missing dependency: A required command was not found on the remote host."
+            if "no python interpreter found" in line_lower:
+                return "Python not found: No Python interpreter found on the remote host. Ensure Python is installed."
+            # Check for UNREACHABLE in the fatal line itself (not in PLAY RECAP)
+            if "unreachable!" in line_lower:
+                return "Host unreachable: Unable to connect to the remote host. Check that the host is online and the IP/hostname is correct."
+
+            # Extract the error message from the JSON-like output if present
+            msg_match = re.search(r'"msg":\s*"([^"]+)"', line)
+            if msg_match:
+                return f"Deployment failed: {msg_match.group(1)}"
+
+            # Return a truncated version of the fatal line
+            return f"Deployment failed: {line.strip()[:300]}"
+
+    # Check PLAY RECAP for unreachable hosts (unreachable > 0)
+    for line in stdout.split('\n'):
+        if 'unreachable=' in line.lower():
+            match = re.search(r'unreachable=(\d+)', line.lower())
+            if match and int(match.group(1)) > 0:
+                return "Host unreachable: Unable to connect to the remote host. Check that the host is online and the IP/hostname is correct."
+
+    # Filter out warnings from stderr to find real errors
+    real_errors = []
+    for line in stderr.split('\n'):
+        line_stripped = line.strip()
+        if line_stripped and not line_stripped.startswith('[WARNING]'):
+            real_errors.append(line_stripped)
+
+    # If we found real errors in stderr, use those
+    if real_errors:
+        return f"Deployment failed: {' '.join(real_errors[:3])}"
+
+    # Generic fallback - include both outputs for debugging
+    error_detail = stderr.strip() if stderr.strip() else stdout.strip()
+    if len(error_detail) > 500:
+        error_detail = error_detail[:500] + "..."
+    return f"Deployment failed (exit code {return_code}): {error_detail}"
     
 # async def deploy_platform(config: PlatformConfig, ansible: AnsibleService = Depends(get_ansible_service)):
 #     """Deploys a platform using Ansible"""

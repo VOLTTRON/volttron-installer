@@ -37,7 +37,7 @@ class InventoryService:
             del entry.volttron_venv
             
         with self._lock:
-            self._internal_state['all']['hosts'][entry.name] = entry.model_dump()
+            self._internal_state['all']['hosts'][entry.instance_name] = entry.model_dump()
             yaml.dump(self._internal_state, self.inventory_path.open('w'))
     
     async def remove_host(self, host_id: str):

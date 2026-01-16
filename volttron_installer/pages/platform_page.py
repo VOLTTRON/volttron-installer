@@ -13,6 +13,78 @@ from ..models import Instance
 
 parts = Literal["connection", "instance_configuration"]
 
+def deployment_progress_dialog() -> rx.Component:
+    """Dialog showing deployment progress with task name and logs"""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.vstack(
+                rx.dialog.title("Deploying Platform"),
+                rx.dialog.description(
+                    rx.text(State.current_task, size="3", weight="bold")
+                ),
+                # Log output area
+                rx.box(
+                    rx.vstack(
+                        rx.foreach(
+                            State.deployment_logs,
+                            lambda log: rx.text(log, size="1", font_family="monospace")
+                        ),
+                        width="100%",
+                        spacing="1",
+                    ),
+                    width="100%",
+                    height="300px",
+                    overflow_y="auto",
+                    padding="1rem",
+                    border="1px solid var(--gray-6)",
+                    border_radius="8px",
+                    background_color="var(--gray-2)",
+                ),
+                # Progress indicator
+                rx.cond(
+                    State.is_deploying,
+                    rx.hstack(
+                        rx.spinner(size="3"),
+                        rx.text("Deploying...", size="2"),
+                        spacing="3",
+                        align="center",
+                    ),
+                    rx.cond(
+                        State.deployment_status == "success",
+                        rx.hstack(
+                            rx.icon("check", size=24, color="green"),
+                            rx.text("Deployment completed", size="2", color="green"),
+                            spacing="3",
+                            align="center",
+                        ),
+                        rx.hstack(
+                            rx.icon("x", size=24, color="red"),
+                            rx.text("Deployment failed", size="2", color="red"),
+                            spacing="3",
+                            align="center",
+                        ),
+                    ),
+                ),
+                # Close button (only enabled when not deploying)
+                rx.hstack(
+                    rx.dialog.close(
+                        rx.button(
+                            "Close",
+                            on_click=State.close_deployment_dialog,
+                            disabled=State.is_deploying,
+                        )
+                    ),
+                    justify="end",
+                    width="100%",
+                ),
+                spacing="4",
+                width="100%",
+            ),
+            max_width="600px",
+        ),
+        open=State.show_deployment_dialog,
+    )
+
 @rx.page(route="/platform/[uid]", on_load=State.hydrate_state)
 def platform_page() -> rx.Component:
 
@@ -23,43 +95,74 @@ def platform_page() -> rx.Component:
         rx.fragment(
             app_layout(
                 header(
-                rx.hstack(
-                    icon_button_wrapper.icon_button_wrapper(
-                        tool_tip_content="Go back to overview",
-                        icon_key="arrow-left",
-                        on_click=lambda: NavigationState.route_to_index()
-                    ),
-                    rx.text(f"""{
-                            rx.cond(
-                                State.working_platform.new_instance,
-                                'New Platform',
-                                f'Platform: {State.platform_title}'
-                            )
-                        }""",
-                        trim="both",
-                        size="6"
-                    ),
-                    spacing="6",
-                    align="center",
-                ),
-                rx.hstack(
-                    rx.cond(
-                        State.working_platform.new_instance==False,
+                    rx.hstack(
                         icon_button_wrapper.icon_button_wrapper(
-                            tool_tip_content="Copy Platform",
-                            icon_key="copy",
-                            on_click=lambda: State.copy_platform(State.current_uid)
-                        )
+                            tool_tip_content="Go back to overview",
+                            icon_key="arrow-left",
+                            on_click=NavigationState.route_to_index
+                        ),
+                        rx.text(f"""{
+                                rx.cond(
+                                    State.working_platform.new_instance,
+                                    'New Platform',
+                                    f'Platform: {State.platform_title}'
+                                )
+                            }""",
+                            trim="both",
+                            size="6"
+                        ),
+                        spacing="6",
+                        align="center",
                     ),
-                    icon_button_wrapper.icon_button_wrapper(
-                        tool_tip_content="Delete platform",
-                        icon_key="trash-2",
+                    rx.hstack(
+                        rx.cond(
+                            State.working_platform.new_instance==False,
+                            icon_button_wrapper.icon_button_wrapper(
+                                tool_tip_content="Copy Platform",
+                                icon_key="copy",
+                                on_click=State.copy_platform(State.current_uid)
+                            )
+                        ),
+                        rx.alert_dialog.root(
+                            rx.alert_dialog.trigger(
+                                icon_button_wrapper.icon_button_wrapper(
+                                    tool_tip_content="Delete platform",
+                                    icon_key="trash-2",
+                                ),
+                            ),
+                            rx.alert_dialog.content(
+                                rx.alert_dialog.title("Delete Platform"),
+                                rx.alert_dialog.description(
+                                    f"Are you sure you want to delete this platform? This action cannot be undone.",
+                                    size="2",
+                                ),
+                                rx.flex(
+                                    rx.alert_dialog.cancel(
+                                        rx.button(
+                                            "Cancel",
+                                            variant="soft",
+                                            color_scheme="gray",
+                                        )
+                                    ),
+                                    rx.alert_dialog.action(
+                                        rx.button(
+                                            "Delete",
+                                            color_scheme="red",
+                                            on_click=State.handle_delete_platform
+                                        )
+                                    ),
+                                    spacing="3",
+                                    margin_top="16px",
+                                    justify="end",
+                                ),
+                            ),
+                        ),
                     ),
+                    justify="between"
                 ),
-                justify="between"
+                platform_tabs()
             ),
-            platform_tabs()
-            )
+            deployment_progress_dialog(),
         ),
         # Skeleton Stuff
         rx.vstack(
@@ -167,6 +270,18 @@ def configuration_tab_content() -> rx.Component:
                         # ),
                         content=rx.box(
                             rx.box(
+                                rx.hstack(
+                                    rx.text("Install Locally?", size="2", color="gray", weight="medium"),
+                                    rx.button(
+                                        "Use Local Connection",
+                                        variant="soft",
+                                        size="2",
+                                        on_click=State.use_local_details,
+                                    ),
+                                    align="center",
+                                    spacing="2",
+                                    margin_bottom="1rem",
+                                ),
                                 form_entry.form_entry(
                                     "Host",
                                     rx.input(
@@ -174,7 +289,7 @@ def configuration_tab_content() -> rx.Component:
                                         on_change=lambda v: State.update_detail("id", v),
                                         size="3",
                                         required=True,
-                                        on_blur=lambda: State.determine_host_reachability(State.working_platform),
+                                        on_blur=State.determine_host_reachability(State.working_platform),
                                         color_scheme = rx.cond(
                                             State.is_host_resolvable,
                                             "gray",
@@ -238,6 +353,14 @@ def configuration_tab_content() -> rx.Component:
                                         )
                                     ),
                                 ),
+                                rx.checkbox(
+                                    "Disable Host Key Checking (StrictHostKeyChecking=no)",
+                                    checked=State.working_platform.host.ignore_host_keys,
+                                    on_change=lambda v: State.update_detail("ignore_host_keys", v),
+                                    spacing="2",
+                                    margin_top="0.5rem",
+                                    margin_bottom="1rem"
+                                ),
                                 rx.box(
                                     rx.hstack(
                                         rx.text("Toggle Advanced"),
@@ -248,7 +371,7 @@ def configuration_tab_content() -> rx.Component:
                                         )
                                     ),
                                     class_name="toggle_advanced_button",
-                                    on_click=lambda: State.toggle_advanced(State.current_uid)
+                                    on_click=State.toggle_advanced(State.current_uid)
                                 ),
                                 rx.cond(
                                     State.working_platform.advanced_expanded,
@@ -357,7 +480,7 @@ def configuration_tab_content() -> rx.Component:
                                     rx.vstack(
                                         rx.checkbox(
                                             size="3",
-                                            on_click = lambda: State.toggle_federation()
+                                            on_click=State.toggle_federation
                                         ),
                                         justify="center",
                                         align="center",
@@ -370,7 +493,7 @@ def configuration_tab_content() -> rx.Component:
                                         rx.checkbox(
                                             size="3",
                                             checked=State.working_platform.web_checked,
-                                            on_change=lambda: State.toggle_web()
+                                            on_change=State.toggle_web
                                         ),
                                         justify="center",
                                         align="center",
@@ -401,7 +524,7 @@ def configuration_tab_content() -> rx.Component:
                                         )
                                     ),
                                     class_name="toggle_advanced_button",
-                                    on_click=lambda: State.toggle_agent_config_details()
+                                    on_click=State.toggle_agent_config_details
                                 ),
                                 rx.box(
                                     rx.cond(
@@ -416,7 +539,7 @@ def configuration_tab_content() -> rx.Component:
                                                             agent.identity,
                                                             right_component=tile_icon(
                                                                 "plus",
-                                                                on_click=lambda: State.handle_adding_agent(agent, State.current_uid)
+                                                                on_click=State.handle_adding_agent(agent, State.current_uid)
                                                             ),
                                                         ),
                                                     ),
@@ -433,12 +556,11 @@ def configuration_tab_content() -> rx.Component:
                                                             identity_agent_pair[1].identity,
                                                             left_component=tile_icon(
                                                                 "trash-2",
-                                                                on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
-                                                                # on_click= lambda: State.handle_removing_agent(identity_agent_pair[0])
+                                                                on_click=State.handle_removing_agent(identity_agent_pair[0])
                                                             ),
                                                             right_component=tile_icon(
                                                                 "settings",
-                                                                on_click=lambda: NavigationState.route_to_agent_config(
+                                                                on_click=NavigationState.route_to_agent_config(
                                                                     State.current_uid,
                                                                     identity_agent_pair[1].routing_id,
                                                                     identity_agent_pair[1]
@@ -482,7 +604,7 @@ def configuration_tab_content() -> rx.Component:
                         size="4", 
                         variant="surface",
                         color_scheme="green",
-                        on_click=lambda: State.handle_save(),
+                        on_click=State.handle_save,
                         disabled=rx.cond(
                             (State.instance_savable)
                             & (State.instance_uncaught),
@@ -538,7 +660,7 @@ def configuration_tab_content() -> rx.Component:
                                     rx.dialog.close(
                                         rx.button(
                                             "Submit",
-                                            on_click=lambda: State.handle_deploy(),
+                                            on_click=State.handle_deploy,
                                             disabled=rx.cond(
                                                 State.password_field=="",
                                                 True,
@@ -560,7 +682,7 @@ def configuration_tab_content() -> rx.Component:
                             size="4", 
                             variant="surface", 
                             color_scheme="red",
-                            on_click=lambda: State.handle_cancel(),
+                            on_click=State.handle_cancel,
                             disabled=rx.cond(
                                 State.instance_uncaught == False,
                                 # State.working_platform.uncaught == False,
