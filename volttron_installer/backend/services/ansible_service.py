@@ -25,7 +25,7 @@ class AnsibleService:
         self.playbook_dir = playbook_dir
             
 
-    async def run_playbook(self, playbook_name: str, hosts: str | list[str], password: str = None, extra_vars: dict = None) -> tuple[int, str, str]:
+    async def run_playbook(self, playbook_name: str, hosts: str | list[str], password: str = None, extra_vars: dict = None, ignore_host_keys: bool = False) -> tuple[int, str, str]:
         """Run an Ansible playbook asynchronously
 
         Args:
@@ -33,6 +33,7 @@ class AnsibleService:
             inventory: Ansible inventory string
             connection: Connection type (local, ssh, etc)
             extra_vars: Optional dict of extra variables to pass
+            ignore_host_keys: Whether to ignore SSH host key checking
 
         Returns:
             Tuple of (return_code, stdout, stderr)
@@ -41,11 +42,43 @@ class AnsibleService:
         cmd:str
         output_cmd: str
         pass_holder = "********"
+        
+        # Build extra vars dictionary
+        combined_extra_vars = {}
+        if extra_vars:
+            combined_extra_vars.update(extra_vars)
+            
+        if password:
+            combined_extra_vars["ansible_become_pass"] = password
+            
+        if ignore_host_keys:
+            combined_extra_vars["ansible_ssh_common_args"] = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+            
+        # Create safe version for logging (redact password)
+        safe_extra_vars = combined_extra_vars.copy()
+        if password:
+            safe_extra_vars["ansible_become_pass"] = pass_holder
+            
+        extra_vars_json = json.dumps(combined_extra_vars)
+        safe_extra_vars_json = json.dumps(safe_extra_vars)
+
         if password == None: 
-            cmd = ["ansible-playbook","-i", inventory_service.inventory_path.as_posix()]
+            cmd = ["ansible-playbook", "-i", inventory_service.inventory_path.as_posix()]
+            output_cmd = ["ansible-playbook", "-i", inventory_service.inventory_path.as_posix()]
         else:
-            cmd = ["sshpass","-p", password, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix(),"--extra-vars", f'ansible_become_pass="{password}"']
-            output_cmd = ["sshpass","-p", pass_holder, "ansible-playbook", "-k","-i", inventory_service.inventory_path.as_posix(),"--extra-vars", f'ansible_become_pass="{pass_holder}"']
+            cmd = ["sshpass","-p", password, "ansible-playbook", "-k", "-i", inventory_service.inventory_path.as_posix()]
+            output_cmd = ["sshpass","-p", pass_holder, "ansible-playbook", "-k", "-i", inventory_service.inventory_path.as_posix()]
+
+        # Add extra vars
+        if combined_extra_vars:
+            cmd.extend(["--extra-vars", extra_vars_json])
+            output_cmd.extend(["--extra-vars", safe_extra_vars_json])
+
+        if hosts:
+            limit_args = ["--limit", ",".join(hosts) if isinstance(hosts, list) else hosts]
+            cmd.extend(limit_args)
+            output_cmd.extend(limit_args)
+
 
         logger.debug(f"Running playbook {playbook_name} on hosts {hosts} cmd: {output_cmd}")
         # if connection:
@@ -70,8 +103,9 @@ class AnsibleService:
         output_cmd.append(playbook_name)
         # Set environment variables
         env = os.environ.copy()
-        #env['ANSIBLE_HOST_KEY_CHECKING'] = 'False'
-        #env['ANSIBLE_SSH_ARGS'] = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+        if ignore_host_keys:
+            env['ANSIBLE_HOST_KEY_CHECKING'] = 'False'
+            env['ANSIBLE_SSH_ARGS'] = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
         
         logger.debug(f"Executing command: {' '.join(output_cmd)}")
         process = await asyncio.create_subprocess_exec(

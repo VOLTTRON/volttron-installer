@@ -139,6 +139,7 @@ class HostEntryModelView(rx.Base):
     volttron_venv: str = ""
     volttron_home: str = "~/.volttron"
     host_configs_dir: str | None = None
+    ignore_host_keys: bool = False
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -151,7 +152,8 @@ class HostEntryModelView(rx.Base):
             "https_proxy": "" if self.https_proxy is None else self.https_proxy,
             "volttron_venv": "" if self.volttron_venv is None else self.volttron_venv,
             "volttron_home": self.volttron_home,
-            "host_configs_dir": "" if self.host_configs_dir is None else self.host_configs_dir
+            "host_configs_dir": "" if self.host_configs_dir is None else self.host_configs_dir,
+            "ignore_host_keys": self.ignore_host_keys
         }
 
 class PlatformConfigModelView(rx.Base):

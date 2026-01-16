@@ -9,6 +9,7 @@ platforms = ["linux-64"]
 python = "3.10.*"
 pip = "*"
 pytest = "*"
+sshpass = ">=1.6,<2"
 
 [tasks]
 install-deps = { cmd = "pip uninstall -y reflex pydantic sqlmodel; pip install 'pydantic>=2.10.0,<2.11.0' 'sqlmodel==0.0.28' && pip install -e ../lib-protocol-proxy-fixed && pip install -e ../lib-protocol-proxy-bacnet-fixed && pip install -e ../eclipse-bacnet-scan-tool && pip install -r requirements.txt && pip install -e . && ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop" }
