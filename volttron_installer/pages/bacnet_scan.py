@@ -789,7 +789,7 @@ def add_to_registry_config_file_dialog() -> rx.Component:
     )
 
 def scan_for_devices_card():
-    return rx.box(
+    return rx.flex(
         rx.box(  # CardHeader
             rx.hstack(
                 rx.icon("search", size=25),
@@ -844,7 +844,7 @@ def scan_for_devices_card():
             ),
             margin_bottom="0.8rem"
         ),
-        rx.hstack(  # CardFooter
+        rx.flex(  # CardFooter
             rx.button(
                 rx.cond(
                     BacnetScanState.scanning_bacnet_range,
@@ -863,15 +863,17 @@ def scan_for_devices_card():
                 justify="center",
                 width="100%"
             ),
-            justify="between",
-            width="100%"
+            width="100%",
+            margin_top="auto",
         ),
         border="1px solid",
         border_color="grey",
         border_radius=".5rem",
         box_shadow="0 4px 12px rgba(0,0,0,0.08)",
         padding="1.3rem",
-        max_width="400px"
+        max_width="400px",
+        direction="column",
+        height="100%"
     )
 
 def true_writable_badge() -> rx.Component:
@@ -1379,7 +1381,7 @@ def property_operations_card():
     )
 
 def network_information_card() -> rx.Component:
-    return rx.box(
+    return rx.flex(
         rx.box(  # CardHeader
             rx.hstack(
                 rx.icon("network", size=25),
@@ -1506,7 +1508,7 @@ def network_information_card() -> rx.Component:
             ),
             margin_bottom="0.8rem"
         ),
-        rx.hstack(  # CardFooter
+        rx.flex(  # CardFooter
             rx.button(
                 rx.cond(
                     (BacnetScanState.ip_detection_mode=="windows_host_ip") & 
@@ -1514,7 +1516,7 @@ def network_information_card() -> rx.Component:
                     rx.spinner(),
                     rx.icon("settings", size=16),
                 ),
-                rx.text("Get Host IP"),
+                rx.text("Get Host IP", white_space="nowrap"),
                 on_click=lambda: BacnetScanState.set_ip_detection_mode("windows_host_ip"),
                 disabled=rx.cond(
                     (BacnetScanState.pinging_ip) | (BacnetScanState.proxy_up == False),
@@ -1522,7 +1524,7 @@ def network_information_card() -> rx.Component:
                     False
                 ),
                 variant="outline",
-                width="48%",
+                flex="1 0 auto",
                 justify="center",
             ),
             rx.button(
@@ -1532,7 +1534,7 @@ def network_information_card() -> rx.Component:
                     rx.spinner(),
                     rx.icon("wifi", size=16),
                 ),
-                rx.text("Discover Networks"),
+                rx.text("Discover Networks", white_space="nowrap"),
                 on_click=lambda: BacnetScanState.set_ip_detection_mode("network_discovery"),
                 disabled=rx.cond(
                     (BacnetScanState.pinging_ip) | (BacnetScanState.proxy_up == False),
@@ -1540,11 +1542,13 @@ def network_information_card() -> rx.Component:
                     False
                 ),
                 variant="solid",
-                width="48%",
+                flex="1 0 auto",
                 justify="center",
             ),
-            justify="between",
-            width="100%"
+            width="100%",
+            wrap="wrap",
+            spacing="3",
+            margin_top="auto",
         ),
         border="1px solid",
         border_color="grey",
@@ -1552,11 +1556,13 @@ def network_information_card() -> rx.Component:
         box_shadow="0 4px 12px rgba(0,0,0,0.08)",
         padding="1.3rem",
         # bg="white",
-        max_width="400px"
+        max_width="400px",
+        direction="column",
+        height="100%"
     )
 
 def bacnet_proxy_card():
-    return rx.box(
+    return rx.flex(
         rx.box(  # CardHeader
             rx.hstack(
                 rx.icon("router", size=25),  # Substitute with the correct icon name if available
@@ -1603,35 +1609,41 @@ def bacnet_proxy_card():
             ),
             margin_bottom="0.8rem"
         ),
-        rx.hstack(  # CardFooter
+        rx.flex(  # CardFooter
             rx.button(
                 rx.cond(
                     BacnetScanState.is_starting_proxy,
                     rx.spinner(),
                     rx.icon("play", size=16)
                 ),
-                rx.text("Start Proxy"),
+                rx.text("Start Proxy", white_space="nowrap"),
                 on_click=BacnetScanState.toggle_proxy,
                 disabled=rx.cond(
                     BacnetScanState.proxy_up,
                     True,
                     False
                 ),
-                variant="solid"
+                variant="solid",
+                flex="1 0 auto",
+                justify="center",
             ),
             rx.button(
                 rx.icon("square", size=16),
-                rx.text("Stop Proxy"),
+                rx.text("Stop Proxy", white_space="nowrap"),
                 on_click=BacnetScanState.toggle_proxy,
                 disabled=rx.cond(
                     BacnetScanState.proxy_up,
                     False,
                     True
                 ),
-                variant="outline"
+                variant="outline",
+                flex="1 0 auto",
+                justify="center",
             ),
-            justify="between",
-            width="100%"
+            width="100%",
+            wrap="wrap",
+            spacing="3",
+            margin_top="auto",
         ),
         border="1px solid",
         border_color="grey",
@@ -1639,7 +1651,9 @@ def bacnet_proxy_card():
         box_shadow="0 4px 12px rgba(0,0,0,0.08)",
         padding="1.3rem",
         # bg="white",
-        max_width="400px"
+        max_width="400px",
+        direction="column",
+        height="100%"
     )
 
 def footer():
@@ -1860,7 +1874,6 @@ def proxy_info_dialog():
                 ),
                 spacing="4",
                 width="100%",
-                max_width="500px"
             ),
             max_width="600px"
         ),
@@ -1924,7 +1937,6 @@ def network_info_dialog():
                 ),
                 spacing="4",
                 width="100%",
-                max_width="500px"
             ),
             max_width="600px"
         ),
@@ -2084,7 +2096,6 @@ def scan_info_dialog():
                 ),
                 spacing="4",
                 width="100%",
-                max_width="500px"
             ),
             max_width="600px"
         ),
