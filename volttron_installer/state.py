@@ -84,38 +84,46 @@ class ToolState(rx.State):
                     except Exception as e:
                         self._running_tools[tool_id] = False
 
-    @rx.event
+    @rx.event(background=True)
     async def start_tool(self, tool_id: str):
         """Start a specific tool service."""
         logger.debug(f"starting tool : {tool_id}")
-        if tool_id not in self.tool_configs:
-            logger.debug(f"Unknown tool: {tool_id}")
-            return
         
-        # Check if already running
-        if self._running_tools.get(tool_id, False):
-            logger.debug("tool is already running")
-            return
-        
-        # Set loading state
-        logger.debug(f"setting tool to loading: {tool_id}")
-        self.loading_tools[tool_id] = True
+        async with self:
+            if tool_id not in self.tool_configs:
+                logger.debug(f"Unknown tool: {tool_id}")
+                return
+            
+            # Check if already running
+            if self._running_tools.get(tool_id, False):
+                logger.debug("tool is already running")
+                return
+            
+            # Set loading state
+            logger.debug(f"setting tool to loading: {tool_id}")
+            self.loading_tools[tool_id] = True
         
         try:
             # Get tool config
-            config = self.tool_configs[tool_id]
+            async with self:
+                config = self.tool_configs[tool_id]
+            
             logger.debug("calling api...")
             # Call API to start the tool
             await start_tool(config)
-            self.running_tools[tool_id] = True
+            
+            async with self:
+                self._running_tools[tool_id] = True
+                self.loading_tools[tool_id] = False
+            
             logger.debug("tool started")
             
             yield ToolState.monitor_all_tools()
         except Exception as e:
             logger.debug(f"Error starting tool: {str(e)}")
-        finally:
-            # Clear loading state
-            self.loading_tools[tool_id] = False
+            async with self:
+                self.loading_tools[tool_id] = False
+
     
     @rx.event
     async def stop_tool(self, tool_id: str) -> None:
@@ -1958,6 +1966,89 @@ class BacnetScanState(rx.State):
         return [point for _, point in self.filtered_points_with_indices]
 
     # Events
+    async def _process_single_point(self, object_identifier: str, properties: Any, device_identifier: str, device_identifier_str: str, device_ip: str) -> Optional[BACnetDevicePointModelView]:
+        try:
+            # Parse the object identifier to get type and instance
+            obj_parts = object_identifier.split(",")
+            if len(obj_parts) != 2:
+                logger.warning(f"Invalid object identifier format: {object_identifier}")
+                return None
+                
+            object_type = obj_parts[0]
+            index_value = obj_parts[1]
+            
+            # Make sure we are skipping the the "host" device within the points
+            if f"{index_value}" == f"{device_identifier_str}":
+                return None
+
+            # Extract properties - handle both dict and object formats
+            if isinstance(properties, dict):
+                # Dictionary format from API response
+                point_name = properties.get("object_name") or f"Unknown-{object_identifier}"
+                units = properties.get("units")
+                present_value = properties.get("present_value")
+            else:
+                # Object format (fallback for other response types)
+                point_name = getattr(properties, 'object_name', None) or f"Unknown-{object_identifier}"
+                units = getattr(properties, 'units', None)
+                present_value = getattr(properties, 'present_value', None)
+            
+            # Determine if point is writable and never writable
+            writable: bool = False
+            never_writable: bool = False
+            type_int = None
+            
+            for k, v in self.writable_map.items():
+                if v.type_name == object_type:
+                    writable=v.writable
+                    type_int = v.type_name
+                    if k in self.NEVER_WRITABLE:
+                        never_writable = True
+                    break
+            
+            # Try to read the description property
+            notes_value = ""
+            try:
+                # Only try to read notes if we have a valid object type 
+                # and it's not one of the problem types
+                if type_int and type_int not in ["unknown", "device", "network-port"]:
+                    # Note: read_bacnet_property returns a dict
+                    data = await read_bacnet_property(
+                        BACnetReadPropertyRequest(
+                            device_address=device_ip,
+                            object_identifier=f"{type_int},{index_value}",
+                            property_identifier="description"
+                        ),
+                        TIMEOUT=0.05
+                    )
+                    
+                    # Extract notes value from response if available
+                    if isinstance(data, dict) and "result" in data and "_value" in data["result"]:
+                        notes_value = data["result"]["_value"]
+            except Exception:
+                # If description property read fails, use default value of ""
+                pass
+                
+            # Create point model
+            point = BACnetDevicePointModelView(
+                device_name=point_name,
+                volttron_point_name=point_name,
+                writable=writable,
+                present_value=present_value if present_value is not None else "",
+                units=units if units is not None else "",
+                notes=notes_value,
+                index=index_value,
+                object_type=object_type,
+                never_writable=never_writable
+            )
+            point.safe_point = point.to_dict()
+            point.set_write_request_target(device_ip, object_identifier)
+            return point
+            
+        except Exception as e:
+            logger.error(f"Error processing point {object_identifier}: {e}")
+            return None
+
     # Background tasks
     @rx.event(background=True)
     async def scan_for_points(self, device: BACnetDeviceModelView, device_index: int, total_points_amount: int):
@@ -2033,114 +2124,29 @@ class BacnetScanState(rx.State):
                     self.all_device_scan_point_status[status_id].message = f"Processing {points_in_page} points ({points_so_far+1}-{points_so_far+points_in_page} of {total_points_amount})..."
                 yield BacnetScanState.update_ui()
                     
-                # Process the results for this page
-                for i, (object_identifier, properties) in enumerate(res.results.items()):
-                    try:
-                        # Occasionally update processing status
-                        if i % 5 == 0:  # Update every 5 points
-                            async with self:
-                                self.all_device_scan_point_status[status_id].message = f"Processing point {points_so_far+i+1} of {total_points_amount}..."
-                                self.all_device_scan_point_status[status_id].percent_finished = int(
-                                    (points_so_far + i) / total_points_amount * 100
-                                )
-                            yield BacnetScanState.update_ui()
-                        
-                        # Parse the object identifier to get type and instance
-                        obj_parts = object_identifier.split(",")
-                        if len(obj_parts) != 2:
-                            logger.warning(f"Invalid object identifier format: {object_identifier}")
-                            continue
-                            
-                        object_type = obj_parts[0]
-                        index_value = obj_parts[1]
-                        
-                        # Make sure we are skipping the the "host" device within the points
-                        if f"{index_value}" == f"{device_identifier}":
-                            logger.info("Skipping `host` device of the points within the object-list")
-                            continue
-
-                        # Extract properties - handle both dict and object formats
-                        if isinstance(properties, dict):
-                            # Dictionary format from API response
-                            point_name = properties.get("object_name") or f"Unknown-{object_identifier}"
-                            units = properties.get("units")
-                            present_value = properties.get("present_value")
-                        else:
-                            # Object format (fallback for other response types)
-                            point_name = getattr(properties, 'object_name', None) or f"Unknown-{object_identifier}"
-                            units = getattr(properties, 'units', None)
-                            present_value = getattr(properties, 'present_value', None)
-                        
-                        # Determine if point is writable and never writable
-                        writable: bool = False
-                        never_writable: bool = False
-                        for k, v in self.writable_map.items():
-                            if v.type_name == object_type:
-                                writable=v.writable
-                                if k in self.NEVER_WRITABLE:
-                                    never_writable = True
-                                break
-                        else:
-                            logger.warning(f"Object type {object_type} not found in writable map, using default, writable=False, never_writable=False")
-                        
-                        # Try to read the description property (optional - not all devices/points support this)
-                        notes_value = ""  # Default value
-                        try:
-                            # Only attempt to read notes for known object types (skip if type is unknown)
-                            type_int = None
-                            for k, v in self.writable_map.items():
-                                if v.type_name == object_type:
-                                    type_int = v.type_name
-                                    break
-                            
-                            # Only try to read notes if we have a valid object type 
-                            # and it's not one of the problem types
-                            if type_int and type_int not in ["unknown", "device", "network-port"]:
-                                res_notes = await read_bacnet_property(
-                                    BACnetReadPropertyRequest(
-                                        device_address=device.scanned_ip_target,
-                                        object_identifier=f"{type_int},{index_value}",
-                                        property_identifier="description"  # Use 'description' instead of 'notes'
-                                    ),
-                                    TIMEOUT=0.05
-                                )
-                                data = res_notes.json()
-                                
-                                # Extract notes value from response if available
-                                if "result" in data and "_value" in data["result"]:
-                                    notes_value = data["result"]["_value"]
-                                    logger.debug(f"Retrieved description for {object_identifier}: {notes_value}")
-                                else:
-                                    logger.debug(f"No description value found for {object_identifier}")
-                            else:
-                                logger.debug(f"Skipping notes read for {object_identifier} (type: {object_type})")
-                                
-                        except Exception as e:
-                            # If description property read fails, use default value of ""
-                            notes_value = ""
-                            logger.debug(f"Failed to read description property for {object_identifier}: {e}")
-                            
-                        # Create point model
-                        point = BACnetDevicePointModelView(
-                            device_name=point_name,
-                            volttron_point_name=point_name,
-                            writable=writable,
-                            present_value=present_value if present_value is not None else "",
-                            units=units if units is not None else "",
-                            notes=notes_value,
-                            index=index_value,
-                            object_type=object_type,
-                            never_writable=never_writable
+                # Process the results for this page in parallel
+                tasks = []
+                for object_identifier, properties in res.results.items():
+                    tasks.append(
+                        self._process_single_point(
+                            object_identifier, 
+                            properties, 
+                            device_identifier, 
+                            device_identifier,
+                            device.scanned_ip_target
                         )
-                        point.safe_point = point.to_dict()
-                        point.set_write_request_target(device.scanned_ip_target, object_identifier)
-                        
-                        # Add point to device
+                    )
+                
+                # Execute all tasks concurrently to speed up property reading
+                processed_points = await asyncio.gather(*tasks)
+                
+                # Add valid points to device
+                valid_points_count = 0
+                for point in processed_points:
+                    if point is not None:
                         device.points.append(point)
-                        logger.debug(f"Added point: {point_name} ({object_identifier})")
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing point {object_identifier}: {e}")
+                        valid_points_count += 1
+                        logger.debug(f"Added point: {point.volttron_point_name} ({point.index})")
                 
                 # Update UI after each page to show progress
                 points_processed += points_in_page

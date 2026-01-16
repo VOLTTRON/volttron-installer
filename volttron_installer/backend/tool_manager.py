@@ -228,25 +228,47 @@ class ToolManager:
         thread = threading.Thread(target=run_service, daemon=True)
         thread.start()
         
-        # Give the service a moment to start
-        time.sleep(2)
+        # Poll for tool availability instead of hard sleep
+        max_retries = 20  # Total wait: ~4 seconds (20 * 0.2)
+        start_time = time.time()
         
-        # Check if the process is running
-        if cls.is_tool_running(normalized_name):
-            # Debug info to help troubleshoot
-            logger.debug(f"Tool processes dictionary keys: {list(cls._tool_processes.keys())}")
-            logger.debug(f"Is tool '{normalized_name}' running? {cls.is_tool_running(normalized_name)}")
+        for i in range(max_retries):
+            # First check if the process died immediately
+            if not cls.is_tool_running(normalized_name):
+                 # Wait a tiny bit on first iteration to give it a chance to register
+                if i == 0:
+                    time.sleep(0.1)
+                    if cls.is_tool_running(normalized_name):
+                        continue
+                logger.debug(f"Process {normalized_name} is not running during polling.")
+                # We can't return failure yet, the thread might just be starting up
             
-            return {
+            # Use socket check to see if port is listening (much faster than arbitrary sleep)
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                if s.connect_ex(('127.0.0.1', port)) == 0:
+                    startup_time = time.time() - start_time
+                    logger.debug(f"Tool {tool_name} started in {startup_time:.2f} seconds")
+                    
+                    return {
+                        "success": True,
+                        "port": port,
+                        "message": f"Started tool '{tool_name}' on port {port}"
+                    }
+            
+            time.sleep(0.2)
+        
+        # Fallback check if the process is running but port isn't accessible yet
+        if cls.is_tool_running(normalized_name):
+             return {
                 "success": True,
                 "port": port,
-                "message": f"Started tool '{tool_name}' on port {port}"
+                "message": f"Started tool '{tool_name}' on port {port} (Port check timed out)"
             }
-        else:
-            return {
-                "success": False,
-                "message": f"Failed to start tool '{tool_name}'"
-            }
+
+        return {
+            "success": False,
+            "message": f"Failed to start tool '{tool_name}' (timeout)"
+        }
         
     @classmethod
     def stop_tool_service(cls, tool_name: str) -> dict:

@@ -25,6 +25,21 @@ TOOLS_PREFIX = f"{API_PREFIX}/tools"
 BACNET_SCAN_TOOL_PREFIX = f"{TOOLS_PREFIX}/bacnet_scan_api"
 DEFAULT_TIMEOUT = 5.0  # 5 seconds timeout
 
+# Global client
+_client: Optional[httpx.AsyncClient] = None
+
+def get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        # Create a new client with reasonable defaults
+        # We set a minimal keep-alive timeout to avoid stale connections
+        _client = httpx.AsyncClient(
+            follow_redirects=True, 
+            timeout=DEFAULT_TIMEOUT,
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=100)
+        )
+    return _client
+
 T = TypeVar('T')
 
 def with_model(model_class: Type[T], response_type: str = "single"):
@@ -62,61 +77,61 @@ class ApiError(Exception):
 async def get_request(url: str, params: Optional[dict[str, Any]] = None, 
                       timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
     """Send an async GET request to the specified URL with optional parameters."""
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            return response
-        except httpx.TimeoutException:
-            raise ApiError(408, f"Request timed out connecting to {url}")
-        except httpx.HTTPStatusError as e:
-            raise ApiError(e.response.status_code, e.response.text)
-        except Exception as e:
-            raise ApiError(500, str(e))
+    client = get_client()
+    try:
+        response = await client.get(url, params=params, timeout=timeout)
+        response.raise_for_status()
+        return response
+    except httpx.TimeoutException:
+        raise ApiError(408, f"Request timed out connecting to {url}")
+    except httpx.HTTPStatusError as e:
+        raise ApiError(e.response.status_code, e.response.text)
+    except Exception as e:
+        raise ApiError(500, str(e))
 
 async def post_request(url: str, data: Optional[dict[str, Any]] = None, timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
     """Send an async POST request to the specified URL with optional JSON data."""
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        try:
-            response = await client.post(url, json=data)
-            response.raise_for_status()
-            return response
-        except httpx.TimeoutException:
-            raise ApiError(408, f"Request timed out connecting to {url}")
-        except httpx.HTTPStatusError as e:
-            raise ApiError(e.response.status_code, e.response.text)
-        except Exception as e:
-            raise ApiError(500, str(e))
+    client = get_client()
+    try:
+        response = await client.post(url, json=data, timeout=timeout)
+        response.raise_for_status()
+        return response
+    except httpx.TimeoutException:
+        raise ApiError(408, f"Request timed out connecting to {url}")
+    except httpx.HTTPStatusError as e:
+        raise ApiError(e.response.status_code, e.response.text)
+    except Exception as e:
+        raise ApiError(500, str(e))
 
 async def put_request(url: str, data: Optional[dict[str, Any]] = None,
                      timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
     """Send an async PUT request to the specified URL with optional JSON data."""
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        try:
-            response = await client.put(url, json=data)
-            response.raise_for_status()
-            return response
-        except httpx.TimeoutException:
-            raise ApiError(408, f"Request timed out connecting to {url}")
-        except httpx.HTTPStatusError as e:
-            raise ApiError(e.response.status_code, e.response.text)
-        except Exception as e:
-            raise ApiError(500, str(e))
+    client = get_client()
+    try:
+        response = await client.put(url, json=data, timeout=timeout)
+        response.raise_for_status()
+        return response
+    except httpx.TimeoutException:
+        raise ApiError(408, f"Request timed out connecting to {url}")
+    except httpx.HTTPStatusError as e:
+        raise ApiError(e.response.status_code, e.response.text)
+    except Exception as e:
+        raise ApiError(500, str(e))
 
 async def delete_request(url: str, params: Optional[dict[str, Any]] = None,
                         timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
     """Send an async DELETE request to the specified URL with optional parameters."""
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        try:
-            response = await client.delete(url, params=params)
-            response.raise_for_status()
-            return response
-        except httpx.TimeoutException:
-            raise ApiError(408, f"Request timed out connecting to {url}")
-        except httpx.HTTPStatusError as e:
-            raise ApiError(e.response.status_code, e.response.text)
-        except Exception as e:
-            raise ApiError(500, str(e))
+    client = get_client()
+    try:
+        response = await client.delete(url, params=params, timeout=timeout)
+        response.raise_for_status()
+        return response
+    except httpx.TimeoutException:
+        raise ApiError(408, f"Request timed out connecting to {url}")
+    except httpx.HTTPStatusError as e:
+        raise ApiError(e.response.status_code, e.response.text)
+    except Exception as e:
+        raise ApiError(500, str(e))
 
 async def proxy_request(
         url: str, 
@@ -125,45 +140,43 @@ async def proxy_request(
         **kwargs
     ) -> httpx.Response:
     """Send an async request to the specified URL."""
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        try:
-            response = await client.request(
-                method=request_type,
-                url=url, 
-                **kwargs
-            )
-            response.raise_for_status()
-            return response
-        except httpx.TimeoutException:
-            raise ApiError(408, f"Request timed out connecting to {url}")
-        except httpx.HTTPStatusError as e:
-            raise ApiError(e.response.status_code, e.response.text)
-        except Exception as e:
-            raise ApiError(500, str(e))
+    client = get_client()
+    try:
+        response = await client.request(
+            method=request_type,
+            url=url, 
+            timeout=timeout, 
+            **kwargs
+        )
+        response.raise_for_status()
+        return response
+    except httpx.TimeoutException:
+        raise ApiError(408, f"Request timed out connecting to {url}")
+    except httpx.HTTPStatusError as e:
+        raise ApiError(e.response.status_code, e.response.text)
+    except Exception as e:
+        raise ApiError(500, str(e))
 
 # TODO remove this function as it is a duplicate of proxy_request. this was required to make certain endpoint work when we didnt have some code
 # available
 async def request(url: str, method: Literal["POST", "GET", "PUT"] ="", timeout: float = DEFAULT_TIMEOUT, **kwargs) -> httpx.Response:
     """Send an async POST request to the specified URL with optional JSON data."""
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        try:
-            response = await client.request(
-                    method=method,
-                    url=url, 
-                    **kwargs
-                )
-            response.raise_for_status()
-            return response
-        except httpx.TimeoutException:
-            raise ApiError(408, f"Request timed out connecting to {url}")
-        except httpx.HTTPStatusError as e:
-            raise ApiError(e.response.status_code, e.response.text)
-        except Exception as e:
-            raise ApiError(500, str(e))
-
-# Endpoints.
-# GET requests
-@with_model(HostEntry)
+    client = get_client()
+    try:
+        response = await client.request(
+            method=method,
+            url=url, 
+            timeout=timeout, 
+            **kwargs
+        )
+        response.raise_for_status()
+        return response
+    except httpx.TimeoutException:
+        raise ApiError(408, f"Request timed out connecting to {url}")
+    except httpx.HTTPStatusError as e:
+        raise ApiError(e.response.status_code, e.response.text)
+    except Exception as e:
+        raise ApiError(500, str(e))
 async def get_host(host_id: str) -> HostEntry:
     return await get_request(f"{API_BASE_URL}{HOSTS_PREFIX}/{host_id}")
 
