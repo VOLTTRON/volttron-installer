@@ -34,28 +34,48 @@ When running on bare metal, ensure your system has:
   sudo apt install -y build-essential libffi-dev libssl-dev git python3-dev python3-venv unzip
   ```
 
-### Generating SSH Key
+### SSH Configuration
 
-To run the installer, there must be a secure SSH Key for each host. To generate these 
-keys, you first need to generate your private key:
+The VOLTTRON Installer uses Ansible to deploy VOLTTRON to remote machines over SSH. You need to set up SSH key authentication between:
+- **Local machine** - where you run the installer
+- **Remote host(s)** - where VOLTTRON will be installed
 
-   *Note: The keygen will ask to create a directory:
-   ``` /home/$USER/.ssh```
-   . Simply click enter and allow the automatic location be used. This will assist in Known Hosts Generation.*
+#### 1. Generate SSH Key (on your local machine)
 
-   - **Generate Key**
-      
-      ```bash
-      ssh-keygen -t rsa
-      ```
+If you don't already have an SSH key, generate one on the machine where you'll run the installer:
 
-### Generating Known Hosts
-For each host, you must add it to the known_hosts file. You can do so by running:
+```bash
+# Run this on your LOCAL machine (where the installer runs)
+ssh-keygen -t rsa
+```
 
-- **Generate Known Hosts**
-   ```bash
-   ssh -i ~/.ssh/id_rsa <hostname>
-   ```
+*Press Enter to use the default location (`~/.ssh/id_rsa`). You can optionally set a passphrase.*
+
+#### 2. Copy SSH Key to Remote Host(s)
+
+For each remote machine where you want to install VOLTTRON, copy your public key:
+
+```bash
+# Run this on your LOCAL machine
+# Replace <user> with the username on the remote host
+# Replace <remote-host> with the IP address or hostname
+ssh-copy-id <user>@<remote-host>
+```
+
+This adds your public key to the remote host's `~/.ssh/authorized_keys` file.
+
+#### 3. Verify Connection & Add to Known Hosts
+
+Test the connection and add the remote host to your known_hosts file:
+
+```bash
+# Run this on your LOCAL machine
+ssh <user>@<remote-host>
+```
+
+If the connection succeeds, the remote host is now in your `~/.ssh/known_hosts` file and you can exit.
+
+> **Tip**: If you encounter host key verification issues during deployment, you can enable "Ignore Host Keys" in the platform's advanced settings within the installer UI.
 
 
 ## Installation Options
@@ -122,22 +142,23 @@ git clone -b bus_adapter_changes https://github.com/riley206-pnnl/lib-protocol-p
    source ~/.bashrc
    ```
 
-2. **Install Dependencies**:
-   Navigate to the installer directory and run our setup task:
+2. **Install Dependencies & Run**:
+   Navigate to the installer directory and use our dev task (installs deps automatically on first run):
    ```bash
    cd ~/WORK/VOLTTRON/volttron-installer
-   pixi run install-deps
+   pixi run dev
    ```
 
-3. **Install VOLTTRON Ansible**:
-   ```bash
-   ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
-   ```
+   This single command installs all Python dependencies, the VOLTTRON Ansible collection, and starts the application.
 
-4. **Run the Application**:
-   ```bash
-   pixi run run
-   ```
+**Available Pixi Tasks:**
+
+| Command | Description |
+|---------|-------------|
+| `pixi run dev` | Install dependencies (if needed) and run the application |
+| `pixi run run` | Run the application (assumes dependencies are installed) |
+| `pixi run install-deps` | Install/reinstall all dependencies |
+| `pixi run test` | Run the test suite |
 
 ---
 
@@ -207,10 +228,17 @@ The project includes a Dev Container configuration for development in Docker.
 After installation, run the VOLTTRON Installer:
 
 ```bash
+# Using Pixi (recommended)
+pixi run dev
+
+# Or if dependencies are already installed
+pixi run run
+
+# Or using reflex directly (manual installation)
 reflex run
 ```
 
-Follow the interactive prompts to configure your VOLTTRON installation.
+The application will start and be available at `http://localhost:3000`. Use the web interface to configure and deploy VOLTTRON platforms to your remote hosts.
 
 ## Configuration Options
 
