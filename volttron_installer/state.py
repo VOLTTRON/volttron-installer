@@ -1,6 +1,10 @@
 import reflex as rx
+import subprocess
 from .settings import get_settings
 from .model_views import *
+
+# Module-level dict to track tail processes (can't store in Reflex state)
+_tail_processes: dict[str, subprocess.Popen] = {}
 from .utils.create_component_uid import generate_unique_uid
 from .models import *
 from .utils.conversion_methods import json_string_to_csv_string, csv_string_to_usable_dict, identify_string_format, csv_string_to_json_string
@@ -356,6 +360,8 @@ class PlatformPageState(rx.State):
     _status_loading: bool = False
     _status_error: str = ""
     _last_status_check: str = ""
+    _starting_platform: bool = False  # True while starting VOLTTRON
+    _stopping_platform: bool = False  # True while stopping VOLTTRON
     
     # Connection status tracking
     _connection_status: str = "unknown"  # connected, disconnected, checking, unknown
@@ -365,6 +371,7 @@ class PlatformPageState(rx.State):
     _logs_loading: bool = False
     _log_font_size: int = 12  # Font size in pixels
     _log_wrap: bool = True  # Whether to wrap long log lines
+    _tailing: bool = False  # Whether we're actively tailing logs
     _connection_method: str = ""  # e.g., "SSH with key authentication"
     _last_connection_check: str = ""
     _connection_error: str = ""
@@ -613,7 +620,15 @@ class PlatformPageState(rx.State):
     @rx.var
     def last_status_check(self) -> str:
         return self._last_status_check
-    
+
+    @rx.var
+    def starting_platform(self) -> bool:
+        return self._starting_platform
+
+    @rx.var
+    def stopping_platform(self) -> bool:
+        return self._stopping_platform
+
     # Connection status computed vars
     @rx.var
     def connection_status(self) -> str:
@@ -1176,56 +1191,44 @@ class PlatformPageState(rx.State):
             if not self.current_uid or self.current_uid not in self.platforms:
                 yield rx.toast.error("Platform not found")
                 return
-                
+
             working_platform: Instance = self.working_platform
-            
+
             if not working_platform.deployed:
                 yield rx.toast.error("Platform must be deployed before starting")
                 return
-            
-            # Show loading state
-            self._is_deploying = True
-            self._deployment_status = "running"
-            self._current_task = "Starting VOLTTRON platform..."
-            
+
+            # Show starting state
+            self._starting_platform = True
+
         yield
-        
+
         try:
             response = await start_platform(working_platform.platform.config.instance_name)
             response_data = response.json() if hasattr(response, 'json') else response
 
+            async with self:
+                self._starting_platform = False
+                # Immediately update UI state (optimistic update)
+                self._platform_status["state"] = "running"
+
             # Check if platform was already running
             if response_data.get("already_running", False):
-                async with self:
-                    self._deployment_status = "success"
-                    self._is_deploying = False
-                    self._current_task = "Platform is already running"
-
                 yield rx.toast.info("VOLTTRON is already running!")
             else:
-                async with self:
-                    self._deployment_status = "success"
-                    self._is_deploying = False
-                    self._current_task = "Platform started successfully"
-
                 yield rx.toast.success("Platform started successfully!")
 
-            # Refresh status after starting - wait a moment for VOLTTRON to initialize
-            await asyncio.sleep(2)
-            await self.refresh_platform_status()
+            # Background refresh to confirm (don't block UI)
+            yield State.refresh_platform_status()
 
         except ApiError as e:
             async with self:
-                self._deployment_status = "failed"
-                self._is_deploying = False
-                self._current_task = f"Failed to start platform: {e.detail}"
+                self._starting_platform = False
 
             yield rx.toast.error(f"Failed to start platform: {e.detail}")
         except Exception as e:
             async with self:
-                self._deployment_status = "failed"
-                self._is_deploying = False
-                self._current_task = f"Error: {str(e)}"
+                self._starting_platform = False
 
             yield rx.toast.error(f"Error starting platform: {str(e)}")
 
@@ -1236,46 +1239,40 @@ class PlatformPageState(rx.State):
             if not self.current_uid or self.current_uid not in self.platforms:
                 yield rx.toast.error("Platform not found")
                 return
-                
+
             working_platform: Instance = self.working_platform
-            
+
             if not working_platform.deployed:
                 yield rx.toast.error("Platform must be deployed before stopping")
                 return
-            
-            # Show loading state
-            self._is_deploying = True
-            self._deployment_status = "running"
-            self._current_task = "Stopping VOLTTRON platform..."
-            
+
+            # Show stopping state
+            self._stopping_platform = True
+
         yield
-        
+
         try:
             await stop_platform(working_platform.platform.config.instance_name)
-            
+
             async with self:
-                self._deployment_status = "success"
-                self._is_deploying = False
-                self._current_task = "Platform stopped successfully"
-                
+                self._stopping_platform = False
+                # Immediately update UI state (optimistic update)
+                self._platform_status["state"] = "deployed"
+
             yield rx.toast.success("Platform stopped successfully!")
-            
-            # Refresh status after stopping
+
+            # Background refresh to confirm (don't block UI)
             yield State.refresh_platform_status()
-            
+
         except ApiError as e:
             async with self:
-                self._deployment_status = "failed"
-                self._is_deploying = False
-                self._current_task = f"Failed to stop platform: {e.detail}"
-                
+                self._stopping_platform = False
+
             yield rx.toast.error(f"Failed to stop platform: {e.detail}")
         except Exception as e:
             async with self:
-                self._deployment_status = "failed"
-                self._is_deploying = False
-                self._current_task = f"Error: {str(e)}"
-                
+                self._stopping_platform = False
+
             yield rx.toast.error(f"Error stopping platform: {str(e)}")
 
     @rx.event(background=True)
@@ -1353,6 +1350,160 @@ class PlatformPageState(rx.State):
     def toggle_log_wrap(self):
         """Toggle log line wrapping"""
         self._log_wrap = not self._log_wrap
+
+    @rx.var
+    def tailing(self) -> bool:
+        """Whether we're actively tailing logs"""
+        return self._tailing
+
+    @rx.event(background=True)
+    async def start_tailing(self):
+        """Start tailing logs with tail -f over SSH"""
+        global _tail_processes
+
+        async with self:
+            if not self.current_uid or self.current_uid not in self.platforms:
+                yield rx.toast.error("Platform not found")
+                return
+
+            if self._tailing:
+                return  # Already tailing
+
+            working_platform: Instance = self.working_platform
+            platform_id = working_platform.platform.config.instance_name
+            host = working_platform.host
+
+            # Get connection details
+            ansible_user = host.ansible_user
+            ansible_host = host.ansible_host
+            ansible_port = str(host.ansible_port)
+            volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+
+            self._tailing = True
+            self._platform_logs = ""  # Clear existing logs
+
+        yield
+
+        try:
+            # Build SSH command for tail -f
+            ssh_cmd = [
+                "ssh",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "BatchMode=yes",
+                "-p", ansible_port,
+                f"{ansible_user}@{ansible_host}",
+                f"tail -f {volttron_home}/volttron.log 2>/dev/null || echo 'Log file not found'"
+            ]
+
+            logger.debug(f"Starting tail process: {' '.join(ssh_cmd)}")
+
+            # Start the subprocess
+            process = subprocess.Popen(
+                ssh_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1  # Line buffered
+            )
+
+            _tail_processes[platform_id] = process
+
+            yield rx.toast.info("Started live log streaming...")
+
+            # Read lines in a loop
+            log_buffer = []
+            while True:
+                # Check if we should stop
+                async with self:
+                    should_continue = self._tailing
+
+                if not should_continue:
+                    break
+
+                # Check if process is still running
+                if process.poll() is not None:
+                    async with self:
+                        self._tailing = False
+                    yield rx.toast.warning("Log stream ended")
+                    break
+
+                # Try to read a line (non-blocking would be better but this works)
+                try:
+                    # Use select to check if data is available (Unix only)
+                    import select
+                    ready, _, _ = select.select([process.stdout], [], [], 0.5)
+
+                    if ready:
+                        line = process.stdout.readline()
+                        if line:
+                            log_buffer.append(line.rstrip('\n'))
+                            # Update state with new lines (batch updates for performance)
+                            if len(log_buffer) >= 1:
+                                async with self:
+                                    # Append new lines to existing logs
+                                    new_content = '\n'.join(log_buffer)
+                                    if self._platform_logs:
+                                        self._platform_logs = self._platform_logs + '\n' + new_content
+                                    else:
+                                        self._platform_logs = new_content
+                                    # Keep only last 1000 lines to prevent memory issues
+                                    lines = self._platform_logs.split('\n')
+                                    if len(lines) > 1000:
+                                        self._platform_logs = '\n'.join(lines[-1000:])
+                                log_buffer = []
+                                yield  # Update UI
+                    else:
+                        # No data available, just yield to allow UI updates
+                        await asyncio.sleep(0.1)
+
+                except Exception as e:
+                    logger.error(f"Error reading tail output: {e}")
+                    await asyncio.sleep(0.5)
+
+        except Exception as e:
+            logger.error(f"Error starting tail: {e}")
+            async with self:
+                self._tailing = False
+            yield rx.toast.error(f"Failed to start log streaming: {str(e)}")
+        finally:
+            # Clean up process
+            if platform_id in _tail_processes:
+                try:
+                    _tail_processes[platform_id].terminate()
+                    _tail_processes[platform_id].wait(timeout=2)
+                except:
+                    try:
+                        _tail_processes[platform_id].kill()
+                    except:
+                        pass
+                del _tail_processes[platform_id]
+
+    @rx.event
+    def stop_tailing(self):
+        """Stop tailing logs"""
+        global _tail_processes
+
+        self._tailing = False
+
+        # Get platform ID
+        if self.current_uid and self.current_uid in self.platforms:
+            working_platform: Instance = self.working_platform
+            platform_id = working_platform.platform.config.instance_name
+
+            # Kill the process if it exists
+            if platform_id in _tail_processes:
+                try:
+                    _tail_processes[platform_id].terminate()
+                    _tail_processes[platform_id].wait(timeout=2)
+                except:
+                    try:
+                        _tail_processes[platform_id].kill()
+                    except:
+                        pass
+                finally:
+                    if platform_id in _tail_processes:
+                        del _tail_processes[platform_id]
 
     @rx.event(background=True)
     async def handle_start_agent(self, agent_id: str):

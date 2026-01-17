@@ -265,15 +265,23 @@ class AnsibleService:
             True if VOLTTRON process is running, False otherwise
         """
         try:
-            # Use pgrep to check for volttron process via direct SSH (faster than Ansible)
-            # Look for 'volttron -' which matches the main volttron daemon (e.g., 'volttron -vv')
-            cmd = "pgrep -f 'volttron -' > /dev/null 2>&1 && echo RUNNING || echo STOPPED"
+            # Use vctl status to check if VOLTTRON is running - this is the authoritative check
+            # vctl returns exit code 0 when running, non-zero when not running
+            venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+            volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
 
-            return_code, stdout, stderr = await self.run_ssh_command(host, cmd, timeout=10)
+            cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl status > /dev/null 2>&1 && echo RUNNING || echo STOPPED"
 
-            # Direct SSH output - just check for RUNNING/STOPPED
+            logger.debug(f"Running vctl status check for {instance_name}")
+
+            return_code, stdout, stderr = await self.run_ssh_command(host, cmd, timeout=15)
+
+            # Log the actual output for debugging
+            logger.debug(f"vctl status check for {instance_name}: return_code={return_code}, stdout='{stdout.strip()}'")
+
+            # Check if vctl reported VOLTTRON is running
             is_running = "RUNNING" in stdout and "STOPPED" not in stdout
-            logger.debug(f"Process check for {instance_name}: stdout='{stdout.strip()}' -> {'running' if is_running else 'stopped'}")
+            logger.debug(f"vctl status result for {instance_name}: is_running={is_running}")
             return is_running
         except Exception as e:
             logger.error(f"Error checking VOLTTRON process for {instance_name}: {e}")
@@ -298,17 +306,22 @@ class AnsibleService:
             cmd = f"export VOLTTRON_HOME={volttron_home} && . {venv_path}/bin/activate && vctl --json status"
 
             # Execute via ad-hoc command
+            logger.info(f"[DEBUG] Running vctl status for {instance_name}")
             return_code, stdout, stderr = await self.run_volttron_ad_hoc(
                 command=cmd,
                 hosts=instance_name,
                 connection=host.ansible_connection
             )
+            logger.info(f"[DEBUG] vctl status return_code: {return_code}")
+            logger.info(f"[DEBUG] vctl status stdout (first 500 chars): {stdout[:500] if stdout else 'empty'}")
 
             if return_code != 0:
                 logger.warning(f"vctl status failed for {instance_name}: {stderr}")
                 logger.debug(f"vctl status stdout: {stdout}")
-                # Fallback: check if VOLTTRON process is running via PID file
+                # Fallback: check if VOLTTRON process is running
+                logger.info(f"[DEBUG] vctl failed, falling back to process check")
                 is_running = await self._check_volttron_running(instance_name, host)
+                logger.info(f"[DEBUG] Fallback process check result: {is_running}")
                 return is_running, {}
             
             # Parse JSON output from vctl status
@@ -330,8 +343,13 @@ class AnsibleService:
                 
                 if json_data is None:
                     logger.warning(f"Could not parse vctl status output for {instance_name}")
-                    return False, {}
-                
+                    logger.info(f"[DEBUG] No JSON found, falling back to process check")
+                    # Fall back to vctl status check
+                    is_running = await self._check_volttron_running(instance_name, host)
+                    return is_running, {}
+
+                logger.info(f"[DEBUG] Parsed JSON data: {json_data}")
+
                 # vctl status --json returns a dict with agent identities as keys
                 # Each agent has status info like "running", "stopped", etc.
                 agent_status = {}
@@ -345,23 +363,39 @@ class AnsibleService:
                                 'state': 'started' if agent_running else 'stopped'
                             }
 
+                logger.info(f"[DEBUG] Agent status dict: {agent_status}")
+
                 # Platform is running only if we have agents with status info
                 # Don't rely on "SUCCESS" in stdout - that's just Ansible success
                 is_running = len(agent_status) > 0
+                logger.info(f"[DEBUG] is_running from agent_status: {is_running}")
 
-                # If no agents found from vctl, fall back to PID check
+                # If no agents found from vctl, fall back to process check
                 if not is_running:
+                    logger.info(f"[DEBUG] No agents found, falling back to process check")
                     is_running = await self._check_volttron_running(instance_name, host)
+                    logger.info(f"[DEBUG] Process check fallback result: {is_running}")
 
+                logger.info(f"[DEBUG] Final is_running value: {is_running}")
                 return is_running, agent_status
                 
             except Exception as e:
                 logger.error(f"Error parsing vctl status output: {e}")
-                return False, {}
-                
+                # Fall back to vctl status check
+                try:
+                    is_running = await self._check_volttron_running(instance_name, host)
+                    return is_running, {}
+                except:
+                    return False, {}
+
         except Exception as e:
             logger.error(f"Error getting runtime status for {instance_name}: {e}")
-            return False, {}
+            # Fall back to vctl status check
+            try:
+                is_running = await self._check_volttron_running(instance_name, host)
+                return is_running, {}
+            except:
+                return False, {}
     
     async def get_platform_status(self, platform_id: str) -> PlatformDeploymentStatus:
         """Get the status of a platform

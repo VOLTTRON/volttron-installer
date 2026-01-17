@@ -382,11 +382,31 @@ def logs_tab_content() -> rx.Component:
                     size="2",
                     variant=rx.cond(State.log_wrap, "solid", "soft"),
                 ),
+                rx.cond(
+                    State.tailing,
+                    rx.button(
+                        rx.icon("square", size=18),
+                        "Stop Tail",
+                        on_click=State.stop_tailing,
+                        size="2",
+                        variant="solid",
+                        color_scheme="red",
+                    ),
+                    rx.button(
+                        rx.icon("play", size=18),
+                        "Live Tail",
+                        on_click=State.start_tailing,
+                        size="2",
+                        variant="soft",
+                        color_scheme="green",
+                    ),
+                ),
                 rx.button(
                     rx.icon("refresh-cw", size=18),
                     "Refresh Logs",
                     on_click=State.fetch_platform_logs(100),
                     loading=State.logs_loading,
+                    disabled=State.tailing,
                     size="2",
                     variant="soft",
                 ),
@@ -395,6 +415,7 @@ def logs_tab_content() -> rx.Component:
                     "Delete Log",
                     on_click=State.delete_platform_logs,
                     loading=State.logs_loading,
+                    disabled=State.tailing,
                     size="2",
                     variant="soft",
                     color_scheme="red",
@@ -981,7 +1002,7 @@ def data_tab_content() -> rx.Component:
                         rx.badge(
                             rx.hstack(
                                 rx.cond(
-                                    State.status_loading,
+                                    State.starting_platform | State.stopping_platform | State.status_loading,
                                     rx.spinner(size="1"),
                                     rx.cond(
                                         State.platform_state == "running",
@@ -995,18 +1016,26 @@ def data_tab_content() -> rx.Component:
                                 ),
                                 rx.text(
                                     rx.cond(
-                                        State.status_loading,
-                                        "Checking VOLTTRON...",
+                                        State.starting_platform,
+                                        "Starting VOLTTRON...",
                                         rx.cond(
-                                            State.platform_state == "running",
-                                            "VOLTTRON Running",
+                                            State.stopping_platform,
+                                            "Stopping VOLTTRON...",
                                             rx.cond(
-                                                State.platform_state == "deployed",
-                                                "VOLTTRON Stopped",
+                                                State.status_loading,
+                                                "Checking VOLTTRON...",
                                                 rx.cond(
-                                                    State.platform_state == "not deployed",
-                                                    "Not Deployed",
-                                                    "VOLTTRON Unknown"
+                                                    State.platform_state == "running",
+                                                    "VOLTTRON Running",
+                                                    rx.cond(
+                                                        State.platform_state == "deployed",
+                                                        "VOLTTRON Stopped",
+                                                        rx.cond(
+                                                            State.platform_state == "not deployed",
+                                                            "Not Deployed",
+                                                            "VOLTTRON Unknown"
+                                                        )
+                                                    )
                                                 )
                                             )
                                         )
@@ -1016,7 +1045,7 @@ def data_tab_content() -> rx.Component:
                                 spacing="2",
                             ),
                             color_scheme=rx.cond(
-                                State.status_loading,
+                                State.starting_platform | State.stopping_platform | State.status_loading,
                                 "blue",
                                 rx.cond(
                                     State.platform_state == "running",
@@ -1033,6 +1062,51 @@ def data_tab_content() -> rx.Component:
                         spacing="3",
                     ),
 
+                    # Remote connection info
+                    rx.hstack(
+                        rx.badge(
+                            rx.hstack(
+                                rx.icon("terminal", size=12),
+                                rx.text("SSH:", size="1", weight="medium"),
+                                rx.text(
+                                    State.working_platform.host.ansible_user + "@" +
+                                    State.working_platform.host.ansible_host + ":" +
+                                    State.working_platform.host.ansible_port,
+                                    size="1",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            variant="soft",
+                            color_scheme="gray",
+                        ),
+                        rx.badge(
+                            rx.hstack(
+                                rx.icon("folder", size=12),
+                                rx.text("VOLTTRON_HOME:", size="1", weight="medium"),
+                                rx.text(State.working_platform.host.volttron_home, size="1"),
+                                spacing="1",
+                                align="center",
+                            ),
+                            variant="soft",
+                            color_scheme="gray",
+                        ),
+                        rx.badge(
+                            rx.hstack(
+                                rx.icon("box", size=12),
+                                rx.text("venv:", size="1", weight="medium"),
+                                rx.text(State.working_platform.host.volttron_venv, size="1"),
+                                spacing="1",
+                                align="center",
+                            ),
+                            variant="soft",
+                            color_scheme="gray",
+                        ),
+                        spacing="2",
+                        wrap="wrap",
+                        padding_y="0.5rem",
+                    ),
+
                     # Header with refresh button
                     rx.hstack(
                         rx.heading("Platform Status", size="6"),
@@ -1044,8 +1118,8 @@ def data_tab_content() -> rx.Component:
                                     rx.icon("square", size=18),
                                     "Stop Platform",
                                     on_click=State.handle_stop_platform,
-                                    loading=State.is_deploying,
-                                    disabled=State.status_loading,
+                                    loading=State.stopping_platform,
+                                    disabled=State.status_loading | State.starting_platform,
                                     size="2",
                                     variant="soft",
                                     color_scheme="red",
@@ -1054,11 +1128,11 @@ def data_tab_content() -> rx.Component:
                                     rx.icon("play", size=18),
                                     "Start Platform",
                                     on_click=State.handle_start_platform,
-                                    loading=State.is_deploying,
+                                    loading=State.starting_platform,
                                     size="2",
                                     variant="soft",
                                     color_scheme="green",
-                                    disabled=(State.platform_state == "not deployed") | State.status_loading,
+                                    disabled=(State.platform_state == "not deployed") | State.status_loading | State.stopping_platform,
                                 ),
                             ),
                             rx.button(

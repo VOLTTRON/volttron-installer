@@ -552,43 +552,47 @@ async def start_platform(platform_id: str, ansible: AnsibleService = Depends(get
         venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
         volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
 
-        # First check if VOLTTRON is already running using direct SSH (faster than Ansible)
-        check_cmd = "pgrep -f 'volttron -' > /dev/null 2>&1 && echo RUNNING || echo STOPPED"
-        check_code, check_stdout, _ = await ansible.run_ssh_command(host, check_cmd, timeout=10)
+        # First check if VOLTTRON is already running using vctl status (authoritative check)
+        check_cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl status > /dev/null 2>&1 && echo RUNNING || echo STOPPED"
+        check_code, check_stdout, _ = await ansible.run_ssh_command(host, check_cmd, timeout=15)
 
         if "RUNNING" in check_stdout and "STOPPED" not in check_stdout:
             return {"status": "success", "message": "VOLTTRON is already running.", "already_running": True}
 
         # Clean up config file - remove snake_case options that VOLTTRON doesn't recognize
-        # Use more flexible pattern matching to handle various formatting
+        # Use direct SSH for speed and reliability
         cleanup_cmd = f"sed -i '/instance_name/d; /messagebus/d; /message_bus/d; /^options/d; /vip_address/d' {volttron_home}/config 2>/dev/null || true"
-        await ansible.run_volttron_ad_hoc(
-            command=cleanup_cmd,
-            hosts=platform.config.instance_name,
-            connection=host.ansible_connection
-        )
+        await ansible.run_ssh_command(host, cleanup_cmd, timeout=10)
 
         # Capture stderr/stdout to log file directly (VOLTTRON 2.0's -l flag is broken)
         # Use >> to append, 2>&1 redirects stderr to stdout so both go to log
-        cmd = f"export VOLTTRON_HOME={volttron_home} && . {venv_path}/bin/activate && nohup volttron -vv >> {volttron_home}/volttron.log 2>&1 &"
+        # Use direct SSH for speed and reliability
+        # Important: redirect stdin from /dev/null and use subshell to properly detach via SSH
+        cmd = f"(export VOLTTRON_HOME={volttron_home} && . {venv_path}/bin/activate && nohup volttron -vv >> {volttron_home}/volttron.log 2>&1 &) </dev/null >/dev/null 2>&1"
 
-        return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
-            command=cmd,
-            hosts=platform.config.instance_name,
-            connection=host.ansible_connection
-        )
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=10)
 
-        if return_code != 0:
+        # nohup with & returns immediately, so return_code 0 just means the command was sent
+        # VOLTTRON can take a while to start up (especially first time with dependency installation)
+        # Retry checking status for up to 30 seconds
+        import asyncio
+        max_attempts = 10
+        is_running = False
+
+        for attempt in range(max_attempts):
+            await asyncio.sleep(3)  # Wait 3 seconds between checks
+            is_running = await ansible._check_volttron_running(platform.config.instance_name, host)
+            if is_running:
+                break
+            logger.debug(f"VOLTTRON not ready yet, attempt {attempt + 1}/{max_attempts}")
+
+        if not is_running:
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to start platform: {stderr or stdout}"
+                detail=f"VOLTTRON did not start within 30 seconds. Check logs at {volttron_home}/volttron.log"
             )
 
-        # Give VOLTTRON a moment to initialize
-        import asyncio
-        await asyncio.sleep(2)
-
-        return {"status": "success", "message": "Platform started successfully.", "output": stdout}
+        return {"status": "success", "message": "Platform started successfully."}
 
     except HTTPException:
         raise
@@ -620,25 +624,30 @@ async def stop_platform(platform_id: str, ansible: AnsibleService = Depends(get_
             )
         
         host = all_hosts[platform.config.instance_name]
-        
-        # Build command to stop VOLTTRON
-        venv_path = host.volttron_venv if host.volttron_venv else "~/.local"
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
-        
-        cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl shutdown --platform"
-        
-        return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
-            command=cmd,
-            hosts=platform.config.instance_name,
-            connection=host.ansible_connection
-        )
 
-        if return_code != 0:
+        # Build paths
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+
+        # Use direct SSH for speed and reliability
+        cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl shutdown --platform"
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=30)
+
+        # vctl shutdown returns 0 on success
+        # Give it a moment to shut down, then verify
+        import asyncio
+        await asyncio.sleep(2)
+
+        # Verify it actually stopped
+        is_running = await ansible._check_volttron_running(platform.config.instance_name, host)
+        if is_running:
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to stop platform: {stderr or stdout}"
+                detail=f"Platform did not stop properly. Try again or check logs at {volttron_home}/volttron.log"
             )
-        return {"status": "success", "message": "Platform stopped successfully", "output": stdout}
+
+        return {"status": "success", "message": "Platform stopped successfully."}
 
     except HTTPException:
         raise
