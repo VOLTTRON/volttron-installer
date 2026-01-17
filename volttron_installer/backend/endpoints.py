@@ -189,6 +189,37 @@ async def get_platform_status(
         raise HTTPException(status_code=404, detail="Platform not found")
     return status
 
+@platform_router.get("/connection/{platform_id}")
+async def check_platform_connection(
+        platform_id: str,
+        ansible_service: AnsibleService = Depends(get_ansible_service)):
+    """Quick connection check for a platform"""
+    is_connected, connection_method, error = await ansible_service.check_host_connection(platform_id)
+
+    return {
+        "connected": is_connected,
+        "connection_method": connection_method,
+        "error": error
+    }
+
+@platform_router.post("/mark-deployed/{platform_id}")
+async def mark_platform_deployed(
+        platform_id: str,
+        deployed: bool = True,
+        platform_service: PlatformService = Depends(get_platform_service)):
+    """Mark a platform as deployed (or not deployed) without running deployment.
+
+    Useful for existing platforms that were deployed before the deployed flag was persisted.
+    """
+    platform = await platform_service.get_platform(platform_id)
+    if platform is None:
+        raise HTTPException(status_code=404, detail="Platform not found")
+
+    platform.deployed = deployed
+    await platform_service.update_platform(platform_id, platform)
+
+    return {"status": "success", "deployed": deployed}
+
 # @ansible_router.get("/update-all-status")
 # async def update_all_status():
 #     """Updates the status of all platforms"""
@@ -363,9 +394,22 @@ async def deploy_platform(platform_id: str, password:str,
                 detail=f"Platform installation failed: {error_message}"
             )
         
+        # Clean up config file - remove duplicate snake_case fields that VOLTTRON doesn't recognize
+        # Keep only hyphenated versions: instance-name, message-bus, vip-address
+        cleanup_cmd = "sed -i '/^instance_name =/d; /^messagebus =/d; /^message_bus =/d; /^options =/d; /^vip_address =/d' ~/.volttron/config"
+        await ansible.run_volttron_ad_hoc(
+            command=cleanup_cmd,
+            hosts=platform.config.instance_name,
+            connection="ssh"
+        )
+
+        # Mark platform as deployed and save to file
+        platform.deployed = True
+        await platform_service.update_platform(platform.config.instance_name, platform)
+
         # Return full output including both stdout and stderr
         return {
-            "status": "success", 
+            "status": "success",
             "output": stdout,
             "stderr": stderr,
             "tasks": _parse_ansible_tasks(stdout)
@@ -481,39 +525,112 @@ def _parse_ansible_error(return_code: int, stdout: str, stderr: str) -> str:
 #             detail=str(e)
 #         )
 
-@ansible_router.post("/ansible/start_platform")
-async def start_platform(password: str, platform_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
-    """Starts a platform using Ansible"""
-    
-    address = await ansible.get_host_entry_by_id(platform_id)
-
+@ansible_router.post("/start_platform/{platform_id}")
+async def start_platform(platform_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
+    """Starts a VOLTTRON platform using vctl"""
     try:
+        # Get platform definition and host entry
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(platform_id)
+        
+        if platform is None:
+            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+        
+        # Get host entry from inventory
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+        
+        if platform.config.instance_name not in all_hosts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
+            )
+        
+        host = all_hosts[platform.config.instance_name]
+
+        # Build paths
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+
+        # First check if VOLTTRON is already running using direct SSH (faster than Ansible)
+        check_cmd = "pgrep -f 'volttron -' > /dev/null 2>&1 && echo RUNNING || echo STOPPED"
+        check_code, check_stdout, _ = await ansible.run_ssh_command(host, check_cmd, timeout=10)
+
+        if "RUNNING" in check_stdout and "STOPPED" not in check_stdout:
+            return {"status": "success", "message": "VOLTTRON is already running.", "already_running": True}
+
+        # Clean up config file - remove snake_case options that VOLTTRON doesn't recognize
+        # Use more flexible pattern matching to handle various formatting
+        cleanup_cmd = f"sed -i '/instance_name/d; /messagebus/d; /message_bus/d; /^options/d; /vip_address/d' {volttron_home}/config 2>/dev/null || true"
+        await ansible.run_volttron_ad_hoc(
+            command=cleanup_cmd,
+            hosts=platform.config.instance_name,
+            connection=host.ansible_connection
+        )
+
+        # Capture stderr/stdout to log file directly (VOLTTRON 2.0's -l flag is broken)
+        # Use >> to append, 2>&1 redirects stderr to stdout so both go to log
+        cmd = f"export VOLTTRON_HOME={volttron_home} && . {venv_path}/bin/activate && nohup volttron -vv >> {volttron_home}/volttron.log 2>&1 &"
+
         return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
-            f"cd {platform_id} && ./start-volttron",
-            inventory = address.id + ",",
-            connection=address.ansible_connection,
-            password = password
+            command=cmd,
+            hosts=platform.config.instance_name,
+            connection=host.ansible_connection
         )
 
         if return_code != 0:
             raise HTTPException(
                 status_code=500,
-                detail=f"{return_code}Failed to start platform: {stderr or stdout}"
+                detail=f"Failed to start platform: {stderr or stdout}"
             )
-        return {"status": "success", "output": stdout}
 
+        # Give VOLTTRON a moment to initialize
+        import asyncio
+        await asyncio.sleep(2)
+
+        return {"status": "success", "message": "Platform started successfully.", "output": stdout}
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=str(e)
         )
 
-@ansible_router.post("/ansible/stop_platform")
+@ansible_router.post("/stop_platform/{platform_id}")
 async def stop_platform(platform_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
-    """Stops a platform using Ansible"""
+    """Stops a VOLTTRON platform using vctl"""
     try:
+        # Get platform definition and host entry
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(platform_id)
+        
+        if platform is None:
+            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+        
+        # Get host entry from inventory
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+        
+        if platform.config.instance_name not in all_hosts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
+            )
+        
+        host = all_hosts[platform.config.instance_name]
+        
+        # Build command to stop VOLTTRON
+        venv_path = host.volttron_venv if host.volttron_venv else "~/.local"
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        
+        cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl shutdown --platform"
+        
         return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
-            f"cd {platform_id} && ./stop-volttron"
+            command=cmd,
+            hosts=platform.config.instance_name,
+            connection=host.ansible_connection
         )
 
         if return_code != 0:
@@ -521,8 +638,288 @@ async def stop_platform(platform_id: str, ansible: AnsibleService = Depends(get_
                 status_code=500,
                 detail=f"Failed to stop platform: {stderr or stdout}"
             )
-        return {"status": "success", "output": stdout}
+        return {"status": "success", "message": "Platform stopped successfully", "output": stdout}
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+@ansible_router.delete("/delete_remote_files/{platform_id}")
+async def delete_remote_volttron_files(platform_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
+    """Delete VOLTTRON files on the remote system.
+
+    This will:
+    1. Stop VOLTTRON if running
+    2. Delete the VOLTTRON_HOME directory
+    3. Optionally delete the virtual environment
+    """
+    try:
+        # Get platform definition and host entry
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(platform_id)
+
+        if platform is None:
+            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+
+        # Get host entry from inventory
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+
+        if platform.config.instance_name not in all_hosts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
+            )
+
+        host = all_hosts[platform.config.instance_name]
+
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+
+        # Step 1: Stop VOLTTRON if running (using pkill to ensure it stops)
+        stop_cmd = "pkill -f 'volttron -' 2>/dev/null || true"
+        await ansible.run_ssh_command(host, stop_cmd, timeout=15)
+
+        # Give it a moment to shut down
+        import asyncio
+        await asyncio.sleep(2)
+
+        # Step 2: Delete VOLTTRON_HOME directory
+        delete_home_cmd = f"rm -rf {volttron_home}"
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, delete_home_cmd, timeout=60)
+
+        if return_code != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to delete VOLTTRON_HOME: {stderr}"
+            )
+
+        # Step 3: Delete virtual environment
+        delete_venv_cmd = f"rm -rf {venv_path}"
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, delete_venv_cmd, timeout=60)
+
+        if return_code != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to delete virtual environment: {stderr}"
+            )
+
+        return {
+            "status": "success",
+            "message": f"Deleted VOLTTRON files: {volttron_home} and {venv_path}",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+@ansible_router.post("/start_agent/{platform_id}/{agent_id}")
+async def start_agent(platform_id: str, agent_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
+    """Starts a specific agent on a VOLTTRON platform using vctl"""
+    try:
+        # Get platform definition and host entry
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(platform_id)
+        
+        if platform is None:
+            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+        
+        # Get host entry from inventory
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+        
+        if platform.config.instance_name not in all_hosts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
+            )
+        
+        host = all_hosts[platform.config.instance_name]
+        
+        # Build command to start the agent
+        venv_path = host.volttron_venv if host.volttron_venv else "~/.local"
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        
+        cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl start --tag {agent_id}"
+        
+        return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
+            command=cmd,
+            hosts=platform.config.instance_name,
+            connection=host.ansible_connection
+        )
+
+        if return_code != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to start agent {agent_id}: {stderr or stdout}"
+            )
+        return {"status": "success", "message": f"Agent {agent_id} started successfully", "output": stdout}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+@ansible_router.get("/platform/{platform_id}/logs")
+async def get_platform_logs(platform_id: str, lines: int = 100):
+    """Fetch VOLTTRON log contents from remote platform"""
+    try:
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(platform_id)
+        
+        if not platform:
+            raise HTTPException(status_code=404, detail="Platform not found")
+        
+        ansible = await get_ansible_service()
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+        
+        if platform.config.instance_name not in all_hosts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
+            )
+        
+        host = all_hosts[platform.config.instance_name]
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        
+        # Tail the log file - use simple command to avoid quote escaping issues with Ansible
+        cmd = f"tail -n {lines} {volttron_home}/volttron.log || echo NO_LOG_FILE"
+        
+        return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
+            command=cmd,
+            hosts=platform.config.instance_name,
+            connection=host.ansible_connection
+        )
+        
+        # Parse Ansible output to extract actual command stdout
+        # The Ansible ad_hoc playbook wraps the output in "standard out:\n..."
+        log_content = "No logs available"
+        
+        # Try to extract the actual stdout from Ansible's output
+        import re
+        # Look for "standard out:\n" followed by the actual content
+        match = re.search(r'"standard out:\\n([^"]*)"', stdout, re.DOTALL)
+        if match:
+            # Unescape the newlines
+            log_content = match.group(1).replace('\\n', '\n')
+        elif "NO_LOG_FILE" in stdout:
+            log_content = f"No log file detected at: {volttron_home}/volttron.log\n\nVOLTTRON may not have been started yet, or logging is not configured."
+        
+        return {
+            "logs": log_content,
+            "log_path": f"{volttron_home}/volttron.log",
+            "error": stderr if stderr else None
+        }
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch logs: {str(e)}"
+        )
+
+@ansible_router.delete("/platform/{platform_id}/logs")
+async def delete_platform_logs(platform_id: str):
+    """Delete VOLTTRON log file from remote platform"""
+    try:
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(platform_id)
+        
+        if not platform:
+            raise HTTPException(status_code=404, detail="Platform not found")
+        
+        ansible = await get_ansible_service()
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+        
+        if platform.config.instance_name not in all_hosts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
+            )
+        
+        host = all_hosts[platform.config.instance_name]
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        
+        # Delete the log file
+        cmd = f"rm -f {volttron_home}/volttron.log && echo LOG_DELETED"
+        
+        return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
+            command=cmd,
+            hosts=platform.config.instance_name,
+            connection=host.ansible_connection
+        )
+        
+        if "LOG_DELETED" in stdout or return_code == 0:
+            return {"message": "Log file deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete log file")
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete logs: {str(e)}"
+        )
+
+@ansible_router.post("/stop_agent/{platform_id}/{agent_id}")
+async def stop_agent(platform_id: str, agent_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
+    """Stops a specific agent on a VOLTTRON platform using vctl"""
+    try:
+        # Get platform definition and host entry
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(platform_id)
+        
+        if platform is None:
+            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+        
+        # Get host entry from inventory
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+        
+        if platform.config.instance_name not in all_hosts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
+            )
+        
+        host = all_hosts[platform.config.instance_name]
+        
+        # Build command to stop the agent
+        venv_path = host.volttron_venv if host.volttron_venv else "~/.local"
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        
+        cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl stop --tag {agent_id}"
+        
+        return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
+            command=cmd,
+            hosts=platform.config.instance_name,
+            connection=host.ansible_connection
+        )
+
+        if return_code != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to stop agent {agent_id}: {stderr or stdout}"
+            )
+        return {"status": "success", "message": f"Agent {agent_id} stopped successfully", "output": stdout}
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,

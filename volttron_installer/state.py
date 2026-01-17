@@ -297,7 +297,8 @@ async def __instances_from_api__() -> dict[str, Instance]:
                         for identity, agent in p.agents.items()
                     }
                 ),
-                new_instance = False,
+                new_instance=False,
+                deployed=p.deployed,
                 safe_host_entry=host.to_dict(),
             )
         }
@@ -350,6 +351,29 @@ class PlatformPageState(rx.State):
     _deployment_progress: int = 0  # 0-100
     _show_deployment_dialog: bool = False
 
+    # Platform status tracking
+    _platform_status: dict = {}  # Stores PlatformDeploymentStatus data
+    _status_loading: bool = False
+    _status_error: str = ""
+    _last_status_check: str = ""
+    
+    # Connection status tracking
+    _connection_status: str = "unknown"  # connected, disconnected, checking, unknown
+    
+    # Log viewing
+    _platform_logs: str = ""
+    _logs_loading: bool = False
+    _log_font_size: int = 12  # Font size in pixels
+    _log_wrap: bool = True  # Whether to wrap long log lines
+    _connection_method: str = ""  # e.g., "SSH with key authentication"
+    _last_connection_check: str = ""
+    _connection_error: str = ""
+
+    # Delete platform dialog
+    _show_delete_dialog: bool = False
+    _delete_remote_files: bool = False
+    _delete_confirmed: bool = False
+    _deleting_platform: bool = False
 
     # Vars
     @rx.var(cache=True)
@@ -559,6 +583,122 @@ class PlatformPageState(rx.State):
         return self._show_deployment_dialog
     # === end of deployment progress vars ===
 
+    # Platform status computed vars
+    @rx.var
+    def platform_status(self) -> dict:
+        return self._platform_status
+    
+    @rx.var
+    def status_loading(self) -> bool:
+        return self._status_loading
+    
+    @rx.var
+    def status_error(self) -> str:
+        return self._status_error
+    
+    @rx.var
+    def platform_state(self) -> str:
+        return self._platform_status.get("state", "unknown")
+    
+    @rx.var
+    def platform_agents(self) -> dict:
+        return self._platform_status.get("agents", {})
+    
+    @rx.var
+    def platform_agents_list(self) -> list[dict]:
+        """Convert agents dict to list for easier rendering"""
+        agents = self._platform_status.get("agents", {})
+        return [{"id": agent_id, **agent_data} for agent_id, agent_data in agents.items()]
+    
+    @rx.var
+    def last_status_check(self) -> str:
+        return self._last_status_check
+    
+    # Connection status computed vars
+    @rx.var
+    def connection_status(self) -> str:
+        return self._connection_status
+    
+    @rx.var
+    def connection_method(self) -> str:
+        return self._connection_method
+    
+    @rx.var
+    def last_connection_check(self) -> str:
+        return self._last_connection_check
+    
+    @rx.var
+    def connection_error(self) -> str:
+        return self._connection_error
+    
+    @rx.var
+    def platform_logs(self) -> str:
+        return self._platform_logs
+    
+    @rx.var
+    def logs_loading(self) -> bool:
+        return self._logs_loading
+    
+    @rx.var
+    def log_font_size(self) -> int:
+        return self._log_font_size
+    
+    @rx.var
+    def log_wrap(self) -> bool:
+        return self._log_wrap
+
+    @rx.var
+    def parsed_log_lines(self) -> list[dict[str, str]]:
+        """Parse log lines and determine their log level for coloring."""
+        if not self._platform_logs:
+            return []
+
+        lines = self._platform_logs.split("\n")
+        result = []
+        for line in lines:
+            level = "default"
+            line_upper = line.upper()
+            if " DEBUG" in line_upper or "DEBUG:" in line_upper:
+                level = "debug"
+            elif " INFO" in line_upper or "INFO:" in line_upper:
+                level = "info"
+            elif " WARNING" in line_upper or "WARNING:" in line_upper or " WARN " in line_upper:
+                level = "warning"
+            elif " ERROR" in line_upper or "ERROR:" in line_upper:
+                level = "error"
+            elif " CRITICAL" in line_upper or "CRITICAL:" in line_upper:
+                level = "critical"
+            result.append({"text": line, "level": level})
+        return result
+
+    @rx.var
+    def connection_tooltip(self) -> str:
+        """Generate tooltip text for connection status"""
+        if self._connection_method:
+            tooltip = self._connection_method
+            if self._last_connection_check:
+                tooltip += f" (Last: {self._last_connection_check})"
+            if self._connection_error:
+                tooltip += f" - Error: {self._connection_error}"
+            return tooltip
+        return "Connection status unknown"
+
+    @rx.var
+    def show_delete_dialog(self) -> bool:
+        return self._show_delete_dialog
+
+    @rx.var
+    def delete_remote_files(self) -> bool:
+        return self._delete_remote_files
+
+    @rx.var
+    def delete_confirmed(self) -> bool:
+        return self._delete_confirmed
+
+    @rx.var
+    def deleting_platform(self) -> bool:
+        return self._deleting_platform
+
     # Events
     @rx.event
     async def hydrate_state(self, force_hydration: bool = False):
@@ -686,33 +826,105 @@ class PlatformPageState(rx.State):
         yield rx.toast.info("Changes Reverted.")
 
     @rx.event
+    def open_delete_dialog(self):
+        """Open the delete platform dialog."""
+        self._show_delete_dialog = True
+        self._delete_remote_files = False
+        self._delete_confirmed = False
+
+    @rx.event
+    def close_delete_dialog(self):
+        """Close the delete platform dialog and reset state."""
+        self._show_delete_dialog = False
+        self._delete_remote_files = False
+        self._delete_confirmed = False
+        self._deleting_platform = False
+
+    @rx.event
+    def toggle_delete_remote_files(self, checked: bool):
+        """Toggle whether to delete remote VOLTTRON files."""
+        self._delete_remote_files = checked
+
+    @rx.event
+    def confirm_delete(self):
+        """Move to the confirmation step."""
+        self._delete_confirmed = True
+
+    @rx.event
+    def back_to_delete_options(self):
+        """Go back to the options step."""
+        self._delete_confirmed = False
+
+    @rx.event(background=True)
     async def handle_delete_platform(self):
         """Delete the current platform from both the backend and local state."""
-        working_platform: Instance = self.platforms.get(self.current_uid)
-        if working_platform is None:
-            yield rx.toast.error("No platform selected to delete")
-            return
-
-        instance_name = working_platform.platform.config.instance_name
-
-        # Only delete from backend if the platform was previously saved (exists in file)
-        if working_platform.platform.in_file:
-            try:
-                await delete_platform(instance_name)
-            except ApiError as e:
-                yield rx.toast.error(f"Failed to delete platform: {e.detail}")
-                return
-            except Exception as e:
-                yield rx.toast.error(f"Failed to delete platform: {str(e)}")
+        async with self:
+            working_platform: Instance = self.platforms.get(self.current_uid)
+            if working_platform is None:
+                yield rx.toast.error("No platform selected to delete")
+                self._show_delete_dialog = False
                 return
 
-        # Remove from local state
-        if self.current_uid in self.platforms:
-            del self.platforms[self.current_uid]
+            instance_name = working_platform.platform.config.instance_name
+            delete_remote = self._delete_remote_files
+            self._deleting_platform = True
 
-        # Navigate back to index and show success message
-        yield NavigationState.route_to_index()
-        yield rx.toast.success(f"Platform '{instance_name}' has been deleted")
+        yield
+
+        try:
+            # If user wants to delete remote files, do that first
+            if delete_remote:
+                async with self:
+                    self._current_task = "Stopping VOLTTRON and deleting remote files..."
+                yield
+                try:
+                    await delete_remote_volttron_files(instance_name)
+                except ApiError as e:
+                    async with self:
+                        self._deleting_platform = False
+                    yield rx.toast.error(f"Failed to delete remote files: {e.detail}")
+                    return
+                except Exception as e:
+                    async with self:
+                        self._deleting_platform = False
+                    yield rx.toast.error(f"Failed to delete remote files: {str(e)}")
+                    return
+
+            # Delete from backend if the platform was previously saved
+            async with self:
+                if working_platform.platform.in_file:
+                    try:
+                        await delete_platform(instance_name)
+                    except ApiError as e:
+                        self._deleting_platform = False
+                        yield rx.toast.error(f"Failed to delete platform: {e.detail}")
+                        return
+                    except Exception as e:
+                        self._deleting_platform = False
+                        yield rx.toast.error(f"Failed to delete platform: {str(e)}")
+                        return
+
+                # Remove from local state
+                if self.current_uid in self.platforms:
+                    del self.platforms[self.current_uid]
+
+                # Reset dialog state
+                self._show_delete_dialog = False
+                self._delete_remote_files = False
+                self._delete_confirmed = False
+                self._deleting_platform = False
+
+            # Navigate back to index and show success message
+            yield NavigationState.route_to_index()
+            if delete_remote:
+                yield rx.toast.success(f"Platform '{instance_name}' and remote files have been deleted")
+            else:
+                yield rx.toast.success(f"Platform '{instance_name}' has been deleted")
+
+        except Exception as e:
+            async with self:
+                self._deleting_platform = False
+            yield rx.toast.error(f"Error deleting platform: {str(e)}")
 
     @rx.event
     async def generate_new_platform(self):
@@ -859,6 +1071,326 @@ class PlatformPageState(rx.State):
     def close_deployment_dialog(self):
         """Close the deployment progress dialog"""
         self._show_deployment_dialog = False
+
+    @rx.event
+    async def refresh_platform_status(self):
+        """Fetch the current status of the platform from the backend"""
+        if not self.current_uid or self.current_uid not in self.platforms:
+            return
+
+        working_platform: Instance = self.working_platform
+
+        # For new/unsaved platforms, don't try to fetch status
+        if working_platform.new_instance or not working_platform.platform.in_file:
+            self._platform_status = {
+                "platform_id": working_platform.platform.config.instance_name,
+                "state": "not deployed",
+                "host_configured": False,
+                "keys_verified": False,
+                "agents": {}
+            }
+            return
+
+        self._status_loading = True
+        self._status_error = ""
+
+        try:
+            from datetime import datetime
+            status_response = await get_platform_status(working_platform.platform.config.instance_name)
+            self._platform_status = status_response.dict() if hasattr(status_response, 'dict') else status_response
+            self._last_status_check = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            logger.debug(f"Platform status: {self._platform_status}")
+
+            # Auto-detect deployed status: if platform is running or deployed state detected,
+            # update the deployed flag (for platforms deployed before this fix)
+            detected_state = self._platform_status.get("state", "unknown")
+            if detected_state in ["running", "deployed"] and not working_platform.deployed:
+                logger.info(f"Auto-detecting deployed status for {working_platform.platform.config.instance_name}")
+                working_platform.deployed = True
+                # Persist the deployed flag to backend
+                try:
+                    await mark_platform_deployed(working_platform.platform.config.instance_name, True)
+                except Exception as mark_err:
+                    logger.warning(f"Could not persist deployed status: {mark_err}")
+        except Exception as e:
+            logger.error(f"Error fetching platform status: {e}")
+            self._status_error = str(e)
+            # If not marked as deployed and we get an error, show as not deployed
+            if not working_platform.deployed:
+                self._platform_status = {
+                    "platform_id": working_platform.platform.config.instance_name,
+                    "state": "not deployed",
+                    "host_configured": False,
+                    "keys_verified": False,
+                    "agents": {}
+                }
+            else:
+                self._platform_status = {
+                    "platform_id": working_platform.platform.config.instance_name,
+                    "state": "unknown",
+                    "host_configured": False,
+                    "keys_verified": False,
+                    "agents": {}
+                }
+        finally:
+            self._status_loading = False
+
+    @rx.event
+    async def check_connection(self):
+        """Check the connection to the platform host"""
+        if not self.current_uid or self.current_uid not in self.platforms:
+            return
+
+        working_platform: Instance = self.working_platform
+
+        # Only check for saved platforms (not new/unsaved ones)
+        if working_platform.new_instance or not working_platform.platform.in_file:
+            self._connection_status = "unknown"
+            self._connection_method = "Platform not saved"
+            return
+
+        self._connection_status = "checking"
+
+        try:
+            from datetime import datetime
+            result = await check_platform_connection(working_platform.platform.config.instance_name)
+            
+            if result.get("connected", False):
+                self._connection_status = "connected"
+                self._connection_method = result.get("connection_method", "Unknown method")
+                self._connection_error = ""
+            else:
+                self._connection_status = "disconnected"
+                self._connection_error = result.get("error", "Connection failed")
+            
+            self._last_connection_check = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        except Exception as e:
+            logger.error(f"Error checking connection: {e}")
+            self._connection_status = "disconnected"
+            self._connection_error = str(e)
+
+    @rx.event(background=True)
+    async def handle_start_platform(self):
+        """Start the VOLTTRON platform"""
+        async with self:
+            if not self.current_uid or self.current_uid not in self.platforms:
+                yield rx.toast.error("Platform not found")
+                return
+                
+            working_platform: Instance = self.working_platform
+            
+            if not working_platform.deployed:
+                yield rx.toast.error("Platform must be deployed before starting")
+                return
+            
+            # Show loading state
+            self._is_deploying = True
+            self._deployment_status = "running"
+            self._current_task = "Starting VOLTTRON platform..."
+            
+        yield
+        
+        try:
+            response = await start_platform(working_platform.platform.config.instance_name)
+            response_data = response.json() if hasattr(response, 'json') else response
+
+            # Check if platform was already running
+            if response_data.get("already_running", False):
+                async with self:
+                    self._deployment_status = "success"
+                    self._is_deploying = False
+                    self._current_task = "Platform is already running"
+
+                yield rx.toast.info("VOLTTRON is already running!")
+            else:
+                async with self:
+                    self._deployment_status = "success"
+                    self._is_deploying = False
+                    self._current_task = "Platform started successfully"
+
+                yield rx.toast.success("Platform started successfully!")
+
+            # Refresh status after starting - wait a moment for VOLTTRON to initialize
+            await asyncio.sleep(2)
+            await self.refresh_platform_status()
+
+        except ApiError as e:
+            async with self:
+                self._deployment_status = "failed"
+                self._is_deploying = False
+                self._current_task = f"Failed to start platform: {e.detail}"
+
+            yield rx.toast.error(f"Failed to start platform: {e.detail}")
+        except Exception as e:
+            async with self:
+                self._deployment_status = "failed"
+                self._is_deploying = False
+                self._current_task = f"Error: {str(e)}"
+
+            yield rx.toast.error(f"Error starting platform: {str(e)}")
+
+    @rx.event(background=True)
+    async def handle_stop_platform(self):
+        """Stop the VOLTTRON platform"""
+        async with self:
+            if not self.current_uid or self.current_uid not in self.platforms:
+                yield rx.toast.error("Platform not found")
+                return
+                
+            working_platform: Instance = self.working_platform
+            
+            if not working_platform.deployed:
+                yield rx.toast.error("Platform must be deployed before stopping")
+                return
+            
+            # Show loading state
+            self._is_deploying = True
+            self._deployment_status = "running"
+            self._current_task = "Stopping VOLTTRON platform..."
+            
+        yield
+        
+        try:
+            await stop_platform(working_platform.platform.config.instance_name)
+            
+            async with self:
+                self._deployment_status = "success"
+                self._is_deploying = False
+                self._current_task = "Platform stopped successfully"
+                
+            yield rx.toast.success("Platform stopped successfully!")
+            
+            # Refresh status after stopping
+            yield State.refresh_platform_status()
+            
+        except ApiError as e:
+            async with self:
+                self._deployment_status = "failed"
+                self._is_deploying = False
+                self._current_task = f"Failed to stop platform: {e.detail}"
+                
+            yield rx.toast.error(f"Failed to stop platform: {e.detail}")
+        except Exception as e:
+            async with self:
+                self._deployment_status = "failed"
+                self._is_deploying = False
+                self._current_task = f"Error: {str(e)}"
+                
+            yield rx.toast.error(f"Error stopping platform: {str(e)}")
+
+    @rx.event(background=True)
+    async def fetch_platform_logs(self, lines: int = 100):
+        """Fetch VOLTTRON platform logs"""
+        async with self:
+            if not self.current_uid or self.current_uid not in self.platforms:
+                yield rx.toast.error("Platform not found")
+                return
+            
+            self._logs_loading = True
+            working_platform: Instance = self.working_platform
+            instance_name = working_platform.platform.config.instance_name
+            
+        yield
+        
+        try:
+            result = await get_platform_logs(instance_name, lines)
+            
+            async with self:
+                self._platform_logs = result.get("logs", "No logs available")
+                self._logs_loading = False
+                
+        except ApiError as e:
+            async with self:
+                self._platform_logs = f"Error fetching logs: {e.detail}"
+                self._logs_loading = False
+        except Exception as e:
+            async with self:
+                self._platform_logs = f"Error: {str(e)}"
+                self._logs_loading = False
+
+    @rx.event(background=True)
+    async def delete_platform_logs(self):
+        """Delete VOLTTRON platform logs"""
+        async with self:
+            if not self.current_uid or self.current_uid not in self.platforms:
+                yield rx.toast.error("Platform not found")
+                return
+            
+            self._logs_loading = True
+            working_platform: Instance = self.working_platform
+            instance_name = working_platform.platform.config.instance_name
+            
+        yield
+        
+        try:
+            result = await delete_platform_logs(instance_name)
+            
+            async with self:
+                self._platform_logs = "Log file deleted. Click 'Refresh Logs' to verify."
+                self._logs_loading = False
+                
+            yield rx.toast.success("Log file deleted successfully!")
+                
+        except ApiError as e:
+            async with self:
+                self._platform_logs = f"Error deleting logs: {e.detail}"
+                self._logs_loading = False
+            yield rx.toast.error(f"Failed to delete logs: {e.detail}")
+        except Exception as e:
+            async with self:
+                self._platform_logs = f"Error: {str(e)}"
+                self._logs_loading = False
+            yield rx.toast.error(f"Error deleting logs: {str(e)}")
+    
+    def increase_log_font_size(self):
+        """Increase log font size"""
+        self._log_font_size = min(32, self._log_font_size + 2)
+    
+    def decrease_log_font_size(self):
+        """Decrease log font size"""
+        self._log_font_size = max(8, self._log_font_size - 2)
+    
+    def toggle_log_wrap(self):
+        """Toggle log line wrapping"""
+        self._log_wrap = not self._log_wrap
+
+    @rx.event(background=True)
+    async def handle_start_agent(self, agent_id: str):
+        """Start a specific agent"""
+        async with self:
+            if not self.current_uid or self.current_uid not in self.platforms:
+                yield rx.toast.error("Platform not found")
+                return
+                
+            working_platform: Instance = self.working_platform
+            
+        try:
+            await start_agent(working_platform.platform.config.instance_name, agent_id)
+            yield rx.toast.success(f"Agent {agent_id} started successfully!")
+            yield State.refresh_platform_status()
+        except ApiError as e:
+            yield rx.toast.error(f"Failed to start agent: {e.detail}")
+        except Exception as e:
+            yield rx.toast.error(f"Error starting agent: {str(e)}")
+
+    @rx.event(background=True)
+    async def handle_stop_agent(self, agent_id: str):
+        """Stop a specific agent"""
+        async with self:
+            if not self.current_uid or self.current_uid not in self.platforms:
+                yield rx.toast.error("Platform not found")
+                return
+                
+            working_platform: Instance = self.working_platform
+            
+        try:
+            await stop_agent(working_platform.platform.config.instance_name, agent_id)
+            yield rx.toast.success(f"Agent {agent_id} stopped successfully!")
+            yield State.refresh_platform_status()
+        except ApiError as e:
+            yield rx.toast.error(f"Failed to stop agent: {e.detail}")
+        except Exception as e:
+            yield rx.toast.error(f"Error stopping agent: {str(e)}")
 
     @rx.event
     async def handle_save(self):

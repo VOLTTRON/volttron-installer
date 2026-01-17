@@ -136,7 +136,7 @@ class HostEntryModelView(rx.Base):
     ansible_connection: Literal["ssh", "local"] = "ssh"
     http_proxy: str = ""
     https_proxy: str = ""
-    volttron_venv: str = ""
+    volttron_venv: str = "~/volttron.venv"
     volttron_home: str = "~/.volttron"
     host_configs_dir: str | None = None
     ignore_host_keys: bool = False

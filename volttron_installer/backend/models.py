@@ -21,7 +21,7 @@ class HostEntry(BaseModel):
     ansible_connection: Literal["ssh", "local"] = "ssh"
     http_proxy: str | None = None
     https_proxy: str | None = None
-    volttron_venv: str | None = None
+    volttron_venv: str = "~/volttron.venv"
     volttron_home: str = "~/.volttron"
     host_configs_dir: str | None = None
     instance_name: str | None = None
@@ -746,17 +746,19 @@ class PlatformConfig(BaseModel):
 class PlatformDefinition(BaseModel):
     """
     Represents the platform definition with methods to add configuration items.
-    
+
     Attributes:
-        host_id (str): A reference to the `id` field of a `HostEntry` instance, 
+        host_id (str): A reference to the `id` field of a `HostEntry` instance,
                        representing a unique VOLTTRON instance connection point.
         config (PlatformConfig): The configuration specific to the platform.
-        agents (dict[str, AgentDefinition]): A dictionary mapping agent names 
+        agents (dict[str, AgentDefinition]): A dictionary mapping agent names
                                              to their definitions.
+        deployed (bool): Whether this platform has been deployed to the target host.
     """
     host_id: str
     config: PlatformConfig = PlatformConfig()
     agents: dict[str, AgentDefinition] = {}
+    deployed: bool = False
 
     def __getitem__(self, item):
         return self.config[item]

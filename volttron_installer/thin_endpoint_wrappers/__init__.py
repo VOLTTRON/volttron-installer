@@ -89,11 +89,25 @@ async def get_request(url: str, params: Optional[dict[str, Any]] = None,
     except Exception as e:
         raise ApiError(500, str(e))
 
-async def post_request(url: str, data: Optional[dict[str, Any]] = None, timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
-    """Send an async POST request to the specified URL with optional JSON data."""
+async def delete_request(url: str, timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
+    """Send an async DELETE request to the specified URL."""
     client = get_client()
     try:
-        response = await client.post(url, json=data, timeout=timeout)
+        response = await client.delete(url, timeout=timeout)
+        response.raise_for_status()
+        return response
+    except httpx.TimeoutException:
+        raise ApiError(408, f"Request timed out connecting to {url}")
+    except httpx.HTTPStatusError as e:
+        raise ApiError(e.response.status_code, e.response.text)
+    except Exception as e:
+        raise ApiError(500, str(e))
+
+async def post_request(url: str, data: Optional[dict[str, Any]] = None, timeout: float = DEFAULT_TIMEOUT, params: Optional[dict[str, Any]] = None) -> httpx.Response:
+    """Send an async POST request to the specified URL with optional JSON data and query params."""
+    client = get_client()
+    try:
+        response = await client.post(url, json=data, params=params, timeout=timeout)
         response.raise_for_status()
         return response
     except httpx.TimeoutException:
@@ -206,12 +220,27 @@ async def get_platform_by_id(platform_id: str) -> PlatformDefinition:
 
 @with_model(PlatformDeploymentStatus)
 async def get_platform_status(platform_id: str) -> PlatformDeploymentStatus:
-    return await get_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/status/{platform_id}")
+    """Get platform status - uses longer timeout for SSH/Ansible operations"""
+    return await get_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/status/{platform_id}", timeout=60.0)
+
+async def check_platform_connection(platform_id: str) -> dict:
+    """Check the connection status of a platform - uses longer timeout for SSH"""
+    response = await get_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/connection/{platform_id}", timeout=30.0)
+    return response.json() if hasattr(response, 'json') else response
+
+async def mark_platform_deployed(platform_id: str, deployed: bool = True) -> dict:
+    """Mark a platform as deployed (or not deployed) without running deployment."""
+    response = await post_request(
+        f"{API_BASE_URL}{PLATFORMS_PREFIX}/mark-deployed/{platform_id}",
+        params={"deployed": deployed},
+        timeout=30.0
+    )
+    return response.json() if hasattr(response, 'json') else response
 
 @with_model(ReachableResponse)
 async def ping_resolvable_host(host_id: str) -> ReachableResponse:
-    """Ping a host to check if it is reachable."""
-    return await get_request(f"{API_BASE_URL}{TASK_PREFIX}/ping/{host_id}")
+    """Ping a host to check if it is reachable - uses longer timeout for SSH"""
+    return await get_request(f"{API_BASE_URL}{TASK_PREFIX}/ping/{host_id}", timeout=30.0)
 
 @with_model(ToolStatusResponse)
 async def tool_status(tool_name: str) -> ToolStatusResponse:
@@ -341,10 +370,49 @@ async def add_host(host: CreateOrUpdateHostEntryRequest):
     await post_request(f"{API_BASE_URL}{HOSTS_PREFIX}", data=host.model_dump())
 
 async def start_platform(platform_id: str):
-    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/start_platform", data=platform_id)
+    """Start a VOLTTRON platform"""
+    return await post_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/start_platform/{platform_id}",
+        timeout=30.0
+    )
 
 async def stop_platform(platform_id: str):
-    await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/stop_platform", data=platform_id)
+    """Stop a VOLTTRON platform"""
+    return await post_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/stop_platform/{platform_id}",
+        timeout=30.0
+    )
+
+async def get_platform_logs(platform_id: str, lines: int = 100):
+    """Fetch VOLTTRON log contents from remote platform"""
+    response = await get_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/platform/{platform_id}/logs",
+        params={"lines": lines},
+        timeout=10.0
+    )
+    return response.json()
+
+async def delete_platform_logs(platform_id: str):
+    """Delete VOLTTRON log file from remote platform"""
+    response = await delete_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/platform/{platform_id}/logs",
+        timeout=10.0
+    )
+    return response.json()
+
+async def start_agent(platform_id: str, agent_id: str):
+    """Start a specific agent on a VOLTTRON platform"""
+    return await post_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/start_agent/{platform_id}/{agent_id}",
+        timeout=30.0
+    )
+
+async def stop_agent(platform_id: str, agent_id: str):
+    """Stop a specific agent on a VOLTTRON platform"""
+    return await post_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/stop_agent/{platform_id}/{agent_id}",
+        timeout=30.0
+    )
 
 async def create_agent(platform_id: str, agent: CreateAgentRequest):
     await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents", data=agent.model_dump())
@@ -363,6 +431,11 @@ async def post_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response
 # DELETE requests
 async def delete_platform(platform_id: str):
     await delete_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}")
+
+async def delete_remote_volttron_files(platform_id: str) -> dict:
+    """Delete VOLTTRON files on the remote system (VOLTTRON_HOME and venv)."""
+    response = await delete_request(f"{API_BASE_URL}{ANSIBLE_PREFIX}/delete_remote_files/{platform_id}", timeout=120.0)
+    return response.json() if hasattr(response, 'json') else response
 
 async def remove_from_inventory(host_id: str):
     await delete_request(f"{API_BASE_URL}{HOSTS_PREFIX}/{host_id}")

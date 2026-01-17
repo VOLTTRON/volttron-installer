@@ -123,39 +123,121 @@ def platform_page() -> rx.Component:
                                 on_click=State.copy_platform(State.current_uid)
                             )
                         ),
-                        rx.alert_dialog.root(
-                            rx.alert_dialog.trigger(
-                                icon_button_wrapper.icon_button_wrapper(
-                                    tool_tip_content="Delete platform",
-                                    icon_key="trash-2",
-                                ),
-                            ),
-                            rx.alert_dialog.content(
-                                rx.alert_dialog.title("Delete Platform"),
-                                rx.alert_dialog.description(
-                                    f"Are you sure you want to delete this platform? This action cannot be undone.",
-                                    size="2",
-                                ),
-                                rx.flex(
-                                    rx.alert_dialog.cancel(
-                                        rx.button(
-                                            "Cancel",
-                                            variant="soft",
-                                            color_scheme="gray",
-                                        )
+                        # Delete button opens dialog
+                        icon_button_wrapper.icon_button_wrapper(
+                            tool_tip_content="Delete platform",
+                            icon_key="trash-2",
+                            on_click=State.open_delete_dialog,
+                        ),
+                        # Delete Platform Dialog
+                        rx.dialog.root(
+                            rx.dialog.content(
+                                rx.cond(
+                                    ~State.delete_confirmed,
+                                    # Step 1: Delete options
+                                    rx.vstack(
+                                        rx.dialog.title("Delete Platform"),
+                                        rx.dialog.description(
+                                            "Choose what to delete:",
+                                            size="2",
+                                        ),
+                                        rx.vstack(
+                                            rx.hstack(
+                                                rx.checkbox(
+                                                    checked=State.delete_remote_files,
+                                                    on_change=State.toggle_delete_remote_files,
+                                                ),
+                                                rx.vstack(
+                                                    rx.text("Also delete VOLTTRON files on remote system", weight="medium"),
+                                                    rx.text(
+                                                        "This will stop VOLTTRON, delete ~/.volttron and the virtual environment",
+                                                        size="1",
+                                                        color="gray",
+                                                    ),
+                                                    align="start",
+                                                    spacing="0",
+                                                ),
+                                                align="start",
+                                                spacing="2",
+                                            ),
+                                            padding="1rem",
+                                            background="var(--gray-2)",
+                                            border_radius="var(--radius-2)",
+                                            width="100%",
+                                        ),
+                                        rx.flex(
+                                            rx.button(
+                                                "Cancel",
+                                                variant="soft",
+                                                color_scheme="gray",
+                                                on_click=State.close_delete_dialog,
+                                            ),
+                                            rx.button(
+                                                "Continue",
+                                                color_scheme="red",
+                                                on_click=State.confirm_delete,
+                                            ),
+                                            spacing="3",
+                                            margin_top="16px",
+                                            justify="end",
+                                        ),
+                                        spacing="3",
+                                        width="100%",
                                     ),
-                                    rx.alert_dialog.action(
-                                        rx.button(
-                                            "Delete",
-                                            color_scheme="red",
-                                            on_click=State.handle_delete_platform
-                                        )
+                                    # Step 2: Confirmation
+                                    rx.vstack(
+                                        rx.dialog.title(
+                                            rx.hstack(
+                                                rx.icon("alert-triangle", color="red", size=24),
+                                                "Confirm Deletion",
+                                                spacing="2",
+                                            )
+                                        ),
+                                        rx.callout(
+                                            rx.cond(
+                                                State.delete_remote_files,
+                                                "This will permanently delete the platform configuration AND all VOLTTRON files on the remote system. This cannot be undone!",
+                                                "This will permanently delete the platform configuration. This cannot be undone!",
+                                            ),
+                                            icon="alert-triangle",
+                                            color="red",
+                                        ),
+                                        rx.cond(
+                                            State.deleting_platform,
+                                            rx.hstack(
+                                                rx.spinner(size="2"),
+                                                rx.text("Deleting platform..."),
+                                                spacing="2",
+                                                padding="1rem",
+                                            ),
+                                            rx.flex(
+                                                rx.button(
+                                                    "Back",
+                                                    variant="soft",
+                                                    color_scheme="gray",
+                                                    on_click=State.back_to_delete_options,
+                                                ),
+                                                rx.button(
+                                                    rx.cond(
+                                                        State.delete_remote_files,
+                                                        "Delete Platform & Remote Files",
+                                                        "Delete Platform",
+                                                    ),
+                                                    color_scheme="red",
+                                                    on_click=State.handle_delete_platform,
+                                                ),
+                                                spacing="3",
+                                                margin_top="16px",
+                                                justify="end",
+                                            ),
+                                        ),
+                                        spacing="3",
+                                        width="100%",
                                     ),
-                                    spacing="3",
-                                    margin_top="16px",
-                                    justify="end",
                                 ),
+                                max_width="450px",
                             ),
+                            open=State.show_delete_dialog,
                         ),
                     ),
                     justify="between"
@@ -234,9 +316,19 @@ def platform_tabs() -> rx.Component:
                         )
                     ),
                     rx.tabs.trigger("Configuration", value="configuration"),
+                    rx.tabs.trigger(
+                        "Logs", value="logs", disabled=rx.cond(
+                            State.working_platform.platform.in_file,
+                            False,
+                            True
+                        )
+                    ),
                 ),
                 rx.tabs.content(
-                    data_tab_content(),
+                    rx.box(
+                        data_tab_content(),
+                        on_mount=[State.refresh_platform_status, State.check_connection],
+                    ),
                     value="status"
                 ),
                 rx.tabs.content(
@@ -246,6 +338,13 @@ def platform_tabs() -> rx.Component:
                     ),
                     value="configuration"
                 ),
+                rx.tabs.content(
+                    rx.box(
+                        logs_tab_content(),
+                        padding="1rem"
+                    ),
+                    value="logs"
+                ),
                 default_value=rx.cond(
                     State.working_platform.platform.in_file,
                     "status",
@@ -253,6 +352,104 @@ def platform_tabs() -> rx.Component:
                 )
             )
         )
+    )
+
+# Logs tab content:
+def logs_tab_content() -> rx.Component:
+    """Tab content for viewing VOLTTRON logs"""
+    return rx.vstack(
+        rx.hstack(
+            rx.heading("VOLTTRON Logs", size="5"),
+            rx.hstack(
+                rx.button(
+                    rx.icon("minus", size=18),
+                    "Smaller",
+                    on_click=State.decrease_log_font_size,
+                    size="2",
+                    variant="soft",
+                ),
+                rx.button(
+                    rx.icon("plus", size=18),
+                    "Larger",
+                    on_click=State.increase_log_font_size,
+                    size="2",
+                    variant="soft",
+                ),
+                rx.button(
+                    rx.icon("wrap-text", size=18),
+                    "Wrap",
+                    on_click=State.toggle_log_wrap,
+                    size="2",
+                    variant=rx.cond(State.log_wrap, "solid", "soft"),
+                ),
+                rx.button(
+                    rx.icon("refresh-cw", size=18),
+                    "Refresh Logs",
+                    on_click=State.fetch_platform_logs(100),
+                    loading=State.logs_loading,
+                    size="2",
+                    variant="soft",
+                ),
+                rx.button(
+                    rx.icon("trash-2", size=18),
+                    "Delete Log",
+                    on_click=State.delete_platform_logs,
+                    loading=State.logs_loading,
+                    size="2",
+                    variant="soft",
+                    color_scheme="red",
+                ),
+                spacing="2",
+            ),
+            justify="between",
+            width="100%",
+            padding_bottom="1rem",
+        ),
+        rx.card(
+            rx.scroll_area(
+                rx.el.pre(
+                    rx.foreach(
+                        State.parsed_log_lines,
+                        lambda log_line: rx.el.div(
+                            log_line["text"],
+                            style={
+                                "color": rx.match(
+                                    log_line["level"],
+                                    ("debug", "var(--gray-9)"),
+                                    ("info", "var(--blue-11)"),
+                                    ("warning", "var(--orange-11)"),
+                                    ("error", "var(--red-11)"),
+                                    ("critical", "var(--red-12)"),
+                                    "var(--gray-12)",
+                                ),
+                                "fontWeight": rx.cond(
+                                    log_line["level"] == "critical",
+                                    "bold",
+                                    "normal",
+                                ),
+                            },
+                        ),
+                    ),
+                    style={
+                        "fontSize": State.log_font_size.to(str) + "px",
+                        "whiteSpace": rx.cond(State.log_wrap, "pre-wrap", "pre"),
+                        "wordBreak": rx.cond(State.log_wrap, "break-word", "normal"),
+                        "overflowWrap": rx.cond(State.log_wrap, "break-word", "normal"),
+                        "fontFamily": "monospace",
+                        "margin": "0",
+                        "padding": "1em",
+                        "backgroundColor": "var(--gray-2)",
+                        "borderRadius": "var(--radius-2)",
+                    },
+                ),
+                type="auto",
+                scrollbars="both",
+                style={"height": "calc(100vh - 250px)", "width": "100%"},
+            ),
+            width="100%",
+        ),
+        spacing="3",
+        width="100%",
     )
 
 # Config tab and it's components:
@@ -332,7 +529,7 @@ def configuration_tab_content() -> rx.Component:
                                     ),
                                     upload=tile_icon(
                                         "badge-info",
-                                        tooltip="Username must have SUDO permissions"
+                                        tooltip="SSH username on the remote host. This user must have SUDO permissions to install and configure VOLTTRON."
                                     ),
                                     required_entry=True,
                                 ),
@@ -345,21 +542,17 @@ def configuration_tab_content() -> rx.Component:
                                         required=True,
                                     ),
                                     required_entry=True,
+                                    upload=tile_icon(
+                                        "badge-info",
+                                        tooltip="SSH port on the remote host (default: 22)"
+                                    ),
                                     below_component=rx.cond(
                                         State.connection_ansible_port_validity == False,
                                         rx.text(
-                                            "Port SSH must be a valid port number", 
+                                            "Port SSH must be a valid port number",
                                             color_scheme="red"
                                         )
                                     ),
-                                ),
-                                rx.checkbox(
-                                    "Disable Host Key Checking (StrictHostKeyChecking=no)",
-                                    checked=State.working_platform.host.ignore_host_keys,
-                                    on_change=lambda v: State.update_detail("ignore_host_keys", v),
-                                    spacing="2",
-                                    margin_top="0.5rem",
-                                    margin_bottom="1rem"
                                 ),
                                 rx.box(
                                     rx.hstack(
@@ -382,7 +575,10 @@ def configuration_tab_content() -> rx.Component:
                                                 value= State.working_platform.host.http_proxy,
                                                 on_change=lambda v: State.update_detail("http_proxy", v),
                                                 size="3",
-                                                required=True,
+                                            ),
+                                            upload=tile_icon(
+                                                "badge-info",
+                                                tooltip="Optional HTTP proxy for connecting through a firewall (e.g., http://proxy:8080)"
                                             )
                                         ),
                                         form_entry.form_entry(
@@ -391,7 +587,10 @@ def configuration_tab_content() -> rx.Component:
                                                 value= State.working_platform.host.https_proxy,
                                                 on_change=lambda v: State.update_detail("https_proxy", v),
                                                 size="3",
-                                                required=True,
+                                            ),
+                                            upload=tile_icon(
+                                                "badge-info",
+                                                tooltip="Optional HTTPS proxy for connecting through a firewall (e.g., https://proxy:8080)"
                                             )
                                         ),
                                         form_entry.form_entry(
@@ -400,7 +599,22 @@ def configuration_tab_content() -> rx.Component:
                                                 value= State.working_platform.host.volttron_home,
                                                 on_change=lambda v: State.update_detail("volttron_home", v),
                                                 size="3",
-                                                required=True,
+                                            ),
+                                            upload=tile_icon(
+                                                "badge-info",
+                                                tooltip="Directory where VOLTTRON stores its data and configuration (default: ~/.volttron)"
+                                            )
+                                        ),
+                                        form_entry.form_entry(
+                                            "Ignore Host Keys",
+                                            rx.checkbox(
+                                                checked=State.working_platform.host.ignore_host_keys,
+                                                on_change=lambda v: State.update_detail("ignore_host_keys", v),
+                                                size="3",
+                                            ),
+                                            upload=tile_icon(
+                                                "badge-info",
+                                                tooltip="Skip SSH host key verification (StrictHostKeyChecking=no). Use if the remote host is not in your known_hosts file. Less secure but useful for initial setup."
                                             )
                                         ),
                                     )
@@ -472,7 +686,7 @@ def configuration_tab_content() -> rx.Component:
                                     required_entry=True,
                                     upload=tile_icon(
                                         "badge-info",
-                                        tooltip="Vip Address must be in the format tcp://<ip>:<port>"
+                                        tooltip="VIP (VOLTTRON Interconnect Protocol) address for agent communication. Format: tcp://<ip>:<port>"
                                     )
                                 ),
                                 form_entry.form_entry(
@@ -485,6 +699,10 @@ def configuration_tab_content() -> rx.Component:
                                         justify="center",
                                         align="center",
                                         width="100%"
+                                    ),
+                                    upload=tile_icon(
+                                        "badge-info",
+                                        tooltip="Enable to connect this platform to a VOLTTRON federation for multi-platform communication and data sharing."
                                     )
                                 ),
                                 form_entry.form_entry(
@@ -498,6 +716,10 @@ def configuration_tab_content() -> rx.Component:
                                         justify="center",
                                         align="center",
                                         width="100%"
+                                    ),
+                                    upload=tile_icon(
+                                        "badge-info",
+                                        tooltip="Enable the VOLTTRON web interface for browser-based platform management and monitoring."
                                     )
                                 ),
                                 rx.cond(
@@ -510,6 +732,10 @@ def configuration_tab_content() -> rx.Component:
                                                 value=State.working_platform.web_bind_address,
                                                 on_change=lambda v: State.update_platform_config_detail("web_bind_address", v),
                                                 required=True,
+                                            ),
+                                            upload=tile_icon(
+                                                "badge-info",
+                                                tooltip="Address and port for the web interface (e.g., https://0.0.0.0:8443). Use 0.0.0.0 to listen on all interfaces."
                                             )
                                         )
                                     )
@@ -698,9 +924,362 @@ def configuration_tab_content() -> rx.Component:
 
 # Data tab and it's components
 def data_tab_content() -> rx.Component: 
-    return rx.cond(State.is_hydrated, rx.container(
-        rx.text("this is data... in all of it's glory")
-    ))
+    return rx.cond(
+        State.is_hydrated,
+        rx.cond(
+            State.platform_deployed,
+            # Show status information for deployed platforms
+            rx.container(
+                rx.vstack(
+                    # Status Badges Row
+                    rx.hstack(
+                        # SSH Connection Status Badge
+                        rx.tooltip(
+                            rx.badge(
+                                rx.hstack(
+                                    rx.cond(
+                                        State.connection_status == "connected",
+                                        rx.icon("wifi", size=14),
+                                        rx.cond(
+                                            State.connection_status == "checking",
+                                            rx.spinner(size="1"),
+                                            rx.icon("wifi-off", size=14),
+                                        ),
+                                    ),
+                                    rx.text(
+                                        rx.cond(
+                                            State.connection_status == "connected",
+                                            "SSH Connected",
+                                            rx.cond(
+                                                State.connection_status == "checking",
+                                                "Checking SSH...",
+                                                rx.cond(
+                                                    State.connection_status == "disconnected",
+                                                    "SSH Disconnected",
+                                                    "SSH Unknown"
+                                                )
+                                            )
+                                        ),
+                                        size="2",
+                                    ),
+                                    spacing="2",
+                                ),
+                                color_scheme=rx.cond(
+                                    State.connection_status == "connected",
+                                    "green",
+                                    rx.cond(
+                                        State.connection_status == "checking",
+                                        "blue",
+                                        "red"
+                                    )
+                                ),
+                                size="2",
+                            ),
+                            content=State.connection_tooltip,
+                        ),
+                        # VOLTTRON Running Status Badge
+                        rx.badge(
+                            rx.hstack(
+                                rx.cond(
+                                    State.status_loading,
+                                    rx.spinner(size="1"),
+                                    rx.cond(
+                                        State.platform_state == "running",
+                                        rx.icon("circle-check", size=14),
+                                        rx.cond(
+                                            State.platform_state == "deployed",
+                                            rx.icon("circle-pause", size=14),
+                                            rx.icon("circle-x", size=14),
+                                        ),
+                                    ),
+                                ),
+                                rx.text(
+                                    rx.cond(
+                                        State.status_loading,
+                                        "Checking VOLTTRON...",
+                                        rx.cond(
+                                            State.platform_state == "running",
+                                            "VOLTTRON Running",
+                                            rx.cond(
+                                                State.platform_state == "deployed",
+                                                "VOLTTRON Stopped",
+                                                rx.cond(
+                                                    State.platform_state == "not deployed",
+                                                    "Not Deployed",
+                                                    "VOLTTRON Unknown"
+                                                )
+                                            )
+                                        )
+                                    ),
+                                    size="2",
+                                ),
+                                spacing="2",
+                            ),
+                            color_scheme=rx.cond(
+                                State.status_loading,
+                                "blue",
+                                rx.cond(
+                                    State.platform_state == "running",
+                                    "green",
+                                    rx.cond(
+                                        State.platform_state == "deployed",
+                                        "orange",
+                                        "gray"
+                                    )
+                                )
+                            ),
+                            size="2",
+                        ),
+                        spacing="3",
+                    ),
+
+                    # Header with refresh button
+                    rx.hstack(
+                        rx.heading("Platform Status", size="6"),
+                        rx.hstack(
+                            # Start/Stop buttons
+                            rx.cond(
+                                State.platform_state == "running",
+                                rx.button(
+                                    rx.icon("square", size=18),
+                                    "Stop Platform",
+                                    on_click=State.handle_stop_platform,
+                                    loading=State.is_deploying,
+                                    disabled=State.status_loading,
+                                    size="2",
+                                    variant="soft",
+                                    color_scheme="red",
+                                ),
+                                rx.button(
+                                    rx.icon("play", size=18),
+                                    "Start Platform",
+                                    on_click=State.handle_start_platform,
+                                    loading=State.is_deploying,
+                                    size="2",
+                                    variant="soft",
+                                    color_scheme="green",
+                                    disabled=(State.platform_state == "not deployed") | State.status_loading,
+                                ),
+                            ),
+                            rx.button(
+                                rx.icon("refresh-cw", size=18),
+                                "Refresh",
+                                on_click=State.refresh_platform_status,
+                                loading=State.status_loading,
+                                size="2",
+                                variant="soft",
+                            ),
+                            spacing="2",
+                        ),
+                        justify="between",
+                        width="100%",
+                        padding_bottom="1rem",
+                    ),
+                    
+                    # Status overview
+                    rx.card(
+                        rx.vstack(
+                            rx.heading("Instance Information", size="4"),
+                            rx.divider(),
+                            rx.grid(
+                                # Platform ID
+                                rx.vstack(
+                                    rx.text("Instance Name", size="2", weight="bold", color="gray"),
+                                    rx.text(State.platform_status.get("platform_id", "N/A"), size="3"),
+                                    align="start",
+                                    spacing="1",
+                                ),
+                                # Platform State
+                                rx.vstack(
+                                    rx.text("State", size="2", weight="bold", color="gray"),
+                                    rx.badge(
+                                        State.platform_state,
+                                        color_scheme=rx.cond(
+                                            State.platform_state == "running",
+                                            "green",
+                                            rx.cond(
+                                                State.platform_state == "deployed",
+                                                "blue",
+                                                "gray"
+                                            )
+                                        ),
+                                        size="2",
+                                    ),
+                                    align="start",
+                                    spacing="1",
+                                ),
+                                # Host Configured
+                                rx.vstack(
+                                    rx.text("Host Configured", size="2", weight="bold", color="gray"),
+                                    rx.cond(
+                                        State.platform_status.get("host_configured", False),
+                                        rx.hstack(
+                                            rx.icon("check", size=16, color="green"),
+                                            rx.text("Yes", size="3"),
+                                            spacing="2",
+                                        ),
+                                        rx.hstack(
+                                            rx.icon("x", size=16, color="red"),
+                                            rx.text("No", size="3"),
+                                            spacing="2",
+                                        ),
+                                    ),
+                                    align="start",
+                                    spacing="1",
+                                ),
+                                # Keys Verified
+                                rx.vstack(
+                                    rx.text("Keys Verified", size="2", weight="bold", color="gray"),
+                                    rx.cond(
+                                        State.platform_status.get("keys_verified", False),
+                                        rx.hstack(
+                                            rx.icon("check", size=16, color="green"),
+                                            rx.text("Yes", size="3"),
+                                            spacing="2",
+                                        ),
+                                        rx.hstack(
+                                            rx.icon("x", size=16, color="red"),
+                                            rx.text("No", size="3"),
+                                            spacing="2",
+                                        ),
+                                    ),
+                                    align="start",
+                                    spacing="1",
+                                ),
+                                columns="4",
+                                spacing="4",
+                                width="100%",
+                            ),
+                            spacing="3",
+                            width="100%",
+                        ),
+                        width="100%",
+                    ),
+                    
+                    # Agents section
+                    rx.card(
+                        rx.vstack(
+                            rx.heading("Agents", size="4"),
+                            rx.divider(),
+                            rx.cond(
+                                State.platform_agents_list,
+                                rx.vstack(
+                                    rx.foreach(
+                                        State.platform_agents_list,
+                                        lambda agent: rx.hstack(
+                                            rx.hstack(
+                                                rx.text(agent["id"], weight="bold", size="3"),
+                                                rx.badge(
+                                                    agent.get("state", "unknown"),
+                                                    color_scheme=rx.cond(
+                                                        agent.get("state") == "started",
+                                                        "green",
+                                                        rx.cond(
+                                                            agent.get("state") == "stopped",
+                                                            "orange",
+                                                            "gray"
+                                                        )
+                                                    ),
+                                                ),
+                                                spacing="3",
+                                            ),
+                                            rx.hstack(
+                                                # Start button
+                                                rx.cond(
+                                                    agent.get("state") != "started",
+                                                    rx.icon_button(
+                                                        rx.icon("play", size=14),
+                                                        on_click=lambda: State.handle_start_agent(agent["id"]),
+                                                        size="1",
+                                                        variant="soft",
+                                                        color_scheme="green",
+                                                    ),
+                                                ),
+                                                # Stop button
+                                                rx.cond(
+                                                    agent.get("state") == "started",
+                                                    rx.icon_button(
+                                                        rx.icon("square", size=14),
+                                                        on_click=lambda: State.handle_stop_agent(agent["id"]),
+                                                        size="1",
+                                                        variant="soft",
+                                                        color_scheme="red",
+                                                    ),
+                                                ),
+                                                spacing="2",
+                                            ),
+                                            justify="between",
+                                            width="100%",
+                                            padding="0.5rem",
+                                            border_radius="8px",
+                                            _hover={"background_color": "var(--gray-3)"},
+                                        )
+                                    ),
+                                    width="100%",
+                                    spacing="2",
+                                ),
+                                rx.text("No agents configured", size="3", color="gray"),
+                            ),
+                            spacing="3",
+                            width="100%",
+                        ),
+                        width="100%",
+                    ),
+                    
+                    # Last check timestamp
+                    rx.cond(
+                        State.last_status_check != "",
+                        rx.text(
+                            f"Last updated: {State.last_status_check}",
+                            size="1",
+                            color="gray",
+                        ),
+                    ),
+                    
+                    # Error message
+                    rx.cond(
+                        State.status_error != "",
+                        rx.callout(
+                            rx.hstack(
+                                rx.icon("alert-triangle", size=16),
+                                rx.text(State.status_error),
+                                spacing="2",
+                            ),
+                            color_scheme="red",
+                            width="100%",
+                        ),
+                    ),
+                    
+                    # Periodic connection check (every 5 seconds)
+                    rx.moment(
+                        interval=5000,
+                        on_change=State.check_connection,
+                        display="none",
+                    ),
+                    
+                    spacing="4",
+                    width="100%",
+                ),
+                padding="1rem",
+            ),
+            # Show message for non-deployed platforms
+            rx.container(
+                rx.vstack(
+                    rx.icon("info", size=48, color="gray"),
+                    rx.heading("Platform Not Deployed", size="5"),
+                    rx.text(
+                        "Deploy this platform to view its status information.",
+                        size="3",
+                        color="gray",
+                    ),
+                    spacing="4",
+                    align="center",
+                    padding_top="4rem",
+                ),
+                padding="1rem",
+            ),
+        ),
+    )
 
 
 # General components

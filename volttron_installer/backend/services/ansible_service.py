@@ -23,6 +23,55 @@ class AnsibleService:
             # The playbooks are in the root of the collection
             playbook_dir = Path.home() / '.ansible/collections/ansible_collections/volttron/deployment'
         self.playbook_dir = playbook_dir
+
+    async def run_ssh_command(self, host: 'HostEntry', command: str, timeout: int = 30) -> tuple[int, str, str]:
+        """Run a command via SSH directly (bypassing Ansible for speed).
+
+        Args:
+            host: HostEntry with connection details
+            command: Command to execute on remote host
+            timeout: Timeout in seconds
+
+        Returns:
+            Tuple of (return_code, stdout, stderr)
+        """
+        try:
+            ssh_cmd = [
+                "ssh",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "BatchMode=yes",
+                "-o", f"ConnectTimeout={timeout}",
+                "-p", str(host.ansible_port),
+                f"{host.ansible_user}@{host.ansible_host}",
+                command
+            ]
+
+            logger.debug(f"Running SSH command: {' '.join(ssh_cmd)}")
+
+            process = await asyncio.create_subprocess_exec(
+                *ssh_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                return -1, "", "SSH command timed out"
+
+            return (
+                process.returncode,
+                stdout.decode() if stdout else "",
+                stderr.decode() if stderr else ""
+            )
+        except Exception as e:
+            logger.error(f"SSH command failed: {e}")
+            return -1, "", str(e)
             
 
     async def run_playbook(self, playbook_name: str, hosts: str | list[str], password: str = None, extra_vars: dict = None, ignore_host_keys: bool = False) -> tuple[int, str, str]:
@@ -157,20 +206,23 @@ class AnsibleService:
             stderr.decode() if stderr else ""
         )
 
-    async def run_volttron_ad_hoc(self, command: str, inventory: str = "localhost,", connection: str = "local", password: str = None) -> tuple[int, str, str]:
+    async def run_volttron_ad_hoc(self, command: str, hosts: str | list[str], connection: str = "ssh", password: str = None) -> tuple[int, str, str]:
         """Run an ad-hoc Ansible command
 
         Args:
             command: Command to execute
-            inventory: Ansible inventory string
+            hosts: Host(s) to target (instance name from inventory)
             connection: Connection type
+            password: Optional password for sudo operations
 
         Returns:
             Tuple of (return_code, stdout, stderr)
         """
+        inventory_service = await get_inventory_service()
+        
         if password == None:
             cmd = [
-                "ansible-playbook", "-i", inventory,
+                "ansible-playbook", "-i", inventory_service.inventory_path.as_posix(),
                 "--connection", connection,
                 "volttron.deployment.ad_hoc",
                 "-e", f"command='{command}'"
@@ -178,10 +230,16 @@ class AnsibleService:
         else:
             cmd = [
                 "sshpass","-p", password, 
-                "ansible-playbook","-k", "-i", inventory,
+                "ansible-playbook","-k", "-i", inventory_service.inventory_path.as_posix(),
                 "--connection", connection,
                 "volttron.deployment.ad_hoc","-e", f"command='{command}'", "--extra-vars", f'ansible_become_pass="{password}"'
             ]
+        
+        # Add limit for specific hosts
+        if hosts:
+            limit_args = ["--limit", ",".join(hosts) if isinstance(hosts, list) else hosts]
+            cmd.extend(limit_args)
+            
         logger.debug(f"{cmd}")
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -195,12 +253,121 @@ class AnsibleService:
             stdout.decode() if stdout else "",
             stderr.decode() if stderr else ""
         )
+
+    async def _check_volttron_running(self, instance_name: str, host: 'HostEntry') -> bool:
+        """Check if VOLTTRON is running by looking for the process directly via SSH.
+
+        Args:
+            instance_name: The instance name from inventory
+            host: HostEntry object with connection details
+
+        Returns:
+            True if VOLTTRON process is running, False otherwise
+        """
+        try:
+            # Use pgrep to check for volttron process via direct SSH (faster than Ansible)
+            # Look for 'volttron -' which matches the main volttron daemon (e.g., 'volttron -vv')
+            cmd = "pgrep -f 'volttron -' > /dev/null 2>&1 && echo RUNNING || echo STOPPED"
+
+            return_code, stdout, stderr = await self.run_ssh_command(host, cmd, timeout=10)
+
+            # Direct SSH output - just check for RUNNING/STOPPED
+            is_running = "RUNNING" in stdout and "STOPPED" not in stdout
+            logger.debug(f"Process check for {instance_name}: stdout='{stdout.strip()}' -> {'running' if is_running else 'stopped'}")
+            return is_running
+        except Exception as e:
+            logger.error(f"Error checking VOLTTRON process for {instance_name}: {e}")
+            return False
+
+    async def get_runtime_status(self, instance_name: str, host: 'HostEntry') -> tuple[bool, dict]:
+        """Get the actual runtime status of a VOLTTRON instance
+
+        Args:
+            instance_name: The instance name from inventory
+            host: HostEntry object with connection details
+
+        Returns:
+            Tuple of (is_running: bool, agent_status: dict)
+        """
+        try:
+            # Build the vctl status command
+            venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+            volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+
+            # Command to activate venv and run vctl --json status (using . instead of source for POSIX compatibility)
+            cmd = f"export VOLTTRON_HOME={volttron_home} && . {venv_path}/bin/activate && vctl --json status"
+
+            # Execute via ad-hoc command
+            return_code, stdout, stderr = await self.run_volttron_ad_hoc(
+                command=cmd,
+                hosts=instance_name,
+                connection=host.ansible_connection
+            )
+
+            if return_code != 0:
+                logger.warning(f"vctl status failed for {instance_name}: {stderr}")
+                logger.debug(f"vctl status stdout: {stdout}")
+                # Fallback: check if VOLTTRON process is running via PID file
+                is_running = await self._check_volttron_running(instance_name, host)
+                return is_running, {}
+            
+            # Parse JSON output from vctl status
+            import json
+            try:
+                # Extract JSON from ansible output
+                # The output will be in the stdout, look for JSON-like structure
+                lines = stdout.split('\n')
+                json_data = None
+                
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith('{') or line.startswith('['):
+                        try:
+                            json_data = json.loads(line)
+                            break
+                        except json.JSONDecodeError:
+                            continue
+                
+                if json_data is None:
+                    logger.warning(f"Could not parse vctl status output for {instance_name}")
+                    return False, {}
+                
+                # vctl status --json returns a dict with agent identities as keys
+                # Each agent has status info like "running", "stopped", etc.
+                agent_status = {}
+                if isinstance(json_data, dict):
+                    for agent_id, agent_info in json_data.items():
+                        if isinstance(agent_info, dict):
+                            # Check if agent has a running status
+                            agent_running = agent_info.get('running', False) or agent_info.get('status', '').lower() == 'running'
+                            agent_status[agent_id] = {
+                                'identity': agent_id,
+                                'state': 'started' if agent_running else 'stopped'
+                            }
+
+                # Platform is running only if we have agents with status info
+                # Don't rely on "SUCCESS" in stdout - that's just Ansible success
+                is_running = len(agent_status) > 0
+
+                # If no agents found from vctl, fall back to PID check
+                if not is_running:
+                    is_running = await self._check_volttron_running(instance_name, host)
+
+                return is_running, agent_status
+                
+            except Exception as e:
+                logger.error(f"Error parsing vctl status output: {e}")
+                return False, {}
+                
+        except Exception as e:
+            logger.error(f"Error getting runtime status for {instance_name}: {e}")
+            return False, {}
     
     async def get_platform_status(self, platform_id: str) -> PlatformDeploymentStatus:
         """Get the status of a platform
 
         Args:
-            platform_id: ID of the platform
+            platform_id: ID of the platform (instance_name)
 
         Returns:
             PlatformDeploymentStatus object
@@ -208,33 +375,105 @@ class AnsibleService:
         inventory_service = await get_inventory_service()
         platform_service = await get_platform_service()
         platform = await platform_service.get_platform(platform_id)
+        
+        if platform is None:
+            logger.error(f"Platform {platform_id} not found")
+            raise Exception(f"Platform {platform_id} not found")
 
-        host = await inventory_service.get_host(platform.host_id)
+        # Get all hosts and access by instance name (which is the inventory key)
+        all_hosts = await inventory_service.get_hosts()
+        if platform.config.instance_name not in all_hosts:
+            logger.error(f"Host entry for {platform.config.instance_name} not found in inventory")
+            raise Exception(f"Host entry for {platform.config.instance_name} not found in inventory")
+            
+        host = all_hosts[platform.config.instance_name]
 
         logger.debug(f"Host: {host}")
 
-        # TODO need to verify the sshpassword is installed.
-        verify_keys = await self.verify_host_keys(host=host.id,
+        # Use the instance name as the host identifier for Ansible
+        verify_keys = await self.verify_host_keys(host=platform.config.instance_name,
                                                    user=host.ansible_user,
                                                    port=host.ansible_port)
         
 
         logger.debug(f"Verify keys: {verify_keys}")
         logger.debug(f"Getting status for platform {platform_id}")
-        if platform is None:
-            logger.error(f"Platform {platform_id} not found")
-        
         logger.debug(f"Platform {platform_id} found: {platform}")
         
-
-        #await self.verify_host_keys
+        keys_verified, _ = verify_keys
         
-        # return_code, stdout, stderr = await self.run_module("volttron.deployment.get_platform_status", platform_id)
-        # if return_code != 0:
-        #     raise Exception(f"Error getting platform status: {stderr}")
+        # Get actual runtime status
+        is_running, agent_statuses = await self.get_runtime_status(
+            platform.config.instance_name, 
+            host
+        )
         
-        # return PlatformDeploymentStatus.model_validate(json.loads(stdout))
+        # Convert agent statuses to AgentStatus objects
+        from ..models import AgentStatus
+        agents = {
+            agent_id: AgentStatus(**status) 
+            for agent_id, status in agent_statuses.items()
+        }
+        
+        return PlatformDeploymentStatus(
+            platform_id=platform_id,
+            host_configured=True,
+            keys_verified=keys_verified,
+            state="running" if is_running else "deployed",
+            agents=agents
+        )
     
+    async def check_host_connection(self, instance_name: str) -> tuple[bool, str, str]:
+        """Quick connection check using Ansible ping module
+        
+        Args:
+            instance_name: The instance name (inventory key) to check
+            
+        Returns:
+            Tuple of (is_connected: bool, connection_method: str, error_message: str)
+        """
+        try:
+            inventory_service = await get_inventory_service()
+            all_hosts = await inventory_service.get_hosts()
+            
+            if instance_name not in all_hosts:
+                return False, "", f"Host {instance_name} not found in inventory"
+            
+            host = all_hosts[instance_name]
+            
+            # Use ansible ad-hoc ping command for lightweight connection check
+            cmd = [
+                "ansible",
+                instance_name,
+                "-i", inventory_service.inventory_path.as_posix(),
+                "-m", "ping"
+            ]
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            stdout_str = stdout.decode() if stdout else ""
+            stderr_str = stderr.decode() if stderr else ""
+            
+            if process.returncode == 0 and "SUCCESS" in stdout_str:
+                # Determine connection method from host config
+                conn_type = host.ansible_connection or "ssh"
+                auth_method = "key authentication" if not getattr(host, 'ansible_password', None) else "password"
+                connection_method = f"{conn_type.upper()} with {auth_method}"
+                return True, connection_method, ""
+            else:
+                error_msg = stderr_str or stdout_str or "Connection check failed"
+                # Only log errors, not successful checks
+                logger.warning(f"Connection check failed for {instance_name}: {error_msg}")
+                return False, "", error_msg
+                
+        except Exception as e:
+            logger.error(f"Error in check_host_connection: {e}")
+            return False, "", str(e)
 
 
     async def verify_host_keys(self, host: str, user: str, port: int = 22, password: str = None) -> tuple[bool, str]:
@@ -273,7 +512,7 @@ class AnsibleService:
                 return False, "No matching hosts found"
             elif return_code != 0 or "UNREACHABLE" in stdout:
                 return False, f"Host unreachable or verification failed: {stderr or stdout}"
-            elif "changed=1" in stdout or "ok=1" in stdout:
+            elif "failed=0" in stdout and ("ok=" in stdout or "changed=" in stdout):
                 return True, "Host key verification successful"
             else:
                 return False, "Unexpected playbook output"
