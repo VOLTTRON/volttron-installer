@@ -16,3 +16,5 @@ install-deps = { cmd = "pip uninstall -y reflex pydantic sqlmodel; pip install '
 run = "reflex run"
 dev = { cmd = "reflex run", depends-on = ["install-deps"] }
 test = { cmd = "pytest tests/", depends-on = ["install-deps"] }
+prod = { cmd = "reflex run --env prod", depends-on = ["install-deps"] }
+build = { cmd = "reflex export", depends-on = ["install-deps"] }
