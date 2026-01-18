@@ -1219,7 +1219,7 @@ class PlatformPageState(rx.State):
                 yield rx.toast.success("Platform started successfully!")
 
             # Background refresh to confirm (don't block UI)
-            yield State.refresh_platform_status()
+            yield PlatformPageState.refresh_platform_status()
 
         except ApiError as e:
             async with self:
@@ -1262,7 +1262,7 @@ class PlatformPageState(rx.State):
             yield rx.toast.success("Platform stopped successfully!")
 
             # Background refresh to confirm (don't block UI)
-            yield State.refresh_platform_status()
+            yield PlatformPageState.refresh_platform_status()
 
         except ApiError as e:
             async with self:
@@ -1518,7 +1518,7 @@ class PlatformPageState(rx.State):
         try:
             await start_agent(working_platform.platform.config.instance_name, agent_id)
             yield rx.toast.success(f"Agent {agent_id} started successfully!")
-            yield State.refresh_platform_status()
+            yield PlatformPageState.refresh_platform_status()
         except ApiError as e:
             yield rx.toast.error(f"Failed to start agent: {e.detail}")
         except Exception as e:
@@ -1537,7 +1537,7 @@ class PlatformPageState(rx.State):
         try:
             await stop_agent(working_platform.platform.config.instance_name, agent_id)
             yield rx.toast.success(f"Agent {agent_id} stopped successfully!")
-            yield State.refresh_platform_status()
+            yield PlatformPageState.refresh_platform_status()
         except ApiError as e:
             yield rx.toast.error(f"Failed to stop agent: {e.detail}")
         except Exception as e:
