@@ -126,6 +126,7 @@ git checkout develop
 cd ~/WORK/VOLTTRON
 git clone -b develop https://github.com/riley206-pnnl/eclipse-bacnet-scan-tool.git
 git clone -b bus_adapter_changes https://github.com/riley206-pnnl/lib-protocol-proxy-fixed.git
+git clone -b merge_of_rileys_code_and_latest_changes https://github.com/riley206-pnnl/lib-protocol-proxy-bacnet-fixed.git
 ```
 
 > **Note**: These steps are critical. The installer expects these folders to exist at `../[package-name]`.
