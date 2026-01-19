@@ -383,6 +383,17 @@ async def stop_platform(platform_id: str):
         timeout=30.0
     )
 
+
+async def detect_existing_volttron(ssh_host: str, ssh_user: str, ssh_port: str = "22") -> dict:
+    """Detect an existing VOLTTRON installation on a remote machine"""
+    response = await post_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/detect_existing_volttron",
+        params={"ssh_host": ssh_host, "ssh_user": ssh_user, "ssh_port": ssh_port},
+        timeout=30.0
+    )
+    return response.json()
+
+
 async def get_platform_logs(platform_id: str, lines: int = 100):
     """Fetch VOLTTRON log contents from remote platform"""
     response = await get_request(
@@ -413,6 +424,51 @@ async def stop_agent(platform_id: str, agent_id: str):
         f"{API_BASE_URL}{ANSIBLE_PREFIX}/stop_agent/{platform_id}/{agent_id}",
         timeout=30.0
     )
+
+
+async def install_agent(
+    platform_id: str,
+    agent_identity: str,
+    agent_source: str,
+    start_agent: bool = True,
+    agent_config: str = None
+):
+    """Install an agent on a running VOLTTRON platform.
+
+    Args:
+        platform_id: The platform instance name
+        agent_identity: The VIP identity for the agent
+        agent_source: The pip package name (e.g., 'volttron-listener')
+        start_agent: Whether to start the agent after installation
+        agent_config: Optional path to agent config file on remote system
+    """
+    params = {
+        "agent_identity": agent_identity,
+        "agent_source": agent_source,
+        "start_agent": start_agent,
+    }
+    if agent_config:
+        params["agent_config"] = agent_config
+
+    return await post_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/install_agent/{platform_id}",
+        params=params,
+        timeout=120.0  # Agent installation can take a while
+    )
+
+
+async def remove_agent(platform_id: str, agent_identity: str):
+    """Remove/uninstall an agent from a running VOLTTRON platform.
+
+    Args:
+        platform_id: The platform instance name
+        agent_identity: The VIP identity of the agent to remove
+    """
+    return await post_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/remove_agent/{platform_id}/{agent_identity}",
+        timeout=30.0
+    )
+
 
 async def create_agent(platform_id: str, agent: CreateAgentRequest):
     await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents", data=agent.model_dump())

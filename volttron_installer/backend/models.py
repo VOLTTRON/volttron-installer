@@ -154,7 +154,7 @@ class AgentCatalog(BaseModel):
             },
             default_config_store={},
             config_store_allowed=False,
-            source="examples/ListenerAgent"
+            source="volttron-listener"
         ),
         "platform.driver": AgentType(
             identity="platform.driver",
@@ -211,7 +211,7 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
                         "unit": "fake_device"
                     }""")
             },
-            source="services/core/PlatformDriverAgent"
+            source="volttron-platform-driver"
         ),
         # Services/core agents
         # From this agent onward, im not entirely sure that any of these agents have 
@@ -225,7 +225,7 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             },
             default_config_store={},
             config_store_allowed=True,
-            source="services/core/PlatformActuator"
+            source="volttron-platform-actuator"
         ),
         "platform.bacnet_proxy": AgentType(
             identity="platform.bacnet_proxy",
@@ -239,7 +239,7 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             },
             default_config_store={},
             config_store_allowed=True,
-            source="services/core/BACnetProxyAgent"
+            source="volttron-bacnet-proxy"
         ),
         "data.mover": AgentType(
             identity="data.mover",
@@ -250,7 +250,7 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             },
             default_config_store={},
             config_store_allowed=True,
-            source="services/core/DataMover"
+            source="volttron-data-mover"
         ),
         "dnp3-outstation-agent": AgentType(
             identity="dnp3_outstation_agent",
@@ -262,7 +262,7 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             },
             default_config_store={},
             config_store_allowed=True,
-            source="services/core/DNP3OutstationAgent"
+            source="volttron-dnp3-outstation"
         ),
         "forward.historian": AgentType(
             identity="forward.historian",
@@ -272,7 +272,7 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             },
             default_config_store={},
             config_store_allowed=True,
-            source="services/core/ForwardHistorian"
+            source="volttron-forward-historian"
         ),
         # TODO: Agent type doesn't yet have the functionality to accept yaml configs as default configs. CSV Data table cant quite yet parse
         # these big csv fields; we need to create a "special field" within config store entry so we can check if we need every single field filled out. 
@@ -724,6 +724,7 @@ class PlatformConfig(BaseModel):
     instance_name: str = "volttron1"
     vip_address: str = "tcp://127.0.0.1:22916"
     message_bus: Literal["zmq"] = "zmq"
+    volttron_type: Literal["modular", "monolithic"] = "modular"
     options: list[KeyValuePair] = []
     # TODO make this actually do something when we have all parts of the federation functionality
     # completed

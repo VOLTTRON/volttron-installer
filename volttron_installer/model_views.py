@@ -160,7 +160,8 @@ class PlatformConfigModelView(rx.Base):
     instance_name: str = "volttron1"
     vip_address: str = "tcp://127.0.0.1:22916"
     message_bus: Literal["zmq"] = "zmq"
-    # options: list[KeyValuePair] = []
+    volttron_type: Literal["modular", "monolithic"] = "modular"
+    options: list = []
     # TODO make this functional when federation stuff gets hydrated
     # enable_federation: bool = False
 
@@ -169,6 +170,7 @@ class PlatformConfigModelView(rx.Base):
             "instance_name" : self.instance_name,
             "vip_address" : self.vip_address,
             "message_bus" : self.message_bus,
+            "volttron_type" : self.volttron_type,
             "options" : []
             # enable_federation: self.enable_federation
         }

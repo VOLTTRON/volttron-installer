@@ -200,6 +200,7 @@ async def __agents_off_catalog__() -> list[AgentModelView]:
         agent_list.append(
             AgentModelView(
                 identity=str(identity),
+                routing_id=str(identity),
                 source=agent.source,
                 safe_agent={
                     "identity" : identity,
@@ -382,6 +383,27 @@ class PlatformPageState(rx.State):
     _delete_confirmed: bool = False
     _deleting_platform: bool = False
 
+    # Create platform dialog (Deploy New vs Connect Existing)
+    _show_create_platform_dialog: bool = False
+    _connect_existing_mode: bool = False  # True when in "connect to existing" flow
+    _detecting_volttron: bool = False  # True while detecting existing VOLTTRON
+    _detected_volttron_home: str = ""
+    _detected_volttron_venv: str = ""
+    _detected_volttron_running: bool = False
+    _connect_ssh_host: str = ""
+    _connect_ssh_user: str = ""
+    _connect_ssh_port: str = "22"
+
+    # Install agent dialog
+    _show_install_agent_dialog: bool = False
+    _install_agent_mode: str = "catalog"  # "catalog" or "manual"
+    _install_agent_identity: str = ""
+    _install_agent_source: str = ""
+    _install_agent_start: bool = True
+    _installing_agent: bool = False
+    _removing_agent: bool = False
+    _selected_catalog_agent: str = ""  # identity of selected agent from catalog
+
     # Vars
     @rx.var(cache=True)
     def current_uid(self) -> str:
@@ -432,7 +454,7 @@ class PlatformPageState(rx.State):
             return False
         working_platform: Instance | None = self.platforms.get(self.current_uid, None)
         if working_platform is None:
-            return ""
+            return False
         return working_platform.deployed
 
     # === end of platform detail vars ===
@@ -597,14 +619,23 @@ class PlatformPageState(rx.State):
     
     @rx.var
     def status_loading(self) -> bool:
-        return self._status_loading
-    
+        # Show loading state if explicitly loading OR if deployed platform hasn't been checked yet
+        if self._status_loading:
+            return True
+        # If platform is deployed but no status check has been done, show as loading
+        if self.platform_deployed and not self._last_status_check and not self._platform_status:
+            return True
+        return False
+
     @rx.var
     def status_error(self) -> str:
         return self._status_error
-    
+
     @rx.var
     def platform_state(self) -> str:
+        # If platform is deployed but no check has been done, show as checking
+        if self.platform_deployed and not self._last_status_check and not self._platform_status:
+            return "checking"
         return self._platform_status.get("state", "unknown")
     
     @rx.var
@@ -632,6 +663,9 @@ class PlatformPageState(rx.State):
     # Connection status computed vars
     @rx.var
     def connection_status(self) -> str:
+        # If platform is deployed but no connection check has been done, show as checking
+        if self.platform_deployed and not self._last_connection_check and self._connection_status == "unknown":
+            return "checking"
         return self._connection_status
     
     @rx.var
@@ -713,6 +747,84 @@ class PlatformPageState(rx.State):
     @rx.var
     def deleting_platform(self) -> bool:
         return self._deleting_platform
+
+    # Create platform dialog computed vars
+    @rx.var
+    def show_create_platform_dialog(self) -> bool:
+        return self._show_create_platform_dialog
+
+    @rx.var
+    def connect_existing_mode(self) -> bool:
+        return self._connect_existing_mode
+
+    @rx.var
+    def detecting_volttron(self) -> bool:
+        return self._detecting_volttron
+
+    @rx.var
+    def detected_volttron_home(self) -> str:
+        return self._detected_volttron_home
+
+    @rx.var
+    def detected_volttron_venv(self) -> str:
+        return self._detected_volttron_venv
+
+    @rx.var
+    def detected_volttron_running(self) -> bool:
+        return self._detected_volttron_running
+
+    @rx.var
+    def connect_ssh_host(self) -> str:
+        return self._connect_ssh_host
+
+    @rx.var
+    def connect_ssh_user(self) -> str:
+        return self._connect_ssh_user
+
+    @rx.var
+    def connect_ssh_port(self) -> str:
+        return self._connect_ssh_port
+
+    # Install agent dialog computed vars
+    @rx.var
+    def show_install_agent_dialog(self) -> bool:
+        return self._show_install_agent_dialog
+
+    @rx.var
+    def install_agent_mode(self) -> str:
+        return self._install_agent_mode
+
+    @rx.var
+    def selected_catalog_agent(self) -> str:
+        return self._selected_catalog_agent
+
+    @rx.var
+    def install_agent_identity(self) -> str:
+        return self._install_agent_identity
+
+    @rx.var
+    def install_agent_source(self) -> str:
+        return self._install_agent_source
+
+    @rx.var
+    def install_agent_start(self) -> bool:
+        return self._install_agent_start
+
+    @rx.var
+    def installing_agent(self) -> bool:
+        return self._installing_agent
+
+    @rx.var
+    def removing_agent(self) -> bool:
+        return self._removing_agent
+
+    @rx.var
+    def can_install_agent(self) -> bool:
+        """Check if agent can be installed (identity and source are provided)."""
+        if self._install_agent_mode == "catalog":
+            return bool(self._selected_catalog_agent)
+        else:
+            return bool(self._install_agent_identity.strip() and self._install_agent_source.strip())
 
     # Events
     @rx.event
@@ -943,17 +1055,179 @@ class PlatformPageState(rx.State):
 
     @rx.event
     async def generate_new_platform(self):
+        """Create a new platform from scratch (deploy new)"""
         new_uid = self.generate_unique_uid()
         new_host = HostEntryModelView(id="", ansible_user="", ansible_host="")
         new_platform = PlatformModelView(config=PlatformConfigModelView(), in_file=False)
         new_platform.safe_platform = new_platform.to_dict()
         self.platforms[new_uid] = Instance(
-                host=new_host, 
+                host=new_host,
                 platform=new_platform,
                 safe_host_entry=new_host.to_dict()
             )
-
+        # Close the dialog if it's open
+        self._show_create_platform_dialog = False
+        self._connect_existing_mode = False
         yield NavigationState.route_to_platform(new_uid)
+
+    # Create platform dialog handlers
+    @rx.event
+    def show_create_platform_options(self):
+        """Show the create platform dialog with Deploy New / Connect Existing options"""
+        self._show_create_platform_dialog = True
+        self._connect_existing_mode = False
+        self._detecting_volttron = False
+        self._detected_volttron_home = ""
+        self._detected_volttron_venv = ""
+        self._detected_volttron_running = False
+        self._connect_ssh_host = ""
+        self._connect_ssh_user = ""
+        self._connect_ssh_port = "22"
+
+    @rx.event
+    def close_create_platform_dialog(self):
+        """Close the create platform dialog"""
+        self._show_create_platform_dialog = False
+        self._connect_existing_mode = False
+
+    @rx.event
+    def switch_to_connect_existing(self):
+        """Switch to the 'Connect to Existing' flow"""
+        self._connect_existing_mode = True
+
+    @rx.event
+    def switch_to_deploy_new(self):
+        """Switch back to mode selection"""
+        self._connect_existing_mode = False
+
+    @rx.event
+    def set_connect_ssh_host(self, value: str):
+        self._connect_ssh_host = value
+
+    @rx.event
+    def set_connect_ssh_user(self, value: str):
+        self._connect_ssh_user = value
+
+    @rx.event
+    def set_connect_ssh_port(self, value: str):
+        self._connect_ssh_port = value
+
+    @rx.event(background=True)
+    async def detect_existing_volttron(self):
+        """Detect existing VOLTTRON installation on remote machine"""
+        async with self:
+            if not self._connect_ssh_host or not self._connect_ssh_user:
+                yield rx.toast.error("Please enter SSH host and user")
+                return
+
+            self._detecting_volttron = True
+            ssh_host = self._connect_ssh_host
+            ssh_user = self._connect_ssh_user
+            ssh_port = self._connect_ssh_port or "22"
+
+        yield
+
+        try:
+            result = await detect_existing_volttron(ssh_host, ssh_user, ssh_port)
+
+            async with self:
+                self._detecting_volttron = False
+                self._detected_volttron_home = result.get("volttron_home", "~/.volttron")
+                self._detected_volttron_venv = result.get("volttron_venv", "~/volttron.venv")
+                self._detected_volttron_running = result.get("is_running", False)
+
+            if result.get("is_running"):
+                yield rx.toast.success("Found running VOLTTRON instance!")
+            elif result.get("volttron_found"):
+                yield rx.toast.info("Found VOLTTRON installation (not currently running)")
+            else:
+                yield rx.toast.warning("Could not detect VOLTTRON - using default paths")
+
+        except ApiError as e:
+            async with self:
+                self._detecting_volttron = False
+            yield rx.toast.error(f"Detection failed: {e.detail}")
+        except Exception as e:
+            async with self:
+                self._detecting_volttron = False
+            yield rx.toast.error(f"Error: {str(e)}")
+
+    @rx.event
+    async def connect_to_existing_platform(self):
+        """Create a platform entry for an existing VOLTTRON installation"""
+        if not self._connect_ssh_host or not self._connect_ssh_user:
+            yield rx.toast.error("Please enter SSH host and user")
+            return
+
+        # Use the SSH host as the instance name for clarity
+        # Replace dots with hyphens to pass validation (e.g., 192.168.1.248 -> 192-168-1-248)
+        instance_name = self._connect_ssh_host.replace(".", "-")
+
+        # Use detected paths or defaults
+        volttron_home = self._detected_volttron_home or "~/.volttron"
+        volttron_venv = self._detected_volttron_venv or "~/volttron.venv"
+
+        # Create host entry with SSH details
+        new_host = HostEntryModelView(
+            id=self._connect_ssh_host,
+            ansible_user=self._connect_ssh_user,
+            ansible_host=self._connect_ssh_host,
+            ansible_port=self._connect_ssh_port or "22",
+            volttron_home=volttron_home,
+            volttron_venv=volttron_venv
+        )
+
+        # Create platform - mark as deployed since it already exists
+        # in_file=True enables Status and Logs tabs
+        new_platform = PlatformModelView(
+            config=PlatformConfigModelView(instance_name=instance_name),
+            in_file=True
+        )
+        new_platform.safe_platform = new_platform.to_dict()
+
+        instance = Instance(
+            host=new_host,
+            platform=new_platform,
+            safe_host_entry=new_host.to_dict(),
+            new_instance=False,  # Not a new instance - already exists
+            deployed=True,  # Mark as already deployed
+        )
+
+        # Save to backend so Status tab can fetch platform info
+        try:
+            # Save the host entry
+            host_request = new_host.to_dict()
+            host_request["ansible_port"] = int(host_request["ansible_port"])
+            host_request["instance_name"] = instance_name
+            await add_host(CreateOrUpdateHostEntryRequest(**host_request))
+
+            # Save the platform
+            platform_request = CreatePlatformRequest(
+                host_id=new_host.id,
+                config=PlatformConfig(
+                    instance_name=instance_name,
+                    vip_address="tcp://127.0.0.1:22916"  # Default VIP
+                ),
+                agents={}
+            )
+            await create_platform(platform_request)
+        except Exception as e:
+            logger.error(f"Error saving platform to backend: {e}")
+            yield rx.toast.error(f"Error saving platform: {e}")
+            return
+
+        self.platforms[instance_name] = instance
+
+        # Close dialog and navigate
+        self._show_create_platform_dialog = False
+        self._connect_existing_mode = False
+
+        # Set loading states before navigating so UI shows "Checking..." immediately
+        self._status_loading = True
+        self._connection_status = "checking"
+
+        yield NavigationState.route_to_platform(instance_name)
+        yield rx.toast.success("Connected to existing VOLTTRON instance!")
 
     @rx.event
     def copy_platform(self, instance_name: str):
@@ -1104,8 +1378,10 @@ class PlatformPageState(rx.State):
                 "keys_verified": False,
                 "agents": {}
             }
+            self._status_loading = False
             return
 
+        # Set loading state FIRST so UI shows "Checking..." immediately
         self._status_loading = True
         self._status_error = ""
 
@@ -1531,9 +1807,9 @@ class PlatformPageState(rx.State):
             if not self.current_uid or self.current_uid not in self.platforms:
                 yield rx.toast.error("Platform not found")
                 return
-                
+
             working_platform: Instance = self.working_platform
-            
+
         try:
             await stop_agent(working_platform.platform.config.instance_name, agent_id)
             yield rx.toast.success(f"Agent {agent_id} stopped successfully!")
@@ -1542,6 +1818,144 @@ class PlatformPageState(rx.State):
             yield rx.toast.error(f"Failed to stop agent: {e.detail}")
         except Exception as e:
             yield rx.toast.error(f"Error stopping agent: {str(e)}")
+
+    # Install agent dialog handlers
+    @rx.event
+    def open_install_agent_dialog(self):
+        """Open the install agent dialog"""
+        self._show_install_agent_dialog = True
+        self._install_agent_mode = "catalog"
+        self._install_agent_identity = ""
+        self._install_agent_source = ""
+        self._install_agent_start = True
+        self._selected_catalog_agent = ""
+
+    @rx.event
+    def close_install_agent_dialog(self):
+        """Close the install agent dialog"""
+        self._show_install_agent_dialog = False
+
+    @rx.event
+    def set_install_agent_mode(self, mode: str):
+        """Switch between catalog and manual mode"""
+        self._install_agent_mode = mode
+        # Clear selections when switching modes
+        self._selected_catalog_agent = ""
+        self._install_agent_identity = ""
+        self._install_agent_source = ""
+
+    @rx.event
+    def select_catalog_agent(self, agent_identity: str):
+        """Select an agent from the catalog"""
+        logger.debug(f"Selecting catalog agent: {agent_identity}")
+        self._selected_catalog_agent = agent_identity
+
+    @rx.event
+    def set_install_agent_identity(self, value: str):
+        self._install_agent_identity = value
+
+    @rx.event
+    def set_install_agent_source(self, value: str):
+        self._install_agent_source = value
+
+    @rx.event
+    def set_install_agent_start(self, value: bool):
+        self._install_agent_start = value
+
+    @rx.event(background=True)
+    async def handle_install_agent(self):
+        """Install an agent on the running platform"""
+        async with self:
+            # Get agent details based on mode
+            if self._install_agent_mode == "catalog":
+                # Find the selected agent from the catalog
+                selected_agent = None
+                for agent in self.list_of_agents:
+                    if agent.identity == self._selected_catalog_agent:
+                        selected_agent = agent
+                        break
+
+                if not selected_agent:
+                    yield rx.toast.error("Please select an agent from the catalog")
+                    return
+
+                agent_identity = selected_agent.identity
+                agent_source = selected_agent.source
+            else:
+                # Manual mode
+                if not self._install_agent_identity or not self._install_agent_source:
+                    yield rx.toast.error("Please enter agent identity and source")
+                    return
+
+                agent_identity = self._install_agent_identity
+                agent_source = self._install_agent_source
+
+            if not self.current_uid or self.current_uid not in self.platforms:
+                yield rx.toast.error("Platform not found")
+                return
+
+            working_platform: Instance = self.working_platform
+            self._installing_agent = True
+
+        yield
+
+        try:
+            await install_agent(
+                platform_id=working_platform.platform.config.instance_name,
+                agent_identity=agent_identity,
+                agent_source=agent_source,
+                start_agent=self._install_agent_start
+            )
+
+            async with self:
+                self._installing_agent = False
+                self._show_install_agent_dialog = False
+
+            yield rx.toast.success(f"Agent {agent_identity} installed successfully!")
+            yield PlatformPageState.refresh_platform_status()
+
+        except ApiError as e:
+            async with self:
+                self._installing_agent = False
+            yield rx.toast.error(f"Failed to install agent: {e.detail}")
+        except Exception as e:
+            async with self:
+                self._installing_agent = False
+            yield rx.toast.error(f"Error installing agent: {str(e)}")
+
+    @rx.event(background=True)
+    async def handle_remove_agent(self, agent_identity: str):
+        """Remove/uninstall an agent from the running platform"""
+        async with self:
+            if not self.current_uid or self.current_uid not in self.platforms:
+                yield rx.toast.error("Platform not found")
+                return
+
+            working_platform: Instance = self.working_platform
+            self._removing_agent = True
+
+        yield
+
+        try:
+            await remove_agent(
+                platform_id=working_platform.platform.config.instance_name,
+                agent_identity=agent_identity
+            )
+
+            async with self:
+                self._removing_agent = False
+
+            yield rx.toast.success(f"Agent {agent_identity} removed successfully!")
+            yield PlatformPageState.refresh_platform_status()
+
+        except ApiError as e:
+            async with self:
+                self._removing_agent = False
+            yield rx.toast.error(f"Failed to remove agent: {e.detail}")
+        except Exception as e:
+            async with self:
+                self._removing_agent = False
+            yield rx.toast.error(f"Error removing agent: {str(e)}")
 
     @rx.event
     async def handle_save(self):

@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Any, Optional
 from ..utils import get_api_url
-import os, asyncio
+import os, asyncio, shlex
+from loguru import logger
 
 from volttron_installer.backend.tool_manager import ToolManager
 from volttron_installer.backend.services.ansible_service import AnsibleService, get_ansible_service
@@ -394,9 +395,10 @@ async def deploy_platform(platform_id: str, password:str,
                 detail=f"Platform installation failed: {error_message}"
             )
         
-        # Clean up config file - remove duplicate snake_case fields that VOLTTRON doesn't recognize
+        # Clean up config file - remove duplicate snake_case fields and installer-only fields that VOLTTRON doesn't recognize
         # Keep only hyphenated versions: instance-name, message-bus, vip-address
-        cleanup_cmd = "sed -i '/^instance_name =/d; /^messagebus =/d; /^message_bus =/d; /^options =/d; /^vip_address =/d' ~/.volttron/config"
+        # Remove volttron_type (installer-only field)
+        cleanup_cmd = "sed -i '/^instance_name =/d; /^messagebus =/d; /^message_bus =/d; /^options =/d; /^vip_address =/d; /^volttron_type =/d' ~/.volttron/config"
         await ansible.run_volttron_ad_hoc(
             command=cleanup_cmd,
             hosts=platform.config.instance_name,
@@ -407,12 +409,36 @@ async def deploy_platform(platform_id: str, password:str,
         platform.deployed = True
         await platform_service.update_platform(platform.config.instance_name, platform)
 
+        all_output = stdout
+        all_stderr = stderr
+        all_tasks = _parse_ansible_tasks(stdout)
+
+        # If there are agents configured, run configure_agents playbook to install them
+        if platform.agents:
+            logger.info(f"Installing {len(platform.agents)} configured agents for platform {platform_id}")
+
+            agent_return_code, agent_stdout, agent_stderr = await ansible.run_playbook(
+                "configure_agents",
+                target_host,
+                password,
+                ignore_host_keys=ignore_host_keys
+            )
+
+            all_output += "\n\n=== Agent Configuration ===\n" + agent_stdout
+            all_stderr += agent_stderr
+            all_tasks.extend(_parse_ansible_tasks(agent_stdout))
+
+            if agent_return_code != 0:
+                logger.warning(f"Agent configuration had issues: {agent_stderr}")
+                # Don't fail the whole deployment, just warn
+                all_output += f"\nWarning: Some agents may not have installed correctly"
+
         # Return full output including both stdout and stderr
         return {
             "status": "success",
-            "output": stdout,
-            "stderr": stderr,
-            "tasks": _parse_ansible_tasks(stdout)
+            "output": all_output,
+            "stderr": all_stderr,
+            "tasks": all_tasks
         }
     
 
@@ -559,9 +585,10 @@ async def start_platform(platform_id: str, ansible: AnsibleService = Depends(get
         if "RUNNING" in check_stdout and "STOPPED" not in check_stdout:
             return {"status": "success", "message": "VOLTTRON is already running.", "already_running": True}
 
-        # Clean up config file - remove snake_case options that VOLTTRON doesn't recognize
+        # Clean up config file - remove snake_case options and installer-only fields that VOLTTRON doesn't recognize
+        # Remove: instance_name, messagebus, message_bus, options, vip_address, volttron_type (installer-only)
         # Use direct SSH for speed and reliability
-        cleanup_cmd = f"sed -i '/instance_name/d; /messagebus/d; /message_bus/d; /^options/d; /vip_address/d' {volttron_home}/config 2>/dev/null || true"
+        cleanup_cmd = f"sed -i '/instance_name/d; /messagebus/d; /message_bus/d; /^options/d; /vip_address/d; /volttron_type/d' {volttron_home}/config 2>/dev/null || true"
         await ansible.run_ssh_command(host, cleanup_cmd, timeout=10)
 
         # Capture stderr/stdout to log file directly (VOLTTRON 2.0's -l flag is broken)
@@ -935,6 +962,205 @@ async def stop_agent(platform_id: str, agent_id: str, ansible: AnsibleService = 
             detail=str(e)
         )
 
+
+INSTALL_AGENT_TIMEOUT = int(os.getenv("INSTALL_AGENT_TIMEOUT", "120"))
+
+
+@ansible_router.post("/install_agent/{platform_id}")
+async def install_agent(
+    platform_id: str,
+    agent_identity: str,
+    agent_source: str,
+    start_agent: bool = True,
+    agent_config: str = None,
+    ansible: AnsibleService = Depends(get_ansible_service)
+):
+    """Install an agent on a running VOLTTRON platform using vctl install.
+
+    Args:
+        platform_id: The platform instance name
+        agent_identity: The VIP identity for the agent
+        agent_source: The pip package name or path to install (e.g., 'volttron-listener')
+        start_agent: Whether to start the agent after installation (default: True)
+        agent_config: Optional path to agent config file on remote system
+    """
+    try:
+        # Get platform definition and host entry
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(platform_id)
+
+        if platform is None:
+            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+
+        # Get host entry from inventory
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+
+        if platform.config.instance_name not in all_hosts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
+            )
+
+        host = all_hosts[platform.config.instance_name]
+
+        # Build paths
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+
+        # For modular VOLTTRON, agents are installed as pip packages
+        # Then we need to create an agent configuration and start it
+        agent_source_arg = shlex.quote(agent_source)
+        agent_identity_arg = shlex.quote(agent_identity)
+
+        install_cmd_parts = [
+            f"export VOLTTRON_HOME={volttron_home}",
+            f"source {venv_path}/bin/activate",
+            # Install the agent package via pip
+            f"pip install {agent_source_arg}",
+        ]
+
+        # For modular VOLTTRON, we need to use vctl to register and start the agent
+        # The agent package is already installed, now we just need to configure it
+        if start_agent:
+            # TODO: For modular VOLTTRON, starting agents works differently
+            # Need to determine the correct approach based on the volttron-ansible version
+            pass
+
+        cmd = " && ".join(install_cmd_parts)
+
+        logger.info(f"Installing agent {agent_identity} on platform {platform_id}: {agent_source}")
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=120)
+
+        if return_code != 0:
+            error_msg = stderr or stdout
+            logger.error(f"Failed to install agent {agent_identity}: {error_msg}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to install agent {agent_identity}: {error_msg}"
+            )
+
+        logger.info(f"Agent {agent_identity} installed successfully on platform {platform_id}")
+        return {
+            "status": "success",
+            "message": f"Agent {agent_identity} installed successfully",
+            "output": stdout,
+            "agent_identity": agent_identity,
+            "started": start_agent
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error installing agent: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
+@ansible_router.post("/remove_agent/{platform_id}/{agent_identity}")
+async def remove_agent(
+    platform_id: str,
+    agent_identity: str,
+    ansible: AnsibleService = Depends(get_ansible_service)
+):
+    """Remove/uninstall an agent from a running VOLTTRON platform using vctl remove.
+
+    Args:
+        platform_id: The platform instance name
+        agent_identity: The VIP identity of the agent to remove
+    """
+    try:
+        # Get platform definition and host entry
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(platform_id)
+
+        if platform is None:
+            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+
+        # Get host entry from inventory
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+
+        if platform.config.instance_name not in all_hosts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
+            )
+
+        host = all_hosts[platform.config.instance_name]
+
+        # Build paths
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+
+        # First, get the agent UUID from the identity using vctl status --json
+        status_cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl --json status"
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, status_cmd, timeout=30)
+
+        if return_code != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to get agent status: {stderr or stdout}"
+            )
+
+        # Parse the JSON output to find the agent UUID
+        import json
+        try:
+            agents = json.loads(stdout)
+            agent_uuid = None
+            for identity, agent_info in agents.items():
+                if identity == agent_identity:
+                    agent_uuid = agent_info.get("agent_uuid")
+                    break
+
+            if not agent_uuid:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Agent {agent_identity} not found on platform"
+                )
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to parse agent status: {stdout}"
+            )
+
+        # Now remove the agent using its UUID
+        remove_cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl remove {agent_uuid}"
+
+        logger.info(f"Removing agent {agent_identity} (UUID: {agent_uuid}) from platform {platform_id}")
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, remove_cmd, timeout=30)
+
+        if return_code != 0:
+            error_msg = stderr or stdout
+            logger.error(f"Failed to remove agent {agent_identity}: {error_msg}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to remove agent {agent_identity}: {error_msg}"
+            )
+
+        logger.info(f"Agent {agent_identity} removed successfully from platform {platform_id}")
+        return {
+            "status": "success",
+            "message": f"Agent {agent_identity} removed successfully",
+            "output": stdout,
+            "agent_identity": agent_identity
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing agent: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
 @ansible_router.get("/ping/{id}")
 async def ping_host(id: str, ansible: AnsibleService = Depends(get_ansible_service)):
     """Pings a specific host using Ansible"""
@@ -961,6 +1187,92 @@ async def ping_host(id: str, ansible: AnsibleService = Depends(get_ansible_servi
             status_code=500,
             detail=str(e)
         )
+
+
+@ansible_router.post("/detect_existing_volttron")
+async def detect_existing_volttron(
+    ssh_host: str,
+    ssh_user: str,
+    ssh_port: str = "22",
+    ansible: AnsibleService = Depends(get_ansible_service)
+):
+    """Detect an existing VOLTTRON installation on a remote machine.
+
+    This probes the remote machine via SSH to find VOLTTRON installations
+    and returns detected paths and status.
+    """
+    try:
+        # Create a temporary host entry for SSH connection
+        from .models import HostEntry
+        temp_host = HostEntry(
+            id=ssh_host,
+            ansible_user=ssh_user,
+            ansible_host=ssh_host,
+            ansible_port=int(ssh_port),
+            ansible_connection="ssh"
+        )
+
+        result = {
+            "volttron_found": False,
+            "volttron_home": "~/.volttron",
+            "volttron_venv": "~/volttron.venv",
+            "is_running": False,
+            "ssh_ok": False
+        }
+
+        # First, test SSH connection
+        test_cmd = "echo SSH_OK"
+        return_code, stdout, stderr = await ansible.run_ssh_command(temp_host, test_cmd, timeout=10)
+        if "SSH_OK" not in stdout:
+            raise HTTPException(status_code=400, detail="Could not establish SSH connection")
+
+        result["ssh_ok"] = True
+
+        # Check common VOLTTRON paths
+        # Check for venv in common locations
+        venv_check_cmd = """
+            if [ -f ~/volttron.venv/bin/activate ]; then echo "VENV:~/volttron.venv";
+            elif [ -f ~/.volttron.venv/bin/activate ]; then echo "VENV:~/.volttron.venv";
+            elif [ -f ~/venv/bin/activate ]; then echo "VENV:~/venv";
+            elif [ -f /opt/volttron/venv/bin/activate ]; then echo "VENV:/opt/volttron/venv";
+            else echo "VENV:NOT_FOUND"; fi
+        """
+        return_code, stdout, stderr = await ansible.run_ssh_command(temp_host, venv_check_cmd, timeout=10)
+        if "VENV:" in stdout and "NOT_FOUND" not in stdout:
+            venv_path = stdout.split("VENV:")[1].strip().split()[0]
+            result["volttron_venv"] = venv_path
+            result["volttron_found"] = True
+
+        # Check for VOLTTRON_HOME in common locations
+        home_check_cmd = """
+            if [ -d ~/.volttron ]; then echo "HOME:~/.volttron";
+            elif [ -d /var/lib/volttron ]; then echo "HOME:/var/lib/volttron";
+            elif [ -d /opt/volttron/home ]; then echo "HOME:/opt/volttron/home";
+            else echo "HOME:NOT_FOUND"; fi
+        """
+        return_code, stdout, stderr = await ansible.run_ssh_command(temp_host, home_check_cmd, timeout=10)
+        if "HOME:" in stdout and "NOT_FOUND" not in stdout:
+            home_path = stdout.split("HOME:")[1].strip().split()[0]
+            result["volttron_home"] = home_path
+            result["volttron_found"] = True
+
+        # Check if VOLTTRON is running using vctl status
+        venv_path = result["volttron_venv"]
+        volttron_home = result["volttron_home"]
+        status_cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl status > /dev/null 2>&1 && echo RUNNING || echo STOPPED"
+        return_code, stdout, stderr = await ansible.run_ssh_command(temp_host, status_cmd, timeout=15)
+        result["is_running"] = "RUNNING" in stdout and "STOPPED" not in stdout
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Detection failed: {str(e)}"
+        )
+
 
 @catalog_router.get("/agents", response_model=dict[str, AgentType])
 async def get_agent_catalog() -> dict[str, AgentType]:

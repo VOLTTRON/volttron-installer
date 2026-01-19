@@ -365,9 +365,9 @@ class AnsibleService:
 
                 logger.info(f"[DEBUG] Agent status dict: {agent_status}")
 
-                # Platform is running only if we have agents with status info
-                # Don't rely on "SUCCESS" in stdout - that's just Ansible success
-                is_running = len(agent_status) > 0
+                # If we successfully parsed vctl output, the platform is running
+                # (even if there are no agents installed yet)
+                is_running = True
                 logger.info(f"[DEBUG] is_running from agent_status: {is_running}")
 
                 # If no agents found from vctl, fall back to process check
