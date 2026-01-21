@@ -26,6 +26,7 @@ def create_platform_dialog() -> rx.Component:
                     "Create Platform"
                 )
             ),
+            ssh_setup_instructions(),
             rx.cond(
                 PlatformPageState.connect_existing_mode,
                 # Connect to Existing flow
@@ -36,6 +37,34 @@ def create_platform_dialog() -> rx.Component:
             max_width="500px",
         ),
         open=PlatformPageState.show_create_platform_dialog,
+    )
+
+
+def ssh_setup_instructions() -> rx.Component:
+    return rx.card(
+        rx.vstack(
+            rx.text("SSH setup (run locally before continuing)", weight="medium"),
+            rx.text(
+                "1) Create an SSH key if you do not have one:",
+                size="1",
+                color="gray",
+            ),
+            rx.code("ssh-keygen -t ed25519 -C \"volttron-installer\"", size="1"),
+            rx.text(
+                "2) Copy your public key to the remote host:",
+                size="1",
+                color="gray",
+            ),
+            rx.code("ssh-copy-id -p 22 <user>@<host>", size="1"),
+            rx.text(
+                "Replace <user> and <host> below.",
+                size="1",
+                color="gray",
+            ),
+            spacing="2",
+            align_items="start",
+        ),
+        width="100%",
     )
 
 

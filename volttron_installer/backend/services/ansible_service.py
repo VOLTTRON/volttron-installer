@@ -36,30 +36,49 @@ class AnsibleService:
             Tuple of (return_code, stdout, stderr)
         """
         try:
+            # For multi-line scripts, use bash -s to read from stdin
+            # This is more reliable than passing complex scripts as arguments
+            is_multiline = '\n' in command.strip()
+
             ssh_cmd = [
                 "ssh",
+                "-T",  # Disable pseudo-terminal allocation for proper stdin handling
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "LogLevel=ERROR",
                 "-o", "BatchMode=yes",
                 "-o", f"ConnectTimeout={timeout}",
                 "-p", str(host.ansible_port),
                 f"{host.ansible_user}@{host.ansible_host}",
-                command
             ]
 
-            logger.debug(f"Running SSH command: {' '.join(ssh_cmd)}")
+            if is_multiline:
+                # Use bash to read script from stdin
+                # Pass bash and -s as separate arguments for proper argument handling
+                ssh_cmd.extend(["bash", "-s"])
+                logger.debug(f"Running SSH command (script via stdin): {' '.join(ssh_cmd)}")
+            else:
+                ssh_cmd.append(command)
+                logger.debug(f"Running SSH command: {' '.join(ssh_cmd)}")
 
             process = await asyncio.create_subprocess_exec(
                 *ssh_cmd,
+                stdin=asyncio.subprocess.PIPE if is_multiline else None,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
 
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=timeout
-                )
+                if is_multiline:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(input=command.encode()),
+                        timeout=timeout
+                    )
+                else:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=timeout
+                    )
             except asyncio.TimeoutError:
                 process.kill()
                 return -1, "", "SSH command timed out"
@@ -298,6 +317,12 @@ class AnsibleService:
             Tuple of (is_running: bool, agent_status: dict)
         """
         try:
+            # First, do a quick check if platform is running (avoids noisy vctl failures when stopped)
+            is_running = await self._check_volttron_running(instance_name, host)
+            if not is_running:
+                logger.debug(f"Platform {instance_name} is not running, skipping vctl status")
+                return False, {}
+
             # Build the vctl status command
             venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
             volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
@@ -318,11 +343,8 @@ class AnsibleService:
             if return_code != 0:
                 logger.warning(f"vctl status failed for {instance_name}: {stderr}")
                 logger.debug(f"vctl status stdout: {stdout}")
-                # Fallback: check if VOLTTRON process is running
-                logger.info(f"[DEBUG] vctl failed, falling back to process check")
-                is_running = await self._check_volttron_running(instance_name, host)
-                logger.info(f"[DEBUG] Fallback process check result: {is_running}")
-                return is_running, {}
+                # Platform is running (we checked above) but vctl failed - return running with no agent info
+                return True, {}
             
             # Parse JSON output from vctl status
             import json
@@ -343,12 +365,10 @@ class AnsibleService:
                 
                 if json_data is None:
                     logger.warning(f"Could not parse vctl status output for {instance_name}")
-                    logger.info(f"[DEBUG] No JSON found, falling back to process check")
-                    # Fall back to vctl status check
-                    is_running = await self._check_volttron_running(instance_name, host)
-                    return is_running, {}
+                    # Platform is running (we checked above) but couldn't parse agent info
+                    return True, {}
 
-                logger.info(f"[DEBUG] Parsed JSON data: {json_data}")
+                logger.debug(f"Parsed JSON data: {json_data}")
 
                 # vctl status --json returns a dict with agent identities as keys
                 # Each agent has status info like "running", "stopped", etc.
@@ -363,30 +383,13 @@ class AnsibleService:
                                 'state': 'started' if agent_running else 'stopped'
                             }
 
-                logger.info(f"[DEBUG] Agent status dict: {agent_status}")
+                logger.debug(f"Agent status for {instance_name}: {agent_status}")
+                return True, agent_status
 
-                # If we successfully parsed vctl output, the platform is running
-                # (even if there are no agents installed yet)
-                is_running = True
-                logger.info(f"[DEBUG] is_running from agent_status: {is_running}")
-
-                # If no agents found from vctl, fall back to process check
-                if not is_running:
-                    logger.info(f"[DEBUG] No agents found, falling back to process check")
-                    is_running = await self._check_volttron_running(instance_name, host)
-                    logger.info(f"[DEBUG] Process check fallback result: {is_running}")
-
-                logger.info(f"[DEBUG] Final is_running value: {is_running}")
-                return is_running, agent_status
-                
             except Exception as e:
                 logger.error(f"Error parsing vctl status output: {e}")
-                # Fall back to vctl status check
-                try:
-                    is_running = await self._check_volttron_running(instance_name, host)
-                    return is_running, {}
-                except:
-                    return False, {}
+                # Platform is running (we checked above) but couldn't parse agent info
+                return True, {}
 
         except Exception as e:
             logger.error(f"Error getting runtime status for {instance_name}: {e}")

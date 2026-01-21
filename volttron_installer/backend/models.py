@@ -23,6 +23,7 @@ class HostEntry(BaseModel):
     https_proxy: str | None = None
     volttron_venv: str = "~/volttron.venv"
     volttron_home: str = "~/.volttron"
+    volttron_source: str = "~/volttron"  # Path to VOLTTRON source for monolithic installations
     host_configs_dir: str | None = None
     instance_name: str | None = None
     ignore_host_keys: bool = False
@@ -38,6 +39,7 @@ class HostEntry(BaseModel):
             "https_proxy": "" if self.https_proxy is None else self.https_proxy,
             "volttron_venv": "" if self.volttron_venv is None else self.volttron_venv,
             "volttron_home": self.volttron_home,
+            "volttron_source": self.volttron_source,
             "host_configs_dir": "" if self.host_configs_dir is None else self.host_configs_dir,
             "instance_name": "" if self.instance_name is None else self.instance_name,
         }
@@ -138,7 +140,8 @@ class AgentType(BaseModel):
     identity: str
     default_config: dict | str
     default_config_store: dict[str, ConfigStoreEntry]
-    source: str | None = None
+    source: str | None = None  # pip package name for modular VOLTTRON
+    monolithic_source: str | None = None  # relative path in VOLTTRON codebase for monolithic
     pypi_package: str | None = None
     config_store_allowed: bool = True
 
@@ -154,7 +157,8 @@ class AgentCatalog(BaseModel):
             },
             default_config_store={},
             config_store_allowed=False,
-            source="volttron-listener"
+            source="volttron-listener",
+            monolithic_source="examples/ListenerAgent"
         ),
         "platform.driver": AgentType(
             identity="platform.driver",
@@ -211,10 +215,11 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
                         "unit": "fake_device"
                     }""")
             },
-            source="volttron-platform-driver"
+            source="volttron-platform-driver",
+            monolithic_source="services/core/PlatformDriverAgent"
         ),
         # Services/core agents
-        # From this agent onward, im not entirely sure that any of these agents have 
+        # From this agent onward, im not entirely sure that any of these agents have
         # a config store/default config store agent
         "platform.actuator": AgentType(
             identity="platform.actuator",
@@ -225,7 +230,8 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             },
             default_config_store={},
             config_store_allowed=True,
-            source="volttron-platform-actuator"
+            source="volttron-platform-actuator",
+            monolithic_source="services/core/ActuatorAgent"
         ),
         "platform.bacnet_proxy": AgentType(
             identity="platform.bacnet_proxy",
@@ -239,7 +245,8 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             },
             default_config_store={},
             config_store_allowed=True,
-            source="volttron-bacnet-proxy"
+            source="volttron-bacnet-proxy",
+            monolithic_source="services/core/BACnetProxy"
         ),
         "data.mover": AgentType(
             identity="data.mover",
@@ -250,7 +257,8 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             },
             default_config_store={},
             config_store_allowed=True,
-            source="volttron-data-mover"
+            source="volttron-data-mover",
+            monolithic_source="services/core/DataMover"
         ),
         "dnp3-outstation-agent": AgentType(
             identity="dnp3_outstation_agent",
@@ -262,7 +270,8 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             },
             default_config_store={},
             config_store_allowed=True,
-            source="volttron-dnp3-outstation"
+            source="volttron-dnp3-outstation",
+            monolithic_source="services/core/DNP3OutstationAgent"
         ),
         "forward.historian": AgentType(
             identity="forward.historian",
@@ -272,7 +281,8 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
             },
             default_config_store={},
             config_store_allowed=True,
-            source="volttron-forward-historian"
+            source="volttron-forward-historian",
+            monolithic_source="services/core/ForwardHistorian"
         ),
         # TODO: Agent type doesn't yet have the functionality to accept yaml configs as default configs. CSV Data table cant quite yet parse
         # these big csv fields; we need to create a "special field" within config store entry so we can check if we need every single field filled out. 
@@ -725,6 +735,12 @@ class PlatformConfig(BaseModel):
     vip_address: str = "tcp://127.0.0.1:22916"
     message_bus: Literal["zmq"] = "zmq"
     volttron_type: Literal["modular", "monolithic"] = "modular"
+    # Version of volttron-core to install (e.g., "2.0.0rc20", "git+https://github.com/...")
+    # Empty string means latest from PyPI
+    volttron_version: str = ""
+    # Optional custom Python path (e.g., "~/.pyenv/versions/3.10.14/bin/python3")
+    # Empty string means auto-detect
+    custom_python_path: str = ""
     options: list[KeyValuePair] = []
     # TODO make this actually do something when we have all parts of the federation functionality
     # completed

@@ -364,23 +364,40 @@ async def create_platform(platform: CreatePlatformRequest):
     await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/", data=platform.model_dump())
 
 async def deploy_platform(platform_id: str, password: str):
-    return await request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/deploy/{platform_id}", "POST", timeout=40.0, params={"password":password})
+    # Long timeout for git installs which may need to clone and compile
+    return await request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/deploy/{platform_id}", "POST", timeout=600.0, params={"password":password})
+
+async def get_deploy_progress(platform_id: str):
+    """Fetch deployment progress for a platform."""
+    response = await get_request(
+        f"{API_BASE_URL}{PLATFORMS_PREFIX}/deploy_progress/{platform_id}",
+        timeout=5.0
+    )
+    return response.json()
+
+async def install_python310(platform_id: str):
+    """Install Python 3.10 via pyenv on the remote host and create the venv."""
+    return await post_request(
+        f"{API_BASE_URL}{PLATFORMS_PREFIX}/install_python310/{platform_id}",
+        timeout=900.0
+    )
 
 async def add_host(host: CreateOrUpdateHostEntryRequest):
     await post_request(f"{API_BASE_URL}{HOSTS_PREFIX}", data=host.model_dump())
 
 async def start_platform(platform_id: str):
     """Start a VOLTTRON platform"""
+    # Longer timeout: backend waits up to 90s for VOLTTRON to start, plus SSH overhead
     return await post_request(
         f"{API_BASE_URL}{ANSIBLE_PREFIX}/start_platform/{platform_id}",
-        timeout=30.0
+        timeout=180.0
     )
 
 async def stop_platform(platform_id: str):
     """Stop a VOLTTRON platform"""
     return await post_request(
         f"{API_BASE_URL}{ANSIBLE_PREFIX}/stop_platform/{platform_id}",
-        timeout=30.0
+        timeout=60.0
     )
 
 

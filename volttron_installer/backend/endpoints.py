@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Any, Optional
 from ..utils import get_api_url
-import os, asyncio, shlex
+import os, asyncio, shlex, re
 from loguru import logger
 
 from volttron_installer.backend.tool_manager import ToolManager
@@ -46,6 +46,50 @@ catalog_router = APIRouter(prefix="/catalog", tags=["catalog"])
 tool_management_router = APIRouter(prefix="/manage_tools", tags=["manage tools"])
 bacnet_scan_api_router = APIRouter(prefix=f"{TOOLS_PREFIX}/bacnet_scan_api", tags=["bacnet scan tool"])
 
+# Deployment progress tracking (in-memory)
+DEPLOY_PROGRESS: dict[str, dict] = {}
+
+
+def _init_deploy_progress(platform_id: str, total_steps: int | None = None) -> None:
+    DEPLOY_PROGRESS[platform_id] = {
+        "status": "running",
+        "current_task": "Starting deployment...",
+        "progress": 0,
+        "steps": [],
+        "logs": [],
+        "total_steps": total_steps,
+    }
+
+
+def _append_deploy_log(platform_id: str, message: str) -> None:
+    if platform_id not in DEPLOY_PROGRESS:
+        _init_deploy_progress(platform_id)
+    DEPLOY_PROGRESS[platform_id]["logs"].append(message)
+
+
+def _set_deploy_step(platform_id: str, step_name: str, status: str, progress: int | None = None) -> None:
+    if platform_id not in DEPLOY_PROGRESS:
+        _init_deploy_progress(platform_id)
+    steps = DEPLOY_PROGRESS[platform_id]["steps"]
+    for step in steps:
+        if step["name"] == step_name:
+            step["status"] = status
+            break
+    else:
+        steps.append({"name": step_name, "status": status})
+
+    DEPLOY_PROGRESS[platform_id]["current_task"] = step_name
+    if progress is not None:
+        DEPLOY_PROGRESS[platform_id]["progress"] = progress
+
+
+def _finalize_deploy_progress(platform_id: str, status: str) -> None:
+    if platform_id not in DEPLOY_PROGRESS:
+        _init_deploy_progress(platform_id)
+    DEPLOY_PROGRESS[platform_id]["status"] = status
+    if status == "success":
+        DEPLOY_PROGRESS[platform_id]["progress"] = 100
+
 @ansible_router.get("/hosts", response_model=list[HostEntry])
 async def get_hosts() -> list[HostEntry]:
     """Retrieves a list of `HostEntry` items"""
@@ -82,11 +126,15 @@ async def add_host(host_entry: CreateOrUpdateHostEntryRequest):
             ansible_user=host_entry.ansible_user,
             ansible_host=host_entry.ansible_host,
             ansible_port=host_entry.ansible_port,
+            ansible_connection=host_entry.ansible_connection,
             http_proxy=host_entry.http_proxy,
             https_proxy=host_entry.https_proxy,
             volttron_venv=host_entry.volttron_venv,
+            volttron_home=host_entry.volttron_home,
+            volttron_source=host_entry.volttron_source,
             host_configs_dir=host_entry.host_configs_dir,
-            instance_name=host_entry.instance_name
+            instance_name=host_entry.instance_name,
+            ignore_host_keys=host_entry.ignore_host_keys
         )
 
         inventory_service = await get_inventory_service()
@@ -348,101 +396,464 @@ async def task_status(id: str):
     # Get the status of the task
     return {"status": "ok"}
 
+
+async def _select_python_cmd_for_host(host: HostEntry, ansible: AnsibleService, custom_python_path: str = "") -> str:
+    """Select a supported Python command on the remote host (requires 3.10).
+    
+    Args:
+        host: Remote host entry
+        ansible: Ansible service for running SSH commands
+        custom_python_path: Optional custom Python path (e.g., ~/.pyenv/versions/3.10.14/bin/python3)
+    
+    Returns:
+        Python command to use for deployment
+    """
+    # If custom Python path is provided, verify it and use it
+    if custom_python_path:
+        # Expand tilde to home directory
+        test_cmd = custom_python_path.replace("~", "$HOME")
+        ret, stdout, stderr = await ansible.run_ssh_command(host, f"{test_cmd} -V 2>&1", timeout=10)
+        if ret != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Custom Python path '{custom_python_path}' not found or not executable: {stderr or stdout}"
+            )
+        
+        version_output = (stdout or stderr).strip()
+        match = re.search(r"Python\s+(\d+)\.(\d+)", version_output)
+        if not match:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unable to detect Python version from custom path. Output: {version_output}"
+            )
+        
+        major, minor = int(match.group(1)), int(match.group(2))
+        if major != 3 or minor != 10:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Custom Python path must be Python 3.10, but found: {version_output}"
+            )
+        
+        return test_cmd
+    
+    # Auto-detect Python 3.10
+    ret, stdout, stderr = await ansible.run_ssh_command(host, "python3 -V 2>&1", timeout=10)
+    version_output = (stdout or stderr).strip()
+
+    match = re.search(r"Python\s+(\d+)\.(\d+)", version_output)
+    if not match:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to detect Python version on remote host. Output: {version_output}"
+        )
+
+    major, minor = int(match.group(1)), int(match.group(2))
+    if major == 3 and minor == 10:
+        return "python3"
+
+    ret, stdout, _ = await ansible.run_ssh_command(host, "command -v python3.10", timeout=10)
+    if ret == 0 and stdout.strip():
+        return "python3.10"
+
+    # Try pyenv-managed Python 3.10 without changing global
+    pyenv_python = "$HOME/.pyenv/versions/3.10.14/bin/python3"
+    ret, stdout, _ = await ansible.run_ssh_command(host, f"test -x {pyenv_python} && echo OK", timeout=10)
+    if ret == 0 and "OK" in stdout:
+        return pyenv_python
+
+    suggestion = (
+        "Python 3.10 is required.\n\n"
+        "Install via pyenv (without changing system Python):\n"
+        "curl https://pyenv.run | bash && \\\n"
+        "echo 'export PATH=\"$HOME/.pyenv/bin:$PATH\"' >> ~/.bashrc && \\\n"
+        "echo 'eval \"$(pyenv init -)\"' >> ~/.bashrc && \\\n"
+        "echo 'eval \"$(pyenv virtualenv-init -)\"' >> ~/.bashrc && \\\n"
+        "source ~/.bashrc && \\\n"
+        "pyenv install 3.10.14\n\n"
+        "After installation, add the path to Advanced Settings:\n"
+        "~/.pyenv/versions/3.10.14/bin/python3"
+    )
+    raise HTTPException(
+        status_code=500,
+        detail=f"Unsupported Python version: {version_output}. {suggestion}"
+    )
+
+
+@platform_router.get("/deploy_progress/{platform_id}")
+async def get_deploy_progress(platform_id: str):
+    """Return current deployment progress for a platform."""
+    return DEPLOY_PROGRESS.get(
+        platform_id,
+        {
+            "status": "idle",
+            "current_task": "",
+            "progress": 0,
+            "steps": [],
+            "logs": [],
+            "total_steps": None,
+        },
+    )
+
+
+@platform_router.post("/install_python310/{platform_id}")
+async def install_python310(platform_id: str,
+                            ansible: AnsibleService = Depends(get_ansible_service),
+                            platform_service: PlatformService = Depends(get_platform_service),
+                            inventory_service: InventoryService = Depends(get_inventory_service)):
+    """Install Python 3.10 via pyenv and create the VOLTTRON venv using it."""
+    platform = await platform_service.get_platform(platform_id)
+    if platform is None:
+        raise HTTPException(status_code=404, detail="Platform not found")
+
+    all_hosts = await inventory_service.get_hosts()
+    if platform.config.instance_name not in all_hosts:
+        raise HTTPException(status_code=404, detail=f"Host {platform.config.instance_name} not found in inventory")
+
+    host = all_hosts[platform.config.instance_name]
+    venv_path = host.volttron_venv or "~/volttron.venv"
+
+    script = f'''
+VENV_PATH="{venv_path}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+PYENV_ROOT="$HOME/.pyenv"
+PYENV_BIN="$PYENV_ROOT/bin/pyenv"
+PYENV_PY="$PYENV_ROOT/versions/3.10.14/bin/python3"
+
+# Always ensure dependencies are installed
+sudo apt-get update && sudo apt-get install -y build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libffi-dev liblzma-dev libncurses5-dev libncursesw5-dev tk-dev curl git
+
+if [ ! -x "$PYENV_BIN" ]; then
+  curl https://pyenv.run | bash
+fi
+
+export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init -)"
+eval "$(pyenv virtualenv-init -)"
+
+$PYENV_BIN install -s 3.10.14
+
+if [ ! -x "$PYENV_PY" ]; then
+  echo "VOLTTRON_FAILED: pyenv python not found at $PYENV_PY"
+  exit 1
+fi
+
+$PYENV_PY -m venv "$VENV_PATH"
+echo "PYENV_READY"
+'''
+
+    return_code, stdout, stderr = await ansible.run_ssh_command(host, script, timeout=900)
+    if return_code != 0 or "PYENV_READY" not in stdout:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to install Python 3.10 with pyenv: {stderr or stdout}"
+        )
+
+    # Update platform config with the custom Python path
+    platform.config.custom_python_path = "~/.pyenv/versions/3.10.14/bin/python3"
+    await platform_service.update_platform(platform.config.instance_name, platform)
+
+    return {"status": "success", "message": "Python 3.10 installed via pyenv and venv created.", "custom_python_path": "~/.pyenv/versions/3.10.14/bin/python3"}
+
+async def _deploy_modular_via_ssh(
+    host: HostEntry,
+    config: PlatformConfig,
+    ansible: AnsibleService,
+    python_cmd: str = "python3",
+    platform_id: str | None = None
+) -> dict:
+    """
+    Deploy modular VOLTTRON using direct SSH commands instead of Ansible playbooks.
+    This is simpler, faster, and gives us more control over versions.
+
+    Supports:
+    - PyPI versions: "2.0.0rc20"
+    - Git URLs: "git+https://github.com/username/volttron-core@branch"
+    - Empty string: latest from PyPI
+
+    TODO: Consider moving this to Ansible playbook later if needed for more complex deployments.
+    """
+    venv_path = host.volttron_venv or "~/volttron.venv"
+    volttron_home = host.volttron_home or "~/.volttron"
+
+    # Determine volttron-core package specification
+    # Supports: empty (latest), version number, or git URL
+    if config.volttron_version:
+        if config.volttron_version.startswith("git+"):
+            # Git URL provided directly (e.g., git+https://github.com/user/volttron-core@develop)
+            core_pkg = config.volttron_version
+        elif "/" in config.volttron_version or "@" in config.volttron_version:
+            # Shorthand git URL (e.g., eclipse-volttron/volttron-core@develop)
+            core_pkg = f"git+https://github.com/{config.volttron_version}"
+        else:
+            # Version number provided (e.g., 2.0.0rc20)
+            core_pkg = f"volttron-core=={config.volttron_version}"
+    else:
+        # Default to latest from PyPI
+        core_pkg = "volttron-core"
+
+    steps = []
+
+    total_steps = 7
+    if platform_id:
+        _init_deploy_progress(platform_id, total_steps=total_steps)
+
+    # Step 1: Kill any existing VOLTTRON processes
+    cmd = f"pkill -9 -f 'volttron -vv' 2>/dev/null || true"
+    logger.info(f"[DEPLOY] Step 1: Killing existing VOLTTRON processes")
+    if platform_id:
+        _set_deploy_step(platform_id, "Kill existing processes", "running", progress=5)
+        _append_deploy_log(platform_id, "[Step 1] Killing existing VOLTTRON processes")
+    ret, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=30)
+    steps.append({"step": "Kill existing processes", "success": True, "output": stdout, "error": stderr})
+    if platform_id:
+        _set_deploy_step(platform_id, "Kill existing processes", "success", progress=10)
+    # Don't fail if no processes to kill
+
+    # Step 2: Create virtual environment
+    cmd = f"{python_cmd} -m venv {venv_path}"
+    logger.info(f"[DEPLOY] Step 2: Creating venv - {cmd}")
+    if platform_id:
+        _set_deploy_step(platform_id, "Create venv", "running", progress=20)
+        _append_deploy_log(platform_id, f"[Step 2] Creating venv with {python_cmd}")
+    ret, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=60)
+    steps.append({"step": "Create venv", "success": ret == 0, "output": stdout, "error": stderr})
+    if ret != 0:
+        if platform_id:
+            _set_deploy_step(platform_id, "Create venv", "failed", progress=20)
+        raise HTTPException(status_code=500, detail=f"Failed to create venv: {stderr or stdout}")
+    if platform_id:
+        _set_deploy_step(platform_id, "Create venv", "success", progress=25)
+
+    # Step 3: Upgrade pip
+    cmd = f"source {venv_path}/bin/activate && pip install --upgrade pip"
+    logger.info(f"[DEPLOY] Step 3: Upgrading pip - {cmd}")
+    if platform_id:
+        _set_deploy_step(platform_id, "Upgrade pip", "running", progress=35)
+        _append_deploy_log(platform_id, "[Step 3] Upgrading pip")
+    ret, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=120)
+    steps.append({"step": "Upgrade pip", "success": ret == 0, "output": stdout, "error": stderr})
+    if ret != 0:
+        if platform_id:
+            _set_deploy_step(platform_id, "Upgrade pip", "failed", progress=35)
+        raise HTTPException(status_code=500, detail=f"Failed to upgrade pip: {stderr or stdout}")
+    if platform_id:
+        _set_deploy_step(platform_id, "Upgrade pip", "success", progress=40)
+
+    # Step 4: Install VOLTTRON libraries first (these pull in dependencies like pyzmq)
+    # This may install volttron-core from PyPI as a dependency
+    cmd = f"source {venv_path}/bin/activate && pip install volttron-lib-zmq volttron-lib-auth"
+    logger.info(f"[DEPLOY] Step 4: Installing VOLTTRON libraries")
+    if platform_id:
+        _set_deploy_step(platform_id, "Install VOLTTRON libs", "running", progress=55)
+        _append_deploy_log(platform_id, "[Step 4] Installing VOLTTRON libs")
+    ret, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=300)
+    steps.append({"step": "Install VOLTTRON libs", "success": ret == 0, "output": stdout, "error": stderr})
+    if ret != 0:
+        if platform_id:
+            _set_deploy_step(platform_id, "Install VOLTTRON libs", "failed", progress=55)
+        raise HTTPException(status_code=500, detail=f"Failed to install VOLTTRON libs: {stderr or stdout}")
+    if platform_id:
+        _set_deploy_step(platform_id, "Install VOLTTRON libs", "success", progress=60)
+
+    # Step 5: Force reinstall volttron-core from the specified source
+    # This overwrites any PyPI version that was pulled in by the libs
+    cmd = f"source {venv_path}/bin/activate && pip install --no-cache-dir --force-reinstall {core_pkg}"
+    logger.info(f"[DEPLOY] Step 5: Installing volttron-core - {core_pkg}")
+    if platform_id:
+        _set_deploy_step(platform_id, f"Install volttron-core ({core_pkg})", "running", progress=75)
+        _append_deploy_log(platform_id, f"[Step 5] Installing volttron-core ({core_pkg})")
+    ret, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=300)
+    steps.append({"step": f"Install volttron-core ({core_pkg})", "success": ret == 0, "output": stdout, "error": stderr})
+    if ret != 0:
+        if platform_id:
+            _set_deploy_step(platform_id, f"Install volttron-core ({core_pkg})", "failed", progress=75)
+        raise HTTPException(status_code=500, detail=f"Failed to install volttron-core: {stderr or stdout}")
+    if platform_id:
+        _set_deploy_step(platform_id, f"Install volttron-core ({core_pkg})", "success", progress=80)
+
+    # Step 6: Create VOLTTRON_HOME directory
+    cmd = f"mkdir -p {volttron_home}"
+    logger.info(f"[DEPLOY] Step 6: Creating VOLTTRON_HOME - {cmd}")
+    if platform_id:
+        _set_deploy_step(platform_id, "Create VOLTTRON_HOME", "running", progress=90)
+        _append_deploy_log(platform_id, "[Step 6] Creating VOLTTRON_HOME")
+    ret, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=30)
+    steps.append({"step": "Create VOLTTRON_HOME", "success": ret == 0, "output": stdout, "error": stderr})
+    if ret != 0:
+        if platform_id:
+            _set_deploy_step(platform_id, "Create VOLTTRON_HOME", "failed", progress=90)
+        raise HTTPException(status_code=500, detail=f"Failed to create VOLTTRON_HOME: {stderr or stdout}")
+    if platform_id:
+        _set_deploy_step(platform_id, "Create VOLTTRON_HOME", "success", progress=92)
+
+    # Step 7: Write config file
+    # Note: modular VOLTTRON uses 'messagebus' not 'message-bus', and doesn't use 'vip-address' in config
+    config_content = f"""[volttron]
+instance-name = {config.instance_name}
+messagebus = {config.message_bus}
+"""
+    # Escape for shell
+    config_escaped = config_content.replace("'", "'\\''")
+    cmd = f"echo '{config_escaped}' > {volttron_home}/config"
+    logger.info(f"[DEPLOY] Step 7: Writing config file")
+    if platform_id:
+        _set_deploy_step(platform_id, "Write config", "running", progress=96)
+        _append_deploy_log(platform_id, "[Step 7] Writing config file")
+    ret, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=30)
+    steps.append({"step": "Write config", "success": ret == 0, "output": stdout, "error": stderr})
+    if ret != 0:
+        if platform_id:
+            _set_deploy_step(platform_id, "Write config", "failed", progress=96)
+        raise HTTPException(status_code=500, detail=f"Failed to write config: {stderr or stdout}")
+    if platform_id:
+        _set_deploy_step(platform_id, "Write config", "success", progress=100)
+
+    logger.info(f"[DEPLOY] Modular VOLTTRON deployed successfully")
+    if platform_id:
+        _finalize_deploy_progress(platform_id, "success")
+    return {
+        "status": "success",
+        "message": "Modular VOLTTRON deployed via SSH",
+        "steps": steps
+    }
+
+
 @platform_router.post("/deploy/{platform_id}")
 async def deploy_platform(platform_id: str, password:str,
                           ansible: AnsibleService = Depends(get_ansible_service),
                           platform_service: PlatformService = Depends(get_platform_service),
                           inventory_service: InventoryService = Depends(get_inventory_service)):
 
-    """Deploys a platform using Ansible"""
+    """Deploys a platform using SSH commands for modular, Ansible for monolithic"""
     try:
-        # platform_service = await get_platform_service() # Removed redundant call
         platform = await platform_service.get_platform(platform_id)
         if platform is None:
             raise HTTPException(status_code=404, detail="Platform not found")
-        
-        # Check if we should ignore host keys
-        # The inventory is keyed by instance name, not host_id
-        ignore_host_keys = False
-        all_hosts = await inventory_service.get_hosts()
-        if platform.config.instance_name in all_hosts:
-            ignore_host_keys = all_hosts[platform.config.instance_name].ignore_host_keys
 
-        # Target the platform instance name in the inventory
+        # Get host entry from inventory
+        all_hosts = await inventory_service.get_hosts()
+        if platform.config.instance_name not in all_hosts:
+            raise HTTPException(status_code=404, detail=f"Host {platform.config.instance_name} not found in inventory")
+
+        host = all_hosts[platform.config.instance_name]
+        ignore_host_keys = host.ignore_host_keys
         target_host = platform.config.instance_name
 
-        ret, stdout, stderr = await ansible.run_playbook("host_config", target_host, password, ignore_host_keys=ignore_host_keys)
+        # Branch based on VOLTTRON type
+        if platform.config.volttron_type == "modular":
+            # Use simple SSH-based deployment for modular VOLTTRON
+            logger.info(f"[DEPLOY] Deploying modular VOLTTRON for {platform_id}")
 
-        if ret != 0:
-            error_message = _parse_ansible_error(ret, stdout, stderr)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Host configuration failed: {error_message}"
+            _init_deploy_progress(platform_id, total_steps=7)
+            DEPLOY_PROGRESS[platform_id]["current_task"] = "Preflight: Checking Python version"
+
+            python_cmd = await _select_python_cmd_for_host(host, ansible, platform.config.custom_python_path)
+            _append_deploy_log(platform_id, f"Preflight OK: using {python_cmd}")
+
+            result = await _deploy_modular_via_ssh(
+                host,
+                platform.config,
+                ansible,
+                python_cmd=python_cmd,
+                platform_id=platform_id
             )
 
-        return_code, stdout, stderr = await ansible.run_playbook(
-            "install_platform",
-            target_host,
-            password,
-            extra_vars=platform.config.model_dump(),
-            ignore_host_keys=ignore_host_keys
-        )
+            # Mark platform as deployed
+            platform.deployed = True
+            await platform_service.update_platform(platform.config.instance_name, platform)
 
-        if return_code != 0:
-            error_message = _parse_ansible_error(return_code, stdout, stderr)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Platform installation failed: {error_message}"
-            )
-        
-        # Clean up config file - remove duplicate snake_case fields and installer-only fields that VOLTTRON doesn't recognize
-        # Keep only hyphenated versions: instance-name, message-bus, vip-address
-        # Remove volttron_type (installer-only field)
-        cleanup_cmd = "sed -i '/^instance_name =/d; /^messagebus =/d; /^message_bus =/d; /^options =/d; /^vip_address =/d; /^volttron_type =/d' ~/.volttron/config"
-        await ansible.run_volttron_ad_hoc(
-            command=cleanup_cmd,
-            hosts=platform.config.instance_name,
-            connection="ssh"
-        )
+            return {
+                "status": "success",
+                "output": f"Modular VOLTTRON deployed successfully\n\nSteps:\n" +
+                         "\n".join([f"- {s['step']}: {'OK' if s['success'] else 'FAILED'}" for s in result.get('steps', [])]),
+                "stderr": "",
+                "tasks": [{"name": s["step"], "status": "ok" if s["success"] else "failed"} for s in result.get("steps", [])]
+            }
 
-        # Mark platform as deployed and save to file
-        platform.deployed = True
-        await platform_service.update_platform(platform.config.instance_name, platform)
+        else:
+            # Use Ansible playbooks for monolithic VOLTTRON
+            # TODO: Could also convert this to SSH-based later
+            logger.info(f"[DEPLOY] Deploying monolithic VOLTTRON for {platform_id} via Ansible")
+            _init_deploy_progress(platform_id)
+            DEPLOY_PROGRESS[platform_id]["current_task"] = "Running Ansible playbooks"
 
-        all_output = stdout
-        all_stderr = stderr
-        all_tasks = _parse_ansible_tasks(stdout)
+            ret, stdout, stderr = await ansible.run_playbook("host_config", target_host, password, ignore_host_keys=ignore_host_keys)
 
-        # If there are agents configured, run configure_agents playbook to install them
-        if platform.agents:
-            logger.info(f"Installing {len(platform.agents)} configured agents for platform {platform_id}")
+            if ret != 0:
+                error_message = _parse_ansible_error(ret, stdout, stderr)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Host configuration failed: {error_message}"
+                )
 
-            agent_return_code, agent_stdout, agent_stderr = await ansible.run_playbook(
-                "configure_agents",
+            return_code, stdout, stderr = await ansible.run_playbook(
+                "install_platform",
                 target_host,
                 password,
+                extra_vars=platform.config.model_dump(),
                 ignore_host_keys=ignore_host_keys
             )
 
-            all_output += "\n\n=== Agent Configuration ===\n" + agent_stdout
-            all_stderr += agent_stderr
-            all_tasks.extend(_parse_ansible_tasks(agent_stdout))
+            if return_code != 0:
+                error_message = _parse_ansible_error(return_code, stdout, stderr)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Platform installation failed: {error_message}"
+                )
 
-            if agent_return_code != 0:
-                logger.warning(f"Agent configuration had issues: {agent_stderr}")
-                # Don't fail the whole deployment, just warn
-                all_output += f"\nWarning: Some agents may not have installed correctly"
+            # Clean up config file - remove duplicate snake_case fields and installer-only fields
+            volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+            cleanup_cmd = f"sed -i '/^instance_name =/d; /^messagebus =/d; /^message_bus =/d; /^options =/d; /^vip_address =/d; /^volttron_type =/d' {volttron_home}/config"
+            await ansible.run_volttron_ad_hoc(
+                command=cleanup_cmd,
+                hosts=platform.config.instance_name,
+                connection="ssh"
+            )
 
-        # Return full output including both stdout and stderr
-        return {
-            "status": "success",
-            "output": all_output,
-            "stderr": all_stderr,
-            "tasks": all_tasks
-        }
-    
+            # Mark platform as deployed and save to file
+            platform.deployed = True
+            await platform_service.update_platform(platform.config.instance_name, platform)
 
+            all_output = stdout
+            all_stderr = stderr
+            all_tasks = _parse_ansible_tasks(stdout)
+
+            # If there are agents configured, run configure_agents playbook to install them
+            # TODO: For modular, agents are installed via vctl install in the install_agent endpoint
+            if platform.agents:
+                logger.info(f"Installing {len(platform.agents)} configured agents for platform {platform_id}")
+
+                agent_return_code, agent_stdout, agent_stderr = await ansible.run_playbook(
+                    "configure_agents",
+                    target_host,
+                    password,
+                    ignore_host_keys=ignore_host_keys
+                )
+
+                all_output += "\n\n=== Agent Configuration ===\n" + agent_stdout
+                all_stderr += agent_stderr
+                all_tasks.extend(_parse_ansible_tasks(agent_stdout))
+
+                if agent_return_code != 0:
+                    logger.warning(f"Agent configuration had issues: {agent_stderr}")
+                    # Don't fail the whole deployment, just warn
+                    all_output += f"\nWarning: Some agents may not have installed correctly"
+
+            # Return full output including both stdout and stderr
+            return {
+                "status": "success",
+                "output": all_output,
+                "stderr": all_stderr,
+                "tasks": all_tasks
+            }
+
+    except HTTPException as e:
+        _finalize_deploy_progress(platform_id, "failed")
+        _append_deploy_log(platform_id, f"ERROR: {e.detail}")
+        raise
     except Exception as e:
+        _finalize_deploy_progress(platform_id, "failed")
+        _append_deploy_log(platform_id, f"ERROR: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=str(e)
@@ -587,39 +998,49 @@ async def start_platform(platform_id: str, ansible: AnsibleService = Depends(get
 
         # Clean up config file - remove snake_case options and installer-only fields that VOLTTRON doesn't recognize
         # Remove: instance_name, messagebus, message_bus, options, vip_address, volttron_type (installer-only)
+        # Also disable agent-isolation-mode which causes poetry issues in VOLTTRON_HOME
         # Use direct SSH for speed and reliability
-        cleanup_cmd = f"sed -i '/instance_name/d; /messagebus/d; /message_bus/d; /^options/d; /vip_address/d; /volttron_type/d' {volttron_home}/config 2>/dev/null || true"
+        cleanup_cmd = f"sed -i '/instance_name/d; /messagebus/d; /message_bus/d; /^options/d; /vip_address/d; /volttron_type/d; s/agent-isolation-mode = True/agent-isolation-mode = False/g' {volttron_home}/config 2>/dev/null || true"
         await ansible.run_ssh_command(host, cleanup_cmd, timeout=10)
 
-        # Capture stderr/stdout to log file directly (VOLTTRON 2.0's -l flag is broken)
-        # Use >> to append, 2>&1 redirects stderr to stdout so both go to log
-        # Use direct SSH for speed and reliability
-        # Important: redirect stdin from /dev/null and use subshell to properly detach via SSH
-        cmd = f"(export VOLTTRON_HOME={volttron_home} && . {venv_path}/bin/activate && nohup volttron -vv >> {volttron_home}/volttron.log 2>&1 &) </dev/null >/dev/null 2>&1"
+        # Simple SSH startup: activate venv, set VOLTTRON_HOME, start in background
+        # Logs go to VOLTTRON_HOME/volttron.log
+        startup_cmd = f'''
+VENV_PATH="{venv_path}"
+VOLTTRON_HOME="{volttron_home}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+export VOLTTRON_HOME
 
-        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=10)
+if [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+    exit 1
+fi
+. "$VENV_PATH/bin/activate"
+mkdir -p "$VOLTTRON_HOME"
 
-        # nohup with & returns immediately, so return_code 0 just means the command was sent
-        # VOLTTRON can take a while to start up (especially first time with dependency installation)
-        # Retry checking status for up to 30 seconds
-        import asyncio
-        max_attempts = 10
-        is_running = False
+nohup "$VENV_PATH/bin/volttron" -vv -l "$VOLTTRON_HOME/volttron.log" >/dev/null 2>&1 &
+echo "VOLTTRON_STARTED"
+'''
 
-        for attempt in range(max_attempts):
-            await asyncio.sleep(3)  # Wait 3 seconds between checks
-            is_running = await ansible._check_volttron_running(platform.config.instance_name, host)
-            if is_running:
-                break
-            logger.debug(f"VOLTTRON not ready yet, attempt {attempt + 1}/{max_attempts}")
+        logger.info(f"[START] Starting VOLTTRON via direct SSH for platform {platform_id}")
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, startup_cmd, timeout=30)
 
-        if not is_running:
+        logger.debug(f"Startup result - return_code: {return_code}, stdout: {stdout[:500]}, stderr: {stderr[:500]}")
+
+        if "VOLTTRON_STARTED" in stdout:
+            return {"status": "success", "message": "Platform start command issued."}
+        elif "VOLTTRON_FAILED" in stdout:
+            log_output = stdout.split("VOLTTRON_FAILED:")[-1].strip() if "VOLTTRON_FAILED:" in stdout else stderr
             raise HTTPException(
                 status_code=500,
-                detail=f"VOLTTRON did not start within 30 seconds. Check logs at {volttron_home}/volttron.log"
+                detail=f"VOLTTRON process failed to start. Log output:\n{log_output}"
             )
-
-        return {"status": "success", "message": "Platform started successfully."}
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected startup result. stdout: {stdout}\nstderr: {stderr}"
+            )
 
     except HTTPException:
         raise
@@ -657,7 +1078,21 @@ async def stop_platform(platform_id: str, ansible: AnsibleService = Depends(get_
         volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
 
         # Use direct SSH for speed and reliability
-        cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl shutdown --platform"
+        cmd = f'''
+    VENV_PATH="{venv_path}"
+    VOLTTRON_HOME="{volttron_home}"
+    VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+    VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+    export VOLTTRON_HOME
+
+    if [ ! -f "$VENV_PATH/bin/activate" ]; then
+        echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+        exit 1
+    fi
+    source "$VENV_PATH/bin/activate"
+
+    "$VENV_PATH/bin/vctl" shutdown --platform
+    '''
 
         return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=30)
 
@@ -780,17 +1215,28 @@ async def start_agent(platform_id: str, agent_id: str, ansible: AnsibleService =
         
         host = all_hosts[platform.config.instance_name]
         
-        # Build command to start the agent
-        venv_path = host.volttron_venv if host.volttron_venv else "~/.local"
+        # Build command to start the agent (direct SSH, no ansible ad-hoc)
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
         volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
-        
-        cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl start --tag {agent_id}"
-        
-        return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
-            command=cmd,
-            hosts=platform.config.instance_name,
-            connection=host.ansible_connection
-        )
+        agent_id_arg = shlex.quote(agent_id)
+
+        cmd = f'''
+VENV_PATH="{venv_path}"
+VOLTTRON_HOME="{volttron_home}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+export VOLTTRON_HOME
+
+if [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+    exit 1
+fi
+source "$VENV_PATH/bin/activate"
+
+"$VENV_PATH/bin/vctl" start --tag {agent_id_arg}
+'''
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=30)
 
         if return_code != 0:
             raise HTTPException(
@@ -829,33 +1275,24 @@ async def get_platform_logs(platform_id: str, lines: int = 100):
         
         host = all_hosts[platform.config.instance_name]
         volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
-        
-        # Tail the log file - use simple command to avoid quote escaping issues with Ansible
-        cmd = f"tail -n {lines} {volttron_home}/volttron.log || echo NO_LOG_FILE"
-        
-        return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
-            command=cmd,
-            hosts=platform.config.instance_name,
-            connection=host.ansible_connection
-        )
-        
-        # Parse Ansible output to extract actual command stdout
-        # The Ansible ad_hoc playbook wraps the output in "standard out:\n..."
-        log_content = "No logs available"
-        
-        # Try to extract the actual stdout from Ansible's output
-        import re
-        # Look for "standard out:\n" followed by the actual content
-        match = re.search(r'"standard out:\\n([^"]*)"', stdout, re.DOTALL)
-        if match:
-            # Unescape the newlines
-            log_content = match.group(1).replace('\\n', '\n')
-        elif "NO_LOG_FILE" in stdout:
+
+        cmd = f'''
+VOLTTRON_HOME="{volttron_home}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+tail -n {lines} "$VOLTTRON_HOME/volttron.log" || echo NO_LOG_FILE
+'''
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=15)
+
+        if "NO_LOG_FILE" in stdout:
             log_content = f"No log file detected at: {volttron_home}/volttron.log\n\nVOLTTRON may not have been started yet, or logging is not configured."
-        
+        else:
+            log_content = stdout
+
+        log_path = volttron_home.replace("~", "$HOME", 1) if volttron_home.startswith("~") else volttron_home
         return {
             "logs": log_content,
-            "log_path": f"{volttron_home}/volttron.log",
+            "log_path": f"{log_path}/volttron.log",
             "error": stderr if stderr else None
         }
         
@@ -889,15 +1326,14 @@ async def delete_platform_logs(platform_id: str):
         
         host = all_hosts[platform.config.instance_name]
         volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
-        
-        # Delete the log file
-        cmd = f"rm -f {volttron_home}/volttron.log && echo LOG_DELETED"
-        
-        return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
-            command=cmd,
-            hosts=platform.config.instance_name,
-            connection=host.ansible_connection
-        )
+
+        cmd = f'''
+    VOLTTRON_HOME="{volttron_home}"
+    VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+    rm -f "$VOLTTRON_HOME/volttron.log" && echo LOG_DELETED
+    '''
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=10)
         
         if "LOG_DELETED" in stdout or return_code == 0:
             return {"message": "Log file deleted successfully"}
@@ -935,17 +1371,28 @@ async def stop_agent(platform_id: str, agent_id: str, ansible: AnsibleService = 
         
         host = all_hosts[platform.config.instance_name]
         
-        # Build command to stop the agent
-        venv_path = host.volttron_venv if host.volttron_venv else "~/.local"
+        # Build command to stop the agent (direct SSH, no ansible ad-hoc)
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
         volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
-        
-        cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl stop --tag {agent_id}"
-        
-        return_code, stdout, stderr = await ansible.run_volttron_ad_hoc(
-            command=cmd,
-            hosts=platform.config.instance_name,
-            connection=host.ansible_connection
-        )
+        agent_id_arg = shlex.quote(agent_id)
+
+        cmd = f'''
+VENV_PATH="{venv_path}"
+VOLTTRON_HOME="{volttron_home}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+export VOLTTRON_HOME
+
+if [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+    exit 1
+fi
+source "$VENV_PATH/bin/activate"
+
+"$VENV_PATH/bin/vctl" stop --tag {agent_id_arg}
+'''
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=30)
 
         if return_code != 0:
             raise HTTPException(
@@ -975,15 +1422,21 @@ async def install_agent(
     agent_config: str = None,
     ansible: AnsibleService = Depends(get_ansible_service)
 ):
-    """Install an agent on a running VOLTTRON platform using vctl install.
+    """Install an agent on a running VOLTTRON platform.
+
+    For monolithic VOLTTRON: Uses vctl install with a path to the agent source.
+    For modular VOLTTRON: Uses pip install with the package name.
 
     Args:
         platform_id: The platform instance name
         agent_identity: The VIP identity for the agent
-        agent_source: The pip package name or path to install (e.g., 'volttron-listener')
+        agent_source: For modular: pip package name (e.g., 'volttron-listener').
+                      For monolithic: relative path in VOLTTRON source (e.g., 'examples/ListenerAgent')
+                      or pip package name which will be resolved to monolithic path from catalog.
         start_agent: Whether to start the agent after installation (default: True)
         agent_config: Optional path to agent config file on remote system
     """
+    logger.info(f"[INSTALL_AGENT] Called with platform_id={platform_id}, agent_identity={agent_identity}, agent_source={agent_source}, start_agent={start_agent}")
     try:
         # Get platform definition and host entry
         platform_service = await get_platform_service()
@@ -1008,30 +1461,71 @@ async def install_agent(
         venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
         volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
 
-        # For modular VOLTTRON, agents are installed as pip packages
-        # Then we need to create an agent configuration and start it
-        agent_source_arg = shlex.quote(agent_source)
+        # Get the VOLTTRON type to determine installation method
+        volttron_type = platform.config.volttron_type
         agent_identity_arg = shlex.quote(agent_identity)
 
-        install_cmd_parts = [
-            f"export VOLTTRON_HOME={volttron_home}",
-            f"source {venv_path}/bin/activate",
-            # Install the agent package via pip
-            f"pip install {agent_source_arg}",
-        ]
+        # Get VOLTTRON source path for monolithic installations
+        volttron_source = host.volttron_source if host.volttron_source else "~/volttron"
 
-        # For modular VOLTTRON, we need to use vctl to register and start the agent
-        # The agent package is already installed, now we just need to configure it
+        # Determine the agent source based on VOLTTRON type
+        if volttron_type == "monolithic":
+            # For monolithic VOLTTRON, agents are in the codebase
+            # If agent_source looks like a pip package, resolve to monolithic path
+            resolved_source = agent_source
+            if agent_source.startswith("volttron-") or not ('/' in agent_source):
+                # Looks like a pip package name, try to find monolithic source
+                catalog = AgentCatalog()
+                for agent_key, agent_type in catalog.agents.items():
+                    if agent_type.source == agent_source and agent_type.monolithic_source:
+                        resolved_source = agent_type.monolithic_source
+                        logger.info(f"Resolved pip package {agent_source} to monolithic path {resolved_source}")
+                        break
+
+            # Build the agent path for monolithic
+            if resolved_source.startswith('/') or resolved_source.startswith('~'):
+                if resolved_source.startswith('~'):
+                    agent_source_for_vctl = shlex.quote(resolved_source.replace("~", "$HOME", 1))
+                else:
+                    agent_source_for_vctl = shlex.quote(resolved_source)
+            else:
+                # Relative path - resolve from VOLTTRON source directory
+                agent_source_for_vctl = f"$VOLTTRON_SOURCE/{resolved_source}"
+        else:
+            # For modular VOLTTRON, use the pip package name directly with vctl
+            agent_source_for_vctl = shlex.quote(agent_source)
+
+        # Build vctl install command (used for both modular and monolithic)
+        vctl_install_cmd = f"\"$VENV_PATH/bin/vctl\" install {agent_source_for_vctl} --vip-identity {agent_identity_arg}"
         if start_agent:
-            # TODO: For modular VOLTTRON, starting agents works differently
-            # Need to determine the correct approach based on the volttron-ansible version
-            pass
+            vctl_install_cmd += " --start"
+        if agent_config:
+            config_arg = shlex.quote(agent_config)
+            vctl_install_cmd += f" --agent-config {config_arg}"
 
-        cmd = " && ".join(install_cmd_parts)
+        cmd = f'''
+VENV_PATH="{venv_path}"
+VOLTTRON_HOME="{volttron_home}"
+VOLTTRON_SOURCE="{volttron_source}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+VOLTTRON_SOURCE="${{VOLTTRON_SOURCE/#\~/$HOME}}"
+export VOLTTRON_HOME
 
-        logger.info(f"Installing agent {agent_identity} on platform {platform_id}: {agent_source}")
+if [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+    exit 1
+fi
+source "$VENV_PATH/bin/activate"
+
+{vctl_install_cmd}
+'''
+
+        logger.info(f"[INSTALL_AGENT] Installing agent {agent_identity} on platform {platform_id}")
+        logger.info(f"[INSTALL_AGENT] Full command: {cmd}")
 
         return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=120)
+        logger.info(f"[INSTALL_AGENT] Command completed: return_code={return_code}")
 
         if return_code != 0:
             error_msg = stderr or stdout
@@ -1041,13 +1535,14 @@ async def install_agent(
                 detail=f"Failed to install agent {agent_identity}: {error_msg}"
             )
 
-        logger.info(f"Agent {agent_identity} installed successfully on platform {platform_id}")
+        logger.info(f"Agent {agent_identity} installed successfully on platform {platform_id} ({volttron_type})")
         return {
             "status": "success",
-            "message": f"Agent {agent_identity} installed successfully",
+            "message": f"Agent {agent_identity} installed successfully ({volttron_type} mode)",
             "output": stdout,
             "agent_identity": agent_identity,
-            "started": start_agent
+            "started": start_agent,
+            "volttron_type": volttron_type
         }
 
     except HTTPException:

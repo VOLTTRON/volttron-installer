@@ -138,6 +138,7 @@ class HostEntryModelView(rx.Base):
     https_proxy: str = ""
     volttron_venv: str = "~/volttron.venv"
     volttron_home: str = "~/.volttron"
+    volttron_source: str = "~/volttron"
     host_configs_dir: str | None = None
     ignore_host_keys: bool = False
 
@@ -152,6 +153,7 @@ class HostEntryModelView(rx.Base):
             "https_proxy": "" if self.https_proxy is None else self.https_proxy,
             "volttron_venv": "" if self.volttron_venv is None else self.volttron_venv,
             "volttron_home": self.volttron_home,
+            "volttron_source": self.volttron_source,
             "host_configs_dir": "" if self.host_configs_dir is None else self.host_configs_dir,
             "ignore_host_keys": self.ignore_host_keys
         }
@@ -161,6 +163,8 @@ class PlatformConfigModelView(rx.Base):
     vip_address: str = "tcp://127.0.0.1:22916"
     message_bus: Literal["zmq"] = "zmq"
     volttron_type: Literal["modular", "monolithic"] = "modular"
+    volttron_version: str = ""  # e.g., "2.0.0rc20" or "git+https://github.com/..."
+    custom_python_path: str = ""  # e.g., "~/.pyenv/versions/3.10.14/bin/python3"
     options: list = []
     # TODO make this functional when federation stuff gets hydrated
     # enable_federation: bool = False
@@ -171,6 +175,8 @@ class PlatformConfigModelView(rx.Base):
             "vip_address" : self.vip_address,
             "message_bus" : self.message_bus,
             "volttron_type" : self.volttron_type,
+            "volttron_version" : self.volttron_version,
+            "custom_python_path" : self.custom_python_path,
             "options" : []
             # enable_federation: self.enable_federation
         }

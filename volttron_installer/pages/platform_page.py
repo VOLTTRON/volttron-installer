@@ -22,6 +22,69 @@ def deployment_progress_dialog() -> rx.Component:
                 rx.dialog.description(
                     rx.text(State.current_task, size="3", weight="bold")
                 ),
+                rx.progress(value=State.deployment_progress, max=100, width="100%"),
+                rx.text(
+                    rx.cond(
+                        State.deployment_progress > 0,
+                        f"{State.deployment_progress}% complete",
+                        "Starting...",
+                    ),
+                    size="1",
+                    color="gray",
+                ),
+                rx.cond(
+                    State.show_pyenv_prompt,
+                    rx.callout(
+                        rx.vstack(
+                            rx.text(
+                                rx.cond(
+                                    State.pyenv_error != "",
+                                    State.pyenv_error,
+                                    "Python 3.10 is required but not found.",
+                                ),
+                                weight="bold",
+                            ),
+                            rx.text(
+                                "After installing Python 3.10, add the path to the platform's Advanced Settings (Custom Python Path).",
+                                size="1",
+                            ),
+                            spacing="1",
+                            align="start",
+                        ),
+                        icon="triangle_alert",
+                        color="yellow",
+                        size="2",
+                    ),
+                    rx.fragment(),
+                ),
+                rx.box(
+                    rx.vstack(
+                        rx.foreach(
+                            State.deployment_steps,
+                            lambda step: rx.hstack(
+                                rx.cond(
+                                    step["status"] == "running",
+                                    rx.spinner(size="1"),
+                                    rx.cond(
+                                        step["status"] == "success",
+                                        rx.icon("check", size=16, color="green"),
+                                        rx.icon("x", size=16, color="red"),
+                                    ),
+                                ),
+                                rx.text(step["name"], size="2"),
+                                spacing="2",
+                                align="center",
+                            ),
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    width="100%",
+                    padding="0.5rem",
+                    border="1px solid var(--gray-4)",
+                    border_radius="8px",
+                    background_color="var(--gray-1)",
+                ),
                 # Log output area
                 rx.box(
                     rx.vstack(
@@ -33,7 +96,7 @@ def deployment_progress_dialog() -> rx.Component:
                         spacing="1",
                     ),
                     width="100%",
-                    height="300px",
+                    height=rx.cond(State.show_pyenv_prompt, "220px", "300px"),
                     overflow_y="auto",
                     padding="1rem",
                     border="1px solid var(--gray-6)",
@@ -65,8 +128,18 @@ def deployment_progress_dialog() -> rx.Component:
                         ),
                     ),
                 ),
-                # Close button (only enabled when not deploying)
+                # Action buttons
                 rx.hstack(
+                    rx.cond(
+                        State.show_pyenv_prompt,
+                        rx.button(
+                            "Install Python 3.10 with pyenv",
+                            on_click=State.handle_install_pyenv,
+                            disabled=State.pyenv_installing,
+                            loading=State.pyenv_installing,
+                        ),
+                        rx.fragment(),
+                    ),
                     rx.dialog.close(
                         rx.button(
                             "Close",
@@ -74,6 +147,7 @@ def deployment_progress_dialog() -> rx.Component:
                             disabled=State.is_deploying,
                         )
                     ),
+                    spacing="3",
                     justify="end",
                     width="100%",
                 ),
@@ -83,6 +157,67 @@ def deployment_progress_dialog() -> rx.Component:
             max_width="600px",
         ),
         open=State.show_deployment_dialog,
+    )
+
+
+def pyenv_install_dialog() -> rx.Component:
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.vstack(
+                rx.dialog.title("Install Python 3.10 via pyenv"),
+                rx.dialog.description(
+                    "Install Python 3.10 on the remote host using pyenv and create the VOLTTRON venv.",
+                    size="1",
+                ),
+                rx.text(
+                    "Python 3.10 is required but not found on the remote host. "
+                    "Would you like to install it using pyenv?",
+                    size="2",
+                    color="gray",
+                ),
+                rx.cond(
+                    State.pyenv_error != "",
+                    rx.callout(
+                        State.pyenv_error,
+                        icon="triangle_alert",
+                        color="red",
+                        size="1",
+                    ),
+                    rx.fragment(),
+                ),
+                rx.cond(
+                    State.pyenv_installing,
+                    rx.hstack(
+                        rx.spinner(size="2"),
+                        rx.text("Installing Python 3.10 via pyenv... This may take several minutes.", size="2"),
+                        spacing="2",
+                        align="center",
+                    ),
+                    rx.fragment(),
+                ),
+                rx.hstack(
+                    rx.button(
+                        "Install with pyenv",
+                        on_click=State.handle_install_pyenv,
+                        disabled=State.pyenv_installing,
+                        loading=State.pyenv_installing,
+                    ),
+                    rx.button(
+                        "Cancel",
+                        variant="soft",
+                        on_click=State.close_pyenv_dialog,
+                        disabled=State.pyenv_installing,
+                    ),
+                    spacing="3",
+                    justify="end",
+                    width="100%",
+                ),
+                spacing="3",
+                width="100%",
+            ),
+            max_width="600px",
+        ),
+        open=State.show_pyenv_dialog,
     )
 
 def install_agent_dialog() -> rx.Component:
@@ -397,6 +532,7 @@ def platform_page() -> rx.Component:
                 platform_tabs()
             ),
             deployment_progress_dialog(),
+            pyenv_install_dialog(),
             install_agent_dialog(),
         ),
         # Skeleton Stuff
@@ -780,6 +916,30 @@ def configuration_tab_content() -> rx.Component:
                                             )
                                         ),
                                         form_entry.form_entry(
+                                            "VOLTTRON venv",
+                                            rx.input(
+                                                value= State.working_platform.host.volttron_venv,
+                                                on_change=lambda v: State.update_detail("volttron_venv", v),
+                                                size="3",
+                                            ),
+                                            upload=tile_icon(
+                                                "badge-info",
+                                                tooltip="Path to the Python virtual environment used to run VOLTTRON (default: ~/volttron.venv)"
+                                            )
+                                        ),
+                                        form_entry.form_entry(
+                                            "VOLTTRON Source",
+                                            rx.input(
+                                                value= State.working_platform.host.volttron_source,
+                                                on_change=lambda v: State.update_detail("volttron_source", v),
+                                                size="3",
+                                            ),
+                                            upload=tile_icon(
+                                                "badge-info",
+                                                tooltip="Path to VOLTTRON source code for monolithic installations (default: ~/volttron). Only used for monolithic VOLTTRON."
+                                            )
+                                        ),
+                                        form_entry.form_entry(
                                             "Ignore Host Keys",
                                             rx.checkbox(
                                                 checked=State.working_platform.host.ignore_host_keys,
@@ -789,6 +949,19 @@ def configuration_tab_content() -> rx.Component:
                                             upload=tile_icon(
                                                 "badge-info",
                                                 tooltip="Skip SSH host key verification (StrictHostKeyChecking=no). Use if the remote host is not in your known_hosts file. Less secure but useful for initial setup."
+                                            )
+                                        ),
+                                        form_entry.form_entry(
+                                            "Custom Python Path",
+                                            rx.input(
+                                                value=State.working_platform.platform.config.custom_python_path,
+                                                on_change=lambda v: State.update_platform_config_detail("custom_python_path", v),
+                                                placeholder="e.g. ~/.pyenv/versions/3.10.14/bin/python3",
+                                                size="3",
+                                            ),
+                                            upload=tile_icon(
+                                                "badge-info",
+                                                tooltip="Optional: Specify a custom Python 3.10 executable. Useful when system Python is not 3.10. Leave empty for auto-detection."
                                             )
                                         ),
                                     )
@@ -895,6 +1068,22 @@ def configuration_tab_content() -> rx.Component:
                                         "badge-info",
                                         tooltip="Modular uses pip packages for agents (recommended). Monolithic includes all agents in one installation."
                                     )
+                                ),
+                                rx.cond(
+                                    State.working_platform.platform.config.volttron_type == "modular",
+                                    form_entry.form_entry(
+                                        "VOLTTRON Version",
+                                        rx.input(
+                                            value=State.working_platform.platform.config.volttron_version,
+                                            on_change=lambda v: State.update_platform_config_detail("volttron_version", v),
+                                            placeholder="e.g. 2.0.0rc20 or user/volttron-core@branch",
+                                            size="3",
+                                        ),
+                                        upload=tile_icon(
+                                            "badge-info",
+                                            tooltip="Leave empty for latest PyPI. Or specify: version (2.0.0rc20), GitHub shorthand (user/repo@branch), or full git URL (git+https://...)."
+                                        )
+                                    ),
                                 ),
                                 form_entry.form_entry( # validate
                                     "Vip Address",
@@ -1284,33 +1473,56 @@ def data_tab_content() -> rx.Component:
                                     State.working_platform.host.ansible_port,
                                     size="1",
                                 ),
+                                rx.icon("copy", size=12),
                                 spacing="1",
                                 align="center",
                             ),
                             variant="soft",
                             color_scheme="gray",
+                            on_click=rx.set_clipboard(
+                                "ssh -p " + State.working_platform.host.ansible_port + " " +
+                                State.working_platform.host.ansible_user + "@" +
+                                State.working_platform.host.ansible_host
+                            ),
+                            style={"cursor": "pointer"},
                         ),
                         rx.badge(
                             rx.hstack(
                                 rx.icon("folder", size=12),
                                 rx.text("VOLTTRON_HOME:", size="1", weight="medium"),
                                 rx.text(State.working_platform.host.volttron_home, size="1"),
+                                rx.icon("copy", size=12),
                                 spacing="1",
                                 align="center",
                             ),
                             variant="soft",
                             color_scheme="gray",
+                            on_click=rx.set_clipboard(
+                                "ssh -p " + State.working_platform.host.ansible_port + " " +
+                                State.working_platform.host.ansible_user + "@" +
+                                State.working_platform.host.ansible_host + " " +
+                                '"export VOLTTRON_HOME=' + State.working_platform.host.volttron_home + ' && bash"'
+                            ),
+                            style={"cursor": "pointer"},
                         ),
                         rx.badge(
                             rx.hstack(
                                 rx.icon("box", size=12),
                                 rx.text("venv:", size="1", weight="medium"),
                                 rx.text(State.working_platform.host.volttron_venv, size="1"),
+                                rx.icon("copy", size=12),
                                 spacing="1",
                                 align="center",
                             ),
                             variant="soft",
                             color_scheme="gray",
+                            on_click=rx.set_clipboard(
+                                "ssh -p " + State.working_platform.host.ansible_port + " " +
+                                State.working_platform.host.ansible_user + "@" +
+                                State.working_platform.host.ansible_host + " " +
+                                '"source ' + State.working_platform.host.volttron_venv + '/bin/activate && bash"'
+                            ),
+                            style={"cursor": "pointer"},
                         ),
                         spacing="2",
                         wrap="wrap",
