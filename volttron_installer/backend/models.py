@@ -793,6 +793,7 @@ class AgentStatus(BaseModel):
     priority: str = ""
     status: str = ""
     health: str = ""
+    state: Literal["running", "stopped", "unknown"] = "unknown"
     
 class PlatformDeploymentStatus(BaseModel):
     """Represents the state of a platform deployment"""

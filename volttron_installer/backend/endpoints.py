@@ -1196,6 +1196,7 @@ async def delete_remote_volttron_files(platform_id: str, ansible: AnsibleService
 @ansible_router.post("/start_agent/{platform_id}/{agent_id}")
 async def start_agent(platform_id: str, agent_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
     """Starts a specific agent on a VOLTTRON platform using vctl"""
+    logger.info(f"[START_AGENT] Called with platform_id={platform_id}, agent_id={agent_id}")
     try:
         # Get platform definition and host entry
         platform_service = await get_platform_service()
@@ -1234,10 +1235,12 @@ if [ ! -f "$VENV_PATH/bin/activate" ]; then
 fi
 source "$VENV_PATH/bin/activate"
 
-"$VENV_PATH/bin/vctl" start --tag {agent_id_arg}
+"$VENV_PATH/bin/vctl" start {agent_id_arg}
 '''
 
+        logger.info(f"[START_AGENT] Executing start command for UUID {agent_id}")
         return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=30)
+        logger.info(f"[START_AGENT] Command completed: return_code={return_code}, stdout={stdout}, stderr={stderr}")
 
         if return_code != 0:
             raise HTTPException(
@@ -1352,6 +1355,7 @@ async def delete_platform_logs(platform_id: str):
 @ansible_router.post("/stop_agent/{platform_id}/{agent_id}")
 async def stop_agent(platform_id: str, agent_id: str, ansible: AnsibleService = Depends(get_ansible_service)):
     """Stops a specific agent on a VOLTTRON platform using vctl"""
+    logger.info(f"[STOP_AGENT] Called with platform_id={platform_id}, agent_id={agent_id}")
     try:
         # Get platform definition and host entry
         platform_service = await get_platform_service()
@@ -1373,9 +1377,10 @@ async def stop_agent(platform_id: str, agent_id: str, ansible: AnsibleService = 
         host = all_hosts[platform.config.instance_name]
         
         # Build command to stop the agent (direct SSH, no ansible ad-hoc)
+        # agent_id is now the UUID passed from the UI
         venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
         volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
-        agent_id_arg = shlex.quote(agent_id)
+        agent_uuid_arg = shlex.quote(agent_id)
 
         cmd = f'''
 VENV_PATH="{venv_path}"
@@ -1390,10 +1395,12 @@ if [ ! -f "$VENV_PATH/bin/activate" ]; then
 fi
 source "$VENV_PATH/bin/activate"
 
-"$VENV_PATH/bin/vctl" stop --tag {agent_id_arg}
+vctl stop {agent_uuid_arg}
 '''
 
+        logger.info(f"[STOP_AGENT] Executing stop command for UUID {agent_id}")
         return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=30)
+        logger.info(f"[STOP_AGENT] Command completed: return_code={return_code}, stdout={stdout[:200]}, stderr={stderr[:200]}")
 
         if return_code != 0:
             raise HTTPException(

@@ -1676,32 +1676,104 @@ def data_tab_content() -> rx.Component:
                                 rx.table.root(
                                     rx.table.header(
                                         rx.table.row(
-                                            rx.table.column_header_cell("UUID", width="6rem"),
                                             rx.table.column_header_cell("Agent"),
                                             rx.table.column_header_cell("Identity"),
-                                            rx.table.column_header_cell("Tag"),
-                                            rx.table.column_header_cell("Priority"),
-                                            rx.table.column_header_cell("Status"),
+                                            rx.table.column_header_cell("State"),
                                             rx.table.column_header_cell("Health"),
+                                            rx.table.column_header_cell(""),
                                         ),
                                     ),
                                     rx.table.body(
                                         rx.foreach(
                                             State.platform_agents_list,
                                             lambda agent: rx.table.row(
-                                                rx.table.cell(
-                                                    rx.text(agent.get("uuid", ""), size="2", color="gray"),
-                                                    max_width="6rem",
-                                                    overflow="hidden",
-                                                    text_overflow="ellipsis",
-                                                    white_space="nowrap",
-                                                ),
                                                 rx.table.cell(rx.text(agent.get("name", ""), size="2")),
                                                 rx.table.cell(rx.text(agent.get("identity", ""), size="2", weight="medium")),
-                                                rx.table.cell(rx.text(agent.get("tag", ""), size="2", color="gray")),
-                                                rx.table.cell(rx.text(agent.get("priority", ""), size="2", color="gray")),
-                                                rx.table.cell(rx.text(agent.get("status", ""), size="2")),
+                                                rx.table.cell(
+                                                    rx.badge(
+                                                        agent.get("state", "unknown"),
+                                                        color_scheme=rx.cond(
+                                                            agent.get("state") == "running",
+                                                            "green",
+                                                            "gray",
+                                                        ),
+                                                    ),
+                                                ),
                                                 rx.table.cell(rx.text(agent.get("health", ""), size="2")),
+                                                rx.table.cell(
+                                                    rx.hstack(
+                                                        # Start button (show when stopped)
+                                                        rx.cond(
+                                                            agent.get("state") != "running",
+                                                            rx.icon_button(
+                                                                rx.icon("play", size=14),
+                                                                on_click=State.handle_start_agent(agent.get("uuid")),
+                                                                size="1",
+                                                                variant="soft",
+                                                                color_scheme="green",
+                                                            ),
+                                                        ),
+                                                        # Stop button (show when running)
+                                                        rx.cond(
+                                                            agent.get("state") == "running",
+                                                            rx.icon_button(
+                                                                rx.icon("square", size=14),
+                                                                on_click=State.handle_stop_agent(agent.get("uuid")),
+                                                                size="1",
+                                                                variant="soft",
+                                                                color_scheme="orange",
+                                                            ),
+                                                        ),
+                                                        # Manage dropdown menu
+                                                        rx.menu.root(
+                                                            rx.menu.trigger(
+                                                                rx.icon_button(
+                                                                    rx.icon("more-vertical", size=14),
+                                                                    size="1",
+                                                                    variant="ghost",
+                                                                ),
+                                                            ),
+                                                            rx.menu.content(
+                                                                rx.menu.item(
+                                                                    rx.hstack(
+                                                                        rx.icon("info", size=14),
+                                                                        rx.text("Details"),
+                                                                        spacing="2",
+                                                                    ),
+                                                                    # TODO: Open agent details dialog
+                                                                ),
+                                                                rx.menu.item(
+                                                                    rx.hstack(
+                                                                        rx.icon("settings", size=14),
+                                                                        rx.text("Configure"),
+                                                                        spacing="2",
+                                                                    ),
+                                                                    # TODO: Open agent config dialog
+                                                                ),
+                                                                rx.menu.separator(),
+                                                                rx.menu.item(
+                                                                    rx.hstack(
+                                                                        rx.icon("book-open", size=14),
+                                                                        rx.text("Documentation"),
+                                                                        spacing="2",
+                                                                    ),
+                                                                    # TODO: Open docs
+                                                                ),
+                                                                rx.menu.separator(),
+                                                                rx.menu.item(
+                                                                    rx.hstack(
+                                                                        rx.icon("trash-2", size=14),
+                                                                        rx.text("Remove Agent"),
+                                                                        spacing="2",
+                                                                    ),
+                                                                    color="red",
+                                                                    on_click=State.handle_remove_agent(agent.get("identity")),
+                                                                ),
+                                                            ),
+                                                        ),
+                                                        spacing="1",
+                                                    ),
+                                                ),
                                             )
                                         ),
                                     ),

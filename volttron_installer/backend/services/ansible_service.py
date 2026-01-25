@@ -373,35 +373,45 @@ class AnsibleService:
                         return health_val.get('message', '')
                     return str(health_val) if health_val else ''
 
+                # Helper to derive state from status field (e.g., "running [12345]" -> "running")
+                def get_agent_state(status_str):
+                    if status_str and status_str.lower().startswith('running'):
+                        return 'running'
+                    return 'stopped'
+
                 # vctl status --json returns a dict keyed by identity with agent details
                 agent_status = {}
                 if isinstance(json_data, dict):
                     for agent_id, agent_info in json_data.items():
                         if isinstance(agent_info, dict):
+                            status_val = agent_info.get('status', '')
                             agent_status[agent_id] = {
                                 'identity': agent_id,
                                 'uuid': agent_info.get('agent_uuid', ''),
                                 'name': agent_info.get('name', ''),
                                 'tag': agent_info.get('agent_tag', ''),
                                 'priority': str(agent_info.get('priority', '')),
-                                'status': agent_info.get('status', ''),
+                                'status': status_val,
                                 'health': get_health_str(agent_info.get('health')),
+                                'state': get_agent_state(status_val),
                             }
                         else:
-                            agent_status[agent_id] = {'identity': agent_id}
+                            agent_status[agent_id] = {'identity': agent_id, 'state': 'unknown'}
                 elif isinstance(json_data, list):
                     for agent in json_data:
                         if isinstance(agent, dict):
                             ident = agent.get('identity') or agent.get('agent_identity') or agent.get('name')
                             if ident:
+                                status_val = agent.get('status', '')
                                 agent_status[ident] = {
                                     'identity': ident,
                                     'uuid': agent.get('agent_uuid', ''),
                                     'name': agent.get('name', ''),
                                     'tag': agent.get('agent_tag', ''),
                                     'priority': str(agent.get('priority', '')),
-                                    'status': agent.get('status', ''),
+                                    'status': status_val,
                                     'health': get_health_str(agent.get('health')),
+                                    'state': get_agent_state(status_val),
                                 }
 
                 logger.debug(f"Agent status for {instance_name}: {agent_status}")
