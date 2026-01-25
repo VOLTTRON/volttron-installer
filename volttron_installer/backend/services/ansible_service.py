@@ -347,10 +347,15 @@ class AnsibleService:
             # Parse JSON output from vctl status
             import json
             try:
-                # Try to parse entire stdout as JSON (works for direct SSH output)
-                json_data = json.loads(stdout.strip())
-            except json.JSONDecodeError:
-                logger.warning(f"Could not parse vctl status output for {instance_name}")
+                # Find the JSON portion (may have debug text before it)
+                json_start = stdout.find('{')
+                if json_start == -1:
+                    logger.warning(f"No JSON found in vctl status output for {instance_name}")
+                    return True, {}
+                json_str = stdout[json_start:]
+                json_data = json.loads(json_str)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Could not parse vctl status output for {instance_name}: {e}")
                 logger.debug(f"Raw stdout: {stdout[:200]}")
                 # Platform is running (we checked above) but couldn't parse agent info
                 return True, {}
@@ -362,18 +367,42 @@ class AnsibleService:
 
                 logger.debug(f"Parsed JSON data: {json_data}")
 
-                # vctl status --json can return a list of agent objects or a dict keyed by identity
-                # Extract only the identity to keep UI simple and robust
+                # Helper to extract health message (can be string or dict with 'message' key)
+                def get_health_str(health_val):
+                    if isinstance(health_val, dict):
+                        return health_val.get('message', '')
+                    return str(health_val) if health_val else ''
+
+                # vctl status --json returns a dict keyed by identity with agent details
                 agent_status = {}
                 if isinstance(json_data, dict):
-                    for agent_id in json_data.keys():
-                        agent_status[agent_id] = {'identity': agent_id}
+                    for agent_id, agent_info in json_data.items():
+                        if isinstance(agent_info, dict):
+                            agent_status[agent_id] = {
+                                'identity': agent_id,
+                                'uuid': agent_info.get('agent_uuid', ''),
+                                'name': agent_info.get('name', ''),
+                                'tag': agent_info.get('agent_tag', ''),
+                                'priority': str(agent_info.get('priority', '')),
+                                'status': agent_info.get('status', ''),
+                                'health': get_health_str(agent_info.get('health')),
+                            }
+                        else:
+                            agent_status[agent_id] = {'identity': agent_id}
                 elif isinstance(json_data, list):
                     for agent in json_data:
                         if isinstance(agent, dict):
                             ident = agent.get('identity') or agent.get('agent_identity') or agent.get('name')
                             if ident:
-                                agent_status[ident] = {'identity': ident}
+                                agent_status[ident] = {
+                                    'identity': ident,
+                                    'uuid': agent.get('agent_uuid', ''),
+                                    'name': agent.get('name', ''),
+                                    'tag': agent.get('agent_tag', ''),
+                                    'priority': str(agent.get('priority', '')),
+                                    'status': agent.get('status', ''),
+                                    'health': get_health_str(agent.get('health')),
+                                }
 
                 logger.debug(f"Agent status for {instance_name}: {agent_status}")
                 return True, agent_status

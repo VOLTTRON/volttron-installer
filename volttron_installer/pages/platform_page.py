@@ -1673,20 +1673,40 @@ def data_tab_content() -> rx.Component:
                             rx.divider(),
                             rx.cond(
                                 State.platform_agents_list,
-                                rx.vstack(
-                                    rx.foreach(
-                                        State.platform_agents_list,
-                                        lambda agent: rx.hstack(
-                                            rx.icon("package", size=16, color="var(--blue-9)"),
-                                            rx.text(agent["id"], size="3"),
-                                            spacing="2",
-                                            padding="0.5rem",
-                                            border_radius="8px",
-                                            _hover={"background_color": "var(--gray-3)"},
-                                        )
+                                rx.table.root(
+                                    rx.table.header(
+                                        rx.table.row(
+                                            rx.table.column_header_cell("UUID", width="6rem"),
+                                            rx.table.column_header_cell("Agent"),
+                                            rx.table.column_header_cell("Identity"),
+                                            rx.table.column_header_cell("Tag"),
+                                            rx.table.column_header_cell("Priority"),
+                                            rx.table.column_header_cell("Status"),
+                                            rx.table.column_header_cell("Health"),
+                                        ),
+                                    ),
+                                    rx.table.body(
+                                        rx.foreach(
+                                            State.platform_agents_list,
+                                            lambda agent: rx.table.row(
+                                                rx.table.cell(
+                                                    rx.text(agent.get("uuid", ""), size="2", color="gray"),
+                                                    max_width="6rem",
+                                                    overflow="hidden",
+                                                    text_overflow="ellipsis",
+                                                    white_space="nowrap",
+                                                ),
+                                                rx.table.cell(rx.text(agent.get("name", ""), size="2")),
+                                                rx.table.cell(rx.text(agent.get("identity", ""), size="2", weight="medium")),
+                                                rx.table.cell(rx.text(agent.get("tag", ""), size="2", color="gray")),
+                                                rx.table.cell(rx.text(agent.get("priority", ""), size="2", color="gray")),
+                                                rx.table.cell(rx.text(agent.get("status", ""), size="2")),
+                                                rx.table.cell(rx.text(agent.get("health", ""), size="2")),
+                                            )
+                                        ),
                                     ),
                                     width="100%",
-                                    spacing="2",
+                                    size="2",
                                 ),
                                 rx.text("No agents installed. Click 'Add Agent' to install one.", size="3", color="gray"),
                             ),

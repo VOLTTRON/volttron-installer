@@ -785,8 +785,14 @@ class CreatePlatformRequest(PlatformDefinition):
     pass
 
 class AgentStatus(BaseModel):
-    """Represents the state of an agent - minimal version showing just identity"""
+    """Represents the state of an agent"""
     identity: str
+    uuid: str = ""
+    name: str = ""
+    tag: str = ""
+    priority: str = ""
+    status: str = ""
+    health: str = ""
     
 class PlatformDeploymentStatus(BaseModel):
     """Represents the state of a platform deployment"""
