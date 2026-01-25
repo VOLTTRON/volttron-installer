@@ -1003,7 +1003,8 @@ async def start_platform(platform_id: str, ansible: AnsibleService = Depends(get
         cleanup_cmd = f"sed -i '/instance_name/d; /messagebus/d; /message_bus/d; /^options/d; /vip_address/d; /volttron_type/d; s/agent-isolation-mode = True/agent-isolation-mode = False/g' {volttron_home}/config 2>/dev/null || true"
         await ansible.run_ssh_command(host, cleanup_cmd, timeout=10)
 
-        # Simple SSH startup: activate venv, set VOLTTRON_HOME, start in background
+        # SSH startup: activate venv, set VOLTTRON_HOME, start in background
+        # Use proper volttron command (not nohup workaround) to ensure setup_poetry_project() is called
         # Logs go to VOLTTRON_HOME/volttron.log
         startup_cmd = f'''
 VENV_PATH="{venv_path}"
@@ -1019,7 +1020,7 @@ fi
 . "$VENV_PATH/bin/activate"
 mkdir -p "$VOLTTRON_HOME"
 
-nohup "$VENV_PATH/bin/volttron" -vv -l "$VOLTTRON_HOME/volttron.log" >/dev/null 2>&1 &
+volttron -vv -l "$VOLTTRON_HOME/volttron.log" &>/dev/null &
 echo "VOLTTRON_STARTED"
 '''
 
@@ -1524,7 +1525,7 @@ source "$VENV_PATH/bin/activate"
         logger.info(f"[INSTALL_AGENT] Installing agent {agent_identity} on platform {platform_id}")
         logger.info(f"[INSTALL_AGENT] Full command: {cmd}")
 
-        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=120)
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=600)
         logger.info(f"[INSTALL_AGENT] Command completed: return_code={return_code}")
 
         if return_code != 0:

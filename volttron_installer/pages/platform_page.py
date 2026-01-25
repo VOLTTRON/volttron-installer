@@ -1479,10 +1479,11 @@ def data_tab_content() -> rx.Component:
                             ),
                             variant="soft",
                             color_scheme="gray",
-                            on_click=rx.set_clipboard(
+                            on_click=rx.call_script(
+                                "navigator.clipboard.writeText('" +
                                 "ssh -p " + State.working_platform.host.ansible_port + " " +
                                 State.working_platform.host.ansible_user + "@" +
-                                State.working_platform.host.ansible_host
+                                State.working_platform.host.ansible_host + "')"
                             ),
                             style={"cursor": "pointer"},
                         ),
@@ -1497,11 +1498,12 @@ def data_tab_content() -> rx.Component:
                             ),
                             variant="soft",
                             color_scheme="gray",
-                            on_click=rx.set_clipboard(
+                            on_click=rx.call_script(
+                                "navigator.clipboard.writeText('" +
                                 "ssh -p " + State.working_platform.host.ansible_port + " " +
                                 State.working_platform.host.ansible_user + "@" +
                                 State.working_platform.host.ansible_host + " " +
-                                '"export VOLTTRON_HOME=' + State.working_platform.host.volttron_home + ' && bash"'
+                                "\"export VOLTTRON_HOME=" + State.working_platform.host.volttron_home + " && bash\"" + "')"
                             ),
                             style={"cursor": "pointer"},
                         ),
@@ -1516,11 +1518,12 @@ def data_tab_content() -> rx.Component:
                             ),
                             variant="soft",
                             color_scheme="gray",
-                            on_click=rx.set_clipboard(
+                            on_click=rx.call_script(
+                                "navigator.clipboard.writeText('" +
                                 "ssh -p " + State.working_platform.host.ansible_port + " " +
                                 State.working_platform.host.ansible_user + "@" +
                                 State.working_platform.host.ansible_host + " " +
-                                '"source ' + State.working_platform.host.volttron_venv + '/bin/activate && bash"'
+                                "\"source " + State.working_platform.host.volttron_venv + "/bin/activate && bash\"" + "')"
                             ),
                             style={"cursor": "pointer"},
                         ),
