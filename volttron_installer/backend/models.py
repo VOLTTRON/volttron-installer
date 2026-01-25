@@ -785,9 +785,8 @@ class CreatePlatformRequest(PlatformDefinition):
     pass
 
 class AgentStatus(BaseModel):
-    """Represents the state of an agent"""
+    """Represents the state of an agent - minimal version showing just identity"""
     identity: str
-    state: Literal["not deployed", "deployed", "started", "stopped"] = "not deployed"
     
 class PlatformDeploymentStatus(BaseModel):
     """Represents the state of a platform deployment"""

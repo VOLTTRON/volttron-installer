@@ -1677,58 +1677,9 @@ def data_tab_content() -> rx.Component:
                                     rx.foreach(
                                         State.platform_agents_list,
                                         lambda agent: rx.hstack(
-                                            rx.hstack(
-                                                rx.text(agent["id"], weight="bold", size="3"),
-                                                rx.badge(
-                                                    agent.get("state", "unknown"),
-                                                    color_scheme=rx.cond(
-                                                        agent.get("state") == "started",
-                                                        "green",
-                                                        rx.cond(
-                                                            agent.get("state") == "stopped",
-                                                            "orange",
-                                                            "gray"
-                                                        )
-                                                    ),
-                                                ),
-                                                spacing="3",
-                                            ),
-                                            rx.hstack(
-                                                # Start button
-                                                rx.cond(
-                                                    agent.get("state") != "started",
-                                                    rx.icon_button(
-                                                        rx.icon("play", size=14),
-                                                        on_click=lambda: State.handle_start_agent(agent["id"]),
-                                                        size="1",
-                                                        variant="soft",
-                                                        color_scheme="green",
-                                                    ),
-                                                ),
-                                                # Stop button
-                                                rx.cond(
-                                                    agent.get("state") == "started",
-                                                    rx.icon_button(
-                                                        rx.icon("square", size=14),
-                                                        on_click=lambda: State.handle_stop_agent(agent["id"]),
-                                                        size="1",
-                                                        variant="soft",
-                                                        color_scheme="red",
-                                                    ),
-                                                ),
-                                                # Remove button
-                                                rx.icon_button(
-                                                    rx.icon("trash-2", size=14),
-                                                    on_click=lambda: State.handle_remove_agent(agent["id"]),
-                                                    size="1",
-                                                    variant="soft",
-                                                    color_scheme="gray",
-                                                    loading=State.removing_agent,
-                                                ),
-                                                spacing="2",
-                                            ),
-                                            justify="between",
-                                            width="100%",
+                                            rx.icon("package", size=16, color="var(--blue-9)"),
+                                            rx.text(agent["id"], size="3"),
+                                            spacing="2",
                                             padding="0.5rem",
                                             border_radius="8px",
                                             _hover={"background_color": "var(--gray-3)"},

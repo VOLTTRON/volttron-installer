@@ -327,15 +327,13 @@ class AnsibleService:
             venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
             volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
 
-            # Command to activate venv and run vctl --json status (using . instead of source for POSIX compatibility)
+            # Command to activate venv and run vctl --json status (POSIX-safe activation)
             cmd = f"export VOLTTRON_HOME={volttron_home} && . {venv_path}/bin/activate && vctl --json status"
 
-            # Execute via ad-hoc command
+            # Execute via direct SSH (faster than Ansible ad-hoc)
             logger.info(f"[DEBUG] Running vctl status for {instance_name}")
-            return_code, stdout, stderr = await self.run_volttron_ad_hoc(
-                command=cmd,
-                hosts=instance_name,
-                connection=host.ansible_connection
+            return_code, stdout, stderr = await self.run_ssh_command(
+                host, cmd, timeout=30
             )
             logger.info(f"[DEBUG] vctl status return_code: {return_code}")
             logger.info(f"[DEBUG] vctl status stdout (first 500 chars): {stdout[:500] if stdout else 'empty'}")
@@ -349,39 +347,33 @@ class AnsibleService:
             # Parse JSON output from vctl status
             import json
             try:
-                # Extract JSON from ansible output
-                # The output will be in the stdout, look for JSON-like structure
-                lines = stdout.split('\n')
-                json_data = None
-                
-                for line in lines:
-                    line = line.strip()
-                    if line.startswith('{') or line.startswith('['):
-                        try:
-                            json_data = json.loads(line)
-                            break
-                        except json.JSONDecodeError:
-                            continue
-                
+                # Try to parse entire stdout as JSON (works for direct SSH output)
+                json_data = json.loads(stdout.strip())
+            except json.JSONDecodeError:
+                logger.warning(f"Could not parse vctl status output for {instance_name}")
+                logger.debug(f"Raw stdout: {stdout[:200]}")
+                # Platform is running (we checked above) but couldn't parse agent info
+                return True, {}
+
+            try:
                 if json_data is None:
-                    logger.warning(f"Could not parse vctl status output for {instance_name}")
-                    # Platform is running (we checked above) but couldn't parse agent info
+                    logger.warning(f"Empty JSON data for {instance_name}")
                     return True, {}
 
                 logger.debug(f"Parsed JSON data: {json_data}")
 
-                # vctl status --json returns a dict with agent identities as keys
-                # Each agent has status info like "running", "stopped", etc.
+                # vctl status --json can return a list of agent objects or a dict keyed by identity
+                # Extract only the identity to keep UI simple and robust
                 agent_status = {}
                 if isinstance(json_data, dict):
-                    for agent_id, agent_info in json_data.items():
-                        if isinstance(agent_info, dict):
-                            # Check if agent has a running status
-                            agent_running = agent_info.get('running', False) or agent_info.get('status', '').lower() == 'running'
-                            agent_status[agent_id] = {
-                                'identity': agent_id,
-                                'state': 'started' if agent_running else 'stopped'
-                            }
+                    for agent_id in json_data.keys():
+                        agent_status[agent_id] = {'identity': agent_id}
+                elif isinstance(json_data, list):
+                    for agent in json_data:
+                        if isinstance(agent, dict):
+                            ident = agent.get('identity') or agent.get('agent_identity') or agent.get('name')
+                            if ident:
+                                agent_status[ident] = {'identity': ident}
 
                 logger.debug(f"Agent status for {instance_name}: {agent_status}")
                 return True, agent_status
