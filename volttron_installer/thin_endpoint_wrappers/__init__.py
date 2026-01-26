@@ -474,15 +474,15 @@ async def install_agent(
     )
 
 
-async def remove_agent(platform_id: str, agent_identity: str):
+async def remove_agent(platform_id: str, agent_uuid: str):
     """Remove/uninstall an agent from a running VOLTTRON platform.
 
     Args:
         platform_id: The platform instance name
-        agent_identity: The VIP identity of the agent to remove
+        agent_uuid: The UUID of the agent to remove
     """
     return await post_request(
-        f"{API_BASE_URL}{ANSIBLE_PREFIX}/remove_agent/{platform_id}/{agent_identity}",
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/remove_agent/{platform_id}/{agent_uuid}",
         timeout=30.0
     )
 

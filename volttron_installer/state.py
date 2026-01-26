@@ -373,6 +373,7 @@ class PlatformPageState(rx.State):
     # Platform status tracking
     _platform_status: dict = {}  # Stores PlatformDeploymentStatus data
     _status_loading: bool = False
+    _last_refresh_request: float = 0.0  # Timestamp of last refresh request for debouncing
     _status_error: str = ""
     _last_status_check: str = ""
     _starting_platform: bool = False  # True while starting VOLTTRON
@@ -416,7 +417,12 @@ class PlatformPageState(rx.State):
     _install_agent_start: bool = True
     _installing_agent: bool = False
     _removing_agent: bool = False
+    _starting_agent_uuid: str = ""  # UUID of agent currently being started
+    _stopping_agent_uuid: str = ""  # UUID of agent currently being stopped
     _selected_catalog_agent: str = ""  # identity of selected agent from catalog
+    _show_remove_agent_dialog: bool = False
+    _agent_to_remove_uuid: str = ""
+    _agent_to_remove_name: str = ""
 
     # Vars
     @rx.var(cache=True)
@@ -1527,6 +1533,24 @@ class PlatformPageState(rx.State):
                 self._pyenv_error = error_msg
             yield rx.toast.error("Pyenv install failed. Check details in the dialog.")
 
+    @rx.event(background=True)
+    async def refresh_platform_status_debounced(self):
+        """Debounced version - waits 2 seconds before refreshing to batch multiple operations"""
+        import time
+        import asyncio
+        
+        async with self:
+            self._last_refresh_request = time.time()
+            request_time = self._last_refresh_request
+        
+        # Wait 2 seconds
+        await asyncio.sleep(2)
+        
+        async with self:
+            # Only refresh if no newer request came in
+            if request_time == self._last_refresh_request:
+                yield PlatformPageState.refresh_platform_status()
+
     @rx.event
     async def refresh_platform_status(self):
         """Fetch the current status of the platform from the backend"""
@@ -1604,6 +1628,12 @@ class PlatformPageState(rx.State):
         if working_platform.new_instance or not working_platform.platform.in_file:
             self._connection_status = "unknown"
             self._connection_method = "Platform not saved"
+            return
+        
+        # Skip check if platform isn't deployed or in error state
+        if not working_platform.deployed:
+            self._connection_status = "unknown"
+            self._connection_method = "Platform not deployed"
             return
 
         self._connection_status = "checking"
@@ -1956,14 +1986,25 @@ class PlatformPageState(rx.State):
                 return
                 
             working_platform: Instance = self.working_platform
+            self._starting_agent_uuid = agent_id
             
+        yield
+        
         try:
             await start_agent(working_platform.platform.config.instance_name, agent_id)
-            yield rx.toast.success(f"Agent {agent_id} started successfully!")
-            yield PlatformPageState.refresh_platform_status()
+            
+            async with self:
+                self._starting_agent_uuid = ""
+            
+            yield rx.toast.success(f"Agent started successfully!")
+            yield PlatformPageState.refresh_platform_status_debounced()
         except ApiError as e:
+            async with self:
+                self._starting_agent_uuid = ""
             yield rx.toast.error(f"Failed to start agent: {e.detail}")
         except Exception as e:
+            async with self:
+                self._starting_agent_uuid = ""
             yield rx.toast.error(f"Error starting agent: {str(e)}")
 
     @rx.event(background=True)
@@ -1975,14 +2016,25 @@ class PlatformPageState(rx.State):
                 return
 
             working_platform: Instance = self.working_platform
+            self._stopping_agent_uuid = agent_id
+        
+        yield
 
         try:
             await stop_agent(working_platform.platform.config.instance_name, agent_id)
-            yield rx.toast.success(f"Agent {agent_id} stopped successfully!")
-            yield PlatformPageState.refresh_platform_status()
+            
+            async with self:
+                self._stopping_agent_uuid = ""
+            
+            yield rx.toast.success(f"Agent stopped successfully!")
+            yield PlatformPageState.refresh_platform_status_debounced()
         except ApiError as e:
+            async with self:
+                self._stopping_agent_uuid = ""
             yield rx.toast.error(f"Failed to stop agent: {e.detail}")
         except Exception as e:
+            async with self:
+                self._stopping_agent_uuid = ""
             yield rx.toast.error(f"Error stopping agent: {str(e)}")
 
     # Install agent dialog handlers
@@ -2089,9 +2141,61 @@ class PlatformPageState(rx.State):
                 self._installing_agent = False
             yield rx.toast.error(f"Error installing agent: {str(e)}")
 
+    @rx.event
+    def open_remove_agent_dialog(self, agent_uuid: str, agent_name: str):
+        """Open confirmation dialog before removing agent"""
+        self._agent_to_remove_uuid = agent_uuid
+        self._agent_to_remove_name = agent_name
+        self._show_remove_agent_dialog = True
+
+    @rx.event
+    def close_remove_agent_dialog(self):
+        """Close the remove agent confirmation dialog"""
+        self._show_remove_agent_dialog = False
+        self._agent_to_remove_uuid = ""
+        self._agent_to_remove_name = ""
+
     @rx.event(background=True)
-    async def handle_remove_agent(self, agent_identity: str):
-        """Remove/uninstall an agent from the running platform"""
+    async def confirm_remove_agent(self):
+        """Actually remove the agent after confirmation"""
+        async with self:
+            agent_uuid = self._agent_to_remove_uuid
+            if not self.current_uid or self.current_uid not in self.platforms:
+                yield rx.toast.error("Platform not found")
+                return
+
+            working_platform: Instance = self.working_platform
+            self._removing_agent = True
+            self._show_remove_agent_dialog = False
+
+        yield
+
+        try:
+            await remove_agent(
+                platform_id=working_platform.platform.config.instance_name,
+                agent_uuid=agent_uuid
+            )
+
+            async with self:
+                self._removing_agent = False
+                self._agent_to_remove_uuid = ""
+                self._agent_to_remove_name = ""
+
+            yield rx.toast.success(f"Agent removed successfully!")
+            yield PlatformPageState.refresh_platform_status_debounced()
+
+        except ApiError as e:
+            async with self:
+                self._removing_agent = False
+            yield rx.toast.error(f"Failed to remove agent: {e.detail}")
+        except Exception as e:
+            async with self:
+                self._removing_agent = False
+            yield rx.toast.error(f"Error removing agent: {str(e)}")
+
+    @rx.event(background=True)
+    async def handle_remove_agent(self, agent_uuid: str):
+        """Remove/uninstall an agent from the running platform (deprecated - use open_remove_agent_dialog)"""
         async with self:
             if not self.current_uid or self.current_uid not in self.platforms:
                 yield rx.toast.error("Platform not found")
@@ -2105,14 +2209,14 @@ class PlatformPageState(rx.State):
         try:
             await remove_agent(
                 platform_id=working_platform.platform.config.instance_name,
-                agent_identity=agent_identity
+                agent_uuid=agent_uuid
             )
 
             async with self:
                 self._removing_agent = False
 
-            yield rx.toast.success(f"Agent {agent_identity} removed successfully!")
-            yield PlatformPageState.refresh_platform_status()
+            yield rx.toast.success(f"Agent removed successfully!")
+            yield PlatformPageState.refresh_platform_status_debounced()
 
         except ApiError as e:
             async with self:
@@ -2475,35 +2579,59 @@ class AgentConfigState(rx.State):
 
 
     # ======= state vars to streamline agent validation =======
+    # Cache for validity check results to prevent redundant API calls
+    _agent_validity_cache: dict[str, Any] = {}
+    _agent_validity_cache_key: str = ""
+
+    @rx.var
+    async def agent_validity_status(self) -> dict[str, bool]:
+        """Cached validity check - all other validity vars read from this"""
+        # Create cache key from relevant fields
+        cache_key = f"{self.agent_details.get('uid', '')}:{self.working_agent.identity}:{self.working_agent.source}:{self.working_agent.config}:{self.working_agent.routing_id}"
+        
+        # Return cached result if key matches
+        if cache_key == self._agent_validity_cache_key and self._agent_validity_cache:
+            return self._agent_validity_cache
+        
+        # Compute fresh validity
+        valid, validity_map = await self.check_agent_validity()
+        validity_map["overall_valid"] = valid
+        
+        # Update cache
+        self._agent_validity_cache = validity_map
+        self._agent_validity_cache_key = cache_key
+        
+        return validity_map
+
     @rx.var
     async def agent_valid(self) -> bool:
         """checks if the agent identity is valid"""
-        valid, validity_map = await self.check_agent_validity()
-        return valid
+        validity = await self.agent_validity_status
+        return validity.get("overall_valid", False)
     
     @rx.var
     async def agent_identity_not_in_use(self) -> bool:
         """checks if the agent identity is valid"""
-        valid, validity_map = await self.check_agent_validity()
-        return validity_map["identity_not_in_use"]
+        validity = await self.agent_validity_status
+        return validity.get("identity_not_in_use", False)
 
     @rx.var
     async def agent_identity_validity(self) -> bool:
         """checks if the agent identity is valid"""
-        valid, validity_map = await self.check_agent_validity()
-        return validity_map["identity_valid"]
+        validity = await self.agent_validity_status
+        return validity.get("identity_valid", False)
     
     @rx.var
     async def agent_source_validity(self) -> bool:
         """checks if the agent source is valid"""
-        valid, validity_map = await self.check_agent_validity()
-        return validity_map["source"]
+        validity = await self.agent_validity_status
+        return validity.get("source", False)
     
     @rx.var
     async def agent_config_validity(self) -> bool:
         """checks if the agent config is valid"""
-        valid, validity_map = await self.check_agent_validity()
-        return validity_map["config"]
+        validity = await self.agent_validity_status
+        return validity.get("config", False)
 
     # ======== End of agent validation vars========
 

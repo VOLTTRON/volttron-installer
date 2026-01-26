@@ -1706,22 +1706,32 @@ def data_tab_content() -> rx.Component:
                                                         rx.cond(
                                                             agent.get("state") != "running",
                                                             rx.icon_button(
-                                                                rx.icon("play", size=18),
+                                                                rx.cond(
+                                                                    State._starting_agent_uuid == agent.get("uuid"),
+                                                                    rx.icon("loader-circle", size=18, class_name="animate-spin"),
+                                                                    rx.icon("play", size=18),
+                                                                ),
                                                                 on_click=State.handle_start_agent(agent.get("uuid")),
                                                                 size="2",
                                                                 variant="soft",
                                                                 color_scheme="green",
+                                                                disabled=State._starting_agent_uuid == agent.get("uuid"),
                                                             ),
                                                         ),
                                                         # Stop button (show when running)
                                                         rx.cond(
                                                             agent.get("state") == "running",
                                                             rx.icon_button(
-                                                                rx.icon("square", size=18),
+                                                                rx.cond(
+                                                                    State._stopping_agent_uuid == agent.get("uuid"),
+                                                                    rx.icon("loader-circle", size=18, class_name="animate-spin"),
+                                                                    rx.icon("square", size=18),
+                                                                ),
                                                                 on_click=State.handle_stop_agent(agent.get("uuid")),
                                                                 size="2",
                                                                 variant="soft",
                                                                 color_scheme="orange",
+                                                                disabled=State._stopping_agent_uuid == agent.get("uuid"),
                                                             ),
                                                         ),
                                                         # Config button
@@ -1733,11 +1743,16 @@ def data_tab_content() -> rx.Component:
                                                         ),
                                                         # Remove button
                                                         rx.icon_button(
-                                                            rx.icon("trash-2", size=18),
-                                                            on_click=State.handle_remove_agent(agent.get("identity")),
+                                                            rx.cond(
+                                                                State._removing_agent,
+                                                                rx.icon("loader-circle", size=18, class_name="animate-spin"),
+                                                                rx.icon("trash-2", size=18),
+                                                            ),
+                                                            on_click=lambda: State.open_remove_agent_dialog(agent.get("uuid"), agent.get("name")),
                                                             size="2",
                                                             variant="ghost",
                                                             color_scheme="red",
+                                                            disabled=State._removing_agent,
                                                         ),
                                                         spacing="2",
                                                         align="center",
@@ -1782,9 +1797,9 @@ def data_tab_content() -> rx.Component:
                         ),
                     ),
                     
-                    # Periodic connection check (every 5 seconds)
+                    # Periodic connection check (every 15 seconds)
                     rx.moment(
-                        interval=5000,
+                        interval=15000,
                         on_change=State.check_connection,
                         display="none",
                     ),
@@ -1810,6 +1825,36 @@ def data_tab_content() -> rx.Component:
                 ),
                 padding="1rem",
             ),
+        ),
+        # Remove agent confirmation dialog
+        rx.dialog.root(
+            rx.dialog.content(
+                rx.dialog.title("Remove Agent"),
+                rx.dialog.description(
+                    rx.text(
+                        f"Are you sure you want to remove ",
+                        rx.text(State._agent_to_remove_name, weight="bold", as_="span"),
+                        "? This action cannot be undone.",
+                    ),
+                ),
+                rx.flex(
+                    rx.dialog.close(
+                        rx.button("Cancel", variant="soft", color_scheme="gray"),
+                    ),
+                    rx.dialog.close(
+                        rx.button(
+                            "Remove Agent",
+                            on_click=State.confirm_remove_agent,
+                            color_scheme="red",
+                            loading=State._removing_agent,
+                        ),
+                    ),
+                    spacing="3",
+                    justify="end",
+                ),
+            ),
+            open=State._show_remove_agent_dialog,
+            on_open_change=State.close_remove_agent_dialog,
         ),
     )
 

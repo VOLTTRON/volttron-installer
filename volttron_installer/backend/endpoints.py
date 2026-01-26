@@ -1395,7 +1395,7 @@ if [ ! -f "$VENV_PATH/bin/activate" ]; then
 fi
 source "$VENV_PATH/bin/activate"
 
-vctl stop {agent_uuid_arg}
+"$VENV_PATH/bin/vctl" stop {agent_uuid_arg}
 '''
 
         logger.info(f"[STOP_AGENT] Executing stop command for UUID {agent_id}")
@@ -1563,17 +1563,17 @@ source "$VENV_PATH/bin/activate"
         )
 
 
-@ansible_router.post("/remove_agent/{platform_id}/{agent_identity}")
+@ansible_router.post("/remove_agent/{platform_id}/{agent_uuid}")
 async def remove_agent(
     platform_id: str,
-    agent_identity: str,
+    agent_uuid: str,
     ansible: AnsibleService = Depends(get_ansible_service)
 ):
     """Remove/uninstall an agent from a running VOLTTRON platform using vctl remove.
 
     Args:
         platform_id: The platform instance name
-        agent_identity: The VIP identity of the agent to remove
+        agent_uuid: The UUID of the agent to remove
     """
     try:
         # Get platform definition and host entry
@@ -1595,63 +1595,45 @@ async def remove_agent(
 
         host = all_hosts[platform.config.instance_name]
 
-        # Build paths
+        # Build command to remove the agent using UUID
         venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
         volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        agent_uuid_arg = shlex.quote(agent_uuid)
 
-        # First, get the agent UUID from the identity using vctl status --json
-        status_cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl --json status"
+        cmd = f'''
+VENV_PATH="{venv_path}"
+VOLTTRON_HOME="{volttron_home}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+export VOLTTRON_HOME
 
-        return_code, stdout, stderr = await ansible.run_ssh_command(host, status_cmd, timeout=30)
+if [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+    exit 1
+fi
+source "$VENV_PATH/bin/activate"
 
-        if return_code != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to get agent status: {stderr or stdout}"
-            )
+"$VENV_PATH/bin/vctl" remove {agent_uuid_arg}
+'''
 
-        # Parse the JSON output to find the agent UUID
-        import json
-        try:
-            agents = json.loads(stdout)
-            agent_uuid = None
-            for identity, agent_info in agents.items():
-                if identity == agent_identity:
-                    agent_uuid = agent_info.get("agent_uuid")
-                    break
+        logger.info(f"Removing agent UUID {agent_uuid} from platform {platform_id}")
 
-            if not agent_uuid:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Agent {agent_identity} not found on platform"
-                )
-        except json.JSONDecodeError:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to parse agent status: {stdout}"
-            )
-
-        # Now remove the agent using its UUID
-        remove_cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl remove {agent_uuid}"
-
-        logger.info(f"Removing agent {agent_identity} (UUID: {agent_uuid}) from platform {platform_id}")
-
-        return_code, stdout, stderr = await ansible.run_ssh_command(host, remove_cmd, timeout=30)
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=30)
 
         if return_code != 0:
             error_msg = stderr or stdout
-            logger.error(f"Failed to remove agent {agent_identity}: {error_msg}")
+            logger.error(f"Failed to remove agent {agent_uuid}: {error_msg}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to remove agent {agent_identity}: {error_msg}"
+                detail=f"Failed to remove agent {agent_uuid}: {error_msg}"
             )
 
-        logger.info(f"Agent {agent_identity} removed successfully from platform {platform_id}")
+        logger.info(f"Agent {agent_uuid} removed successfully from platform {platform_id}")
         return {
             "status": "success",
-            "message": f"Agent {agent_identity} removed successfully",
+            "message": f"Agent removed successfully",
             "output": stdout,
-            "agent_identity": agent_identity
+            "agent_uuid": agent_uuid
         }
 
     except HTTPException:
