@@ -1,47 +1,108 @@
-import typing
-import reflex as rx 
+import reflex as rx
 from ...pages.platform_page import State as PlatformState
-from ..tiles.platform_tile import platform_tile
-from ...navigation.state import NavigationState
 from typing import TYPE_CHECKING
- 
+
 if TYPE_CHECKING:
-    from ...pages.platform_page import Instance
+    from ...models import Instance
 
 
-def craft_new_platform_tile(platform_entry: "Instance") -> rx.Component:
-    return rx.context_menu.root(
-        rx.context_menu.trigger(
-            platform_tile(
-                platform_entry.platform.config.instance_name,
-                platform_entry.platform.config.instance_name,
-                on_click=NavigationState.route_to_platform(platform_entry.platform.config.instance_name)
+def platform_row(platform_entry: "Instance") -> rx.Component:
+    """Single row in the platforms table - Docker Desktop style"""
+    return rx.table.row(
+        # Status dot + Name (clickable link)
+        rx.table.cell(
+            rx.link(
+                rx.hstack(
+                    rx.box(
+                        width="8px",
+                        height="8px",
+                        border_radius="50%",
+                        background=rx.cond(
+                            platform_entry.deployed,
+                            "var(--green-9)",
+                            "var(--gray-8)"
+                        ),
+                    ),
+                    rx.text(
+                        platform_entry.platform.config.instance_name,
+                        weight="medium"
+                    ),
+                    spacing="2",
+                    align="center"
+                ),
+                href=f"/platform/{platform_entry.platform.config.instance_name}",
             )
         ),
-        # TODO: Implement the deletion functionality, perhaps a confirmation modal for running platforms and such.
-        rx.context_menu.content(
-            rx.context_menu.item(
-                "Copy",
-                on_click=PlatformState.copy_platform(platform_entry.platform.config.instance_name)
-            ),
-            rx.context_menu.item(
-                "Delete",
-                color_scheme="red",
-                # disabled=True
-                # on_click
+        # Host IP
+        rx.table.cell(
+            rx.text(platform_entry.host.ansible_host, size="2", color="gray")
+        ),
+        # SSH User
+        rx.table.cell(
+            rx.text(platform_entry.host.ansible_user, size="2", color="gray")
+        ),
+        # Agent count
+        rx.table.cell(
+            rx.text(platform_entry.platform.agents.length(), size="2", color="gray")
+        ),
+        # Status badge
+        rx.table.cell(
+            rx.badge(
+                rx.cond(platform_entry.deployed, "Deployed", "Not Deployed"),
+                color_scheme=rx.cond(platform_entry.deployed, "green", "gray"),
+                size="1"
             )
-        )
+        ),
+        # Actions menu
+        rx.table.cell(
+            rx.menu.root(
+                rx.menu.trigger(
+                    rx.icon_button(
+                        rx.icon("more-vertical", size=16),
+                        variant="ghost",
+                        size="1"
+                    )
+                ),
+                rx.menu.content(
+                    rx.menu.item(
+                        "Copy",
+                        on_click=PlatformState.copy_platform(
+                            platform_entry.platform.config.instance_name
+                        )
+                    ),
+                    rx.menu.item(
+                        "Delete",
+                        color="red",
+                    )
+                )
+            )
+        ),
+        _hover={"background": "var(--gray-3)"},
     )
 
-def platform_overview() -> rx.Component:
 
-    return rx.flex(
-        rx.foreach(
-            PlatformState.in_file_platforms,
-            lambda platform: craft_new_platform_tile(platform)
+def platform_overview() -> rx.Component:
+    """Main platform list - Docker Desktop style table"""
+    return rx.box(
+        rx.table.root(
+            rx.table.header(
+                rx.table.row(
+                    rx.table.column_header_cell("Name"),
+                    rx.table.column_header_cell("Host"),
+                    rx.table.column_header_cell("User"),
+                    rx.table.column_header_cell("Agents"),
+                    rx.table.column_header_cell("Status"),
+                    rx.table.column_header_cell(""),
+                )
+            ),
+            rx.table.body(
+                rx.foreach(
+                    PlatformState.in_file_platforms,
+                    platform_row
+                )
+            ),
+            width="100%",
         ),
-        wrap="wrap",
-        spacing="6",
-        direction="row",
-        padding="1rem"
+        padding="1rem",
+        width="100%",
     )

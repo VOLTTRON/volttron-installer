@@ -28,13 +28,13 @@ from bacnet_scan_api.models import ObjectListNamesResponse
 
 class AppState(rx.State):
     """The app state."""
-    _sidebar_page_selected: str = "overview"
+    _sidebar_page_selected: str = "home"
     tool_accordion_value: str ="tools"
 
     # Events
     @rx.var
     def sidebar_selected_page(self) -> str:
-        self._sidebar_page_selected = self.router.page.raw_path if self.router.page.raw_path != "/" else "overview"
+        self._sidebar_page_selected = self.router.page.raw_path if self.router.page.raw_path != "/" else "home"
         logger.debug(self._sidebar_page_selected)
         return self._sidebar_page_selected
 
@@ -49,8 +49,8 @@ class AppState(rx.State):
         # yield NavigationState.route_to_bacnet_scan()
 
     @rx.event
-    def select_overview(self):
-        self.sidebar_page_selected = "overview"
+    def select_instances(self):
+        self.sidebar_page_selected = "instances"
         # yield NavigationState.route_to_index()
 
 
@@ -1538,18 +1538,30 @@ class PlatformPageState(rx.State):
         """Debounced version - waits 2 seconds before refreshing to batch multiple operations"""
         import time
         import asyncio
-        
+
         async with self:
             self._last_refresh_request = time.time()
             request_time = self._last_refresh_request
-        
+
         # Wait 2 seconds
         await asyncio.sleep(2)
-        
+
         async with self:
             # Only refresh if no newer request came in
             if request_time == self._last_refresh_request:
                 yield PlatformPageState.refresh_platform_status()
+
+    @rx.event(background=True)
+    async def load_platform_status_background(self):
+        """Background version for initial page load - shows loading state immediately"""
+        # Set loading states immediately so UI shows spinners
+        async with self:
+            self._status_loading = True
+            self._connection_status = "checking"
+
+        # Now run the actual status checks (these will update state when done)
+        yield PlatformPageState.refresh_platform_status()
+        yield PlatformPageState.check_connection()
 
     @rx.event
     async def refresh_platform_status(self):

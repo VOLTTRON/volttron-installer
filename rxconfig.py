@@ -12,7 +12,7 @@ else:
 
 config = rx.Config(
     app_name="volttron_installer",
-    backend_port=os.environ.get("BACKEND_PORT", 8000),
-    frontend_port=os.environ.get("BACKEND_PORT", 3000),
+    backend_port=int(os.environ.get("BACKEND_PORT", 8000)),
+    frontend_port=int(os.environ.get("FRONTEND_PORT", 3000)),
     api_url = f'{os.environ.get("API_URL", "http://localhost:8000")}'
 )

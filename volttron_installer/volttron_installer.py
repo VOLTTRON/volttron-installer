@@ -25,18 +25,40 @@ async def lifespan(app: FastAPI):
     #await flet_fastapi.app_manager.shutdown()
 
 
+
+
+from .backend import init as init_backend
+
+def api_transformer_func(api):
+    """Transform the API to add custom FastAPI routers."""
+    # If it's a Starlette app, we need to mount FastAPI routers differently
+    # In v0.8.x, we need to use the raw ASGI app
+    from fastapi import FastAPI
+    if not isinstance(api, FastAPI):
+        # Wrap or replace with FastAPI
+        fastapi_app = FastAPI(lifespan=lifespan)
+        init_backend(app=fastapi_app)
+        # Mount the FastAPI app to the Starlette app without prefix since routers already have /api
+        api.mount("", fastapi_app)
+    else:
+        init_backend(app=api)
+    return api
+
 # Create the fastapi app
 #app = FastAPI(lifespan=lifespan)
 #backend_app = FastAPI()
 app = rx.App(
-        style=styles.styles
+    style=styles.styles,
+    api_transformer=api_transformer_func,
+    theme=rx.theme(
+        has_background=True,
+        radius="medium",
+        accent_color="blue",
+    ),
+    stylesheets=[
+        "/custom.css",
+    ],
 )
 
 # Register the lifespan task
 app.register_lifespan_task(lifespan)
-
-from .backend import init as init_backend
-
-# Mount the backend app to the fastapi app.  More than one endpoint can be mounted to the same fastapi app.
-init_backend(app=app)
-

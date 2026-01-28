@@ -128,7 +128,7 @@ styles: dict = {
         "row-gap" : "2rem",
         # "background-color" : "white",
         "align-items" : "center",
-        "color": "white"
+        # "color": "white"
     },
 
     ".toggle_advanced_button": {

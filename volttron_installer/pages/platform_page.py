@@ -383,10 +383,12 @@ def platform_page() -> rx.Component:
             app_layout(
                 header(
                     rx.hstack(
-                        icon_button_wrapper.icon_button_wrapper(
-                            tool_tip_content="Go back to overview",
-                            icon_key="arrow-left",
-                            on_click=NavigationState.route_to_index
+                        rx.link(
+                            icon_button_wrapper.icon_button_wrapper(
+                                tool_tip_content="Go back to instances",
+                                icon_key="arrow-left",
+                            ),
+                            href="/instances",
                         ),
                         rx.text(f"""{
                                 rx.cond(
@@ -616,7 +618,7 @@ def platform_tabs() -> rx.Component:
                 rx.tabs.content(
                     rx.box(
                         data_tab_content(),
-                        on_mount=[State.refresh_platform_status, State.check_connection],
+                        on_mount=State.load_platform_status_background,
                     ),
                     value="status"
                 ),
@@ -1711,7 +1713,7 @@ def data_tab_content() -> rx.Component:
                                                                     rx.icon("loader-circle", size=18, class_name="animate-spin"),
                                                                     rx.icon("play", size=18),
                                                                 ),
-                                                                on_click=State.handle_start_agent(agent.get("uuid")),
+                                                                on_click=lambda uuid=agent.get("uuid"): State.handle_start_agent(uuid),
                                                                 size="2",
                                                                 variant="soft",
                                                                 color_scheme="green",
@@ -1727,7 +1729,7 @@ def data_tab_content() -> rx.Component:
                                                                     rx.icon("loader-circle", size=18, class_name="animate-spin"),
                                                                     rx.icon("square", size=18),
                                                                 ),
-                                                                on_click=State.handle_stop_agent(agent.get("uuid")),
+                                                                on_click=lambda uuid=agent.get("uuid"): State.handle_stop_agent(uuid),
                                                                 size="2",
                                                                 variant="soft",
                                                                 color_scheme="orange",

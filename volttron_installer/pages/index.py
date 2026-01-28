@@ -261,15 +261,125 @@ def connect_existing_form() -> rx.Component:
 
 @rx.page(route="/", on_load=PlatformState.hydrate_state)
 def index() -> rx.Component:
+    """Home page with Get Started section"""
     return app_layout_sidebar(
-            platform_overview_tab()
+            home_page()
         )
 
-def platform_overview_tab() -> rx.Component:
+@rx.page(route="/instances", on_load=PlatformState.hydrate_state)
+def instances() -> rx.Component:
+    """Instances page showing all VOLTTRON platforms"""
+    return app_layout_sidebar(
+            instances_tab()
+        )
+
+def home_page() -> rx.Component:
+    """Home page content - Docker Desktop style"""
+    return rx.vstack(
+        rx.text("Home", size="7", weight="bold"),
+        # Main content area with two columns
+        rx.hstack(
+            # Left column - Featured section
+            rx.vstack(
+                rx.heading("Featured", size="5", weight="bold", margin_bottom="1rem"),
+                # Run your first instance card
+                rx.card(
+                    rx.vstack(
+                        rx.hstack(
+                            rx.icon("circle-play", size=24, color=rx.color("accent")),
+                            rx.heading("Run Your First Instance", size="4", weight="bold"),
+                            spacing="2",
+                            align="center",
+                        ),
+                        rx.text(
+                            "Get started with VOLTTRON by creating and deploying your first instance.",
+                            size="2",
+                            color="gray",
+                        ),
+                        rx.button(
+                            rx.icon("plus", size=16),
+                            "Create Instance",
+                            on_click=PlatformPageState.show_create_platform_options,
+                            size="2",
+                            variant="solid",
+                        ),
+                        spacing="3",
+                        align_items="start",
+                    ),
+                    width="100%",
+                ),
+                width="55%",
+                align_items="start",
+                align="start",
+            ),
+            # Right column - Get Started and Useful Links
+            rx.vstack(
+                # Get Started section
+                rx.vstack(
+                    rx.heading("Get Started", size="5", weight="bold", margin_bottom="0.75rem"),
+                    rx.link(
+                        rx.text("Run a VOLTTRON Instance", size="2", color=rx.color("accent")),
+                        href="/instances",
+                    ),
+                    rx.link(
+                        rx.text("VOLTTRON Documentation", size="2", color=rx.color("accent")),
+                        href="https://volttron.readthedocs.io/en/main/",
+                        is_external=True,
+                    ),
+                    rx.link(
+                        rx.text("VOLTTRON Core (Modular)", size="2", color=rx.color("accent")),
+                        href="https://github.com/eclipse-volttron/volttron-core",
+                        is_external=True,
+                    ),
+                    spacing="2",
+                    align_items="start",
+                    width="100%",
+                ),
+                # Useful Links section
+                rx.vstack(
+                    rx.heading("Useful Links", size="5", weight="bold", margin_bottom="0.75rem", margin_top="2rem"),
+                    rx.link(
+                        rx.text("VOLTTRON Installer (GitHub)", size="2", color=rx.color("accent")),
+                        href="https://github.com/VOLTTRON/volttron-installer",
+                        is_external=True,
+                    ),
+                    rx.link(
+                        rx.text("VOLTTRON Monolithic", size="2", color=rx.color("accent")),
+                        href="https://github.com/VOLTTRON/volttron",
+                        is_external=True,
+                    ),
+                    rx.link(
+                        rx.text("Eclipse VOLTTRON", size="2", color=rx.color("accent")),
+                        href="https://github.com/eclipse-volttron",
+                        is_external=True,
+                    ),
+                    spacing="2",
+                    align_items="start",
+                    width="100%",
+                ),
+                width="25%",
+                align_items="start",
+            ),
+            spacing="6",
+            align_items="start",
+            justify="between",
+            width="100%",
+        ),
+        # Create Platform Dialog
+        create_platform_dialog(),
+        padding="2rem",
+        overflow_y="auto",
+        height="100%",
+        width="100%",
+        spacing="3",
+        align_items="start",
+    )
+
+def instances_tab() -> rx.Component:
     return rx.fragment(
         rx.vstack(
             header.header.header(
-                rx.text("Overview", size="7"),
+                rx.text("Instances", size="7", weight="bold"),
                 add_icon_button.add_icon_button(
                     tool_tip_content="Create a Platform",
                     on_click=PlatformPageState.show_create_platform_options

@@ -7,9 +7,9 @@ def sidebar_item(
     content = rx.hstack(
         rx.cond(
             icon,
-            rx.icon(icon,  weight="medium", color="white"),
+            rx.icon(icon,  weight="medium"),
         ),
-        rx.text(text, size="4", weight="medium", color="white"),
+        rx.text(text, size="4", weight="medium"),
         width="100%",
         padding_x="0.5rem",
         padding_y="0.75rem",
@@ -51,11 +51,11 @@ def sidebar_item_dropdown(
         rx.accordion.item(
             rx.accordion.header(
                 rx.accordion.trigger(        
-                    rx.text(text, color="white", weight="medium"),
+                    rx.text(text, weight="medium"),
                     rx.cond(
                         AppState.tool_accordion_value == "tools",
-                        rx.icon("chevron-up", color="white"),
-                        rx.icon("chevron-down", color="white")
+                        rx.icon("chevron-up"),
+                        rx.icon("chevron-down")
                     ),
                 )
             ),
@@ -71,7 +71,7 @@ def sidebar_item_dropdown(
         on_value_change=lambda value: AppState.toggle_tool_dropdown(value),
         collapsible=True,
         variant="ghost",
-        style={"color" : "white", "border-radius": "0.5em"},
+        style={"border-radius": "0.5em"},
         width="100%",
     )
 
@@ -79,15 +79,28 @@ def sidebar_item_dropdown(
 def sidebar_items() -> rx.Component:
     return rx.vstack(
         sidebar_item(
-            text="Overview",
-            icon="layout-dashboard",
+            text="Home",
+            icon="home",
             href="/",
             underline="none",
             extra_style={
                 "bg" : rx.cond(
-                    AppState.sidebar_selected_page=="overview",
+                    AppState.sidebar_selected_page=="home",
                     rx.color("accent", 4),
-                    rx.color("black")
+                    "transparent"
+                )
+            }
+        ),
+        sidebar_item(
+            text="Instances",
+            icon="layout-dashboard",
+            href="/instances",
+            underline="none",
+            extra_style={
+                "bg" : rx.cond(
+                    AppState.sidebar_selected_page=="instances",
+                    rx.color("accent", 4),
+                    "transparent"
                 )
             }
         ),
@@ -102,7 +115,7 @@ def sidebar_items() -> rx.Component:
                 "bg" : rx.cond(
                         AppState.sidebar_selected_page=="/tools/bacnet_scan/",
                         rx.color("accent", 4),
-                        rx.color("black")
+                        "transparent"
 
                     )
                 }
@@ -112,6 +125,24 @@ def sidebar_items() -> rx.Component:
         spacing="1",
         width="100%",
     )
+
+def theme_toggle() -> rx.Component:
+    """Toggle between light and dark mode"""
+    return rx.hstack(
+        rx.color_mode.button(
+            variant="ghost",
+            size="2",
+        ),
+        rx.text(
+            rx.color_mode.switch(light="Light Mode", dark="Dark Mode"),
+            size="2",
+            color="gray",
+        ),
+        spacing="2",
+        align="center",
+        padding="0.5rem",
+    )
+
 
 def app_sidebar() -> rx.Component:
     return rx.box(
@@ -134,6 +165,8 @@ def app_sidebar() -> rx.Component:
                     width="100%",
                 ),
                 sidebar_items(),
+                rx.spacer(),
+                theme_toggle(),
                 spacing="5",
                 # position="fixed",
                 # left="0px",

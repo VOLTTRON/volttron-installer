@@ -9,7 +9,7 @@ def init(app: FastAPI | rx.App, inactivity_timeout_minutes: int = 30):
     
     # Reflex wraps fast API, make sure to set app to FastAPI instance
     if isinstance(app, rx.App):
-        app = app.api
+        app = app._api
 
     app.include_router(api.ansible_router, prefix="/api")
     app.include_router(api.platform_router, prefix="/api")

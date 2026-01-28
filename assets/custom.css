@@ -1,0 +1,35 @@
+:root {
+  --black-background: #000000;
+  --white-background: #ffffff;
+}
+
+/* Dark Mode Overrides - Target everything */
+html.dark, 
+.dark, 
+.dark .rt-Theme, 
+.dark .rt-App,
+[data-theme="dark"],
+[data-is-root-theme="true"].dark,
+body.dark {
+    background-color: var(--black-background) !important;
+    --canvas-default: var(--black-background) !important;
+    --color-background: var(--black-background) !important;
+    
+    /* Radix UI Theme Variables - Gray 1 is typically the background */
+    --gray-1: var(--black-background) !important; 
+    --gray-2: #111111 !important; /* Slightly lighter for interactive elements */
+}
+
+/* Light Mode Overrides */
+html.light, 
+.light, 
+.light .rt-Theme, 
+.light .rt-App,
+[data-theme="light"],
+[data-is-root-theme="true"].light,
+body.light {
+    background-color: var(--white-background) !important;
+    --canvas-default: var(--white-background) !important;
+    --color-background: var(--white-background) !important;
+    --gray-1: var(--white-background) !important;
+}
