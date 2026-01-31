@@ -378,6 +378,7 @@ class PlatformPageState(rx.State):
     _last_status_check: str = ""
     _starting_platform: bool = False  # True while starting VOLTTRON
     _stopping_platform: bool = False  # True while stopping VOLTTRON
+    _status_check_in_progress: bool = False  # Lock to prevent concurrent status checks
     
     # Connection status tracking
     _connection_status: str = "unknown"  # connected, disconnected, checking, unknown
@@ -417,8 +418,8 @@ class PlatformPageState(rx.State):
     _install_agent_start: bool = True
     _installing_agent: bool = False
     _removing_agent: bool = False
-    _starting_agent_uuid: str = ""  # UUID of agent currently being started
-    _stopping_agent_uuid: str = ""  # UUID of agent currently being stopped
+    starting_agent_uuid: str = ""  # UUID of agent currently being started
+    stopping_agent_uuid: str = ""  # UUID of agent currently being stopped
     _selected_catalog_agent: str = ""  # identity of selected agent from catalog
     _show_remove_agent_dialog: bool = False
     _agent_to_remove_uuid: str = ""
@@ -1569,6 +1570,14 @@ class PlatformPageState(rx.State):
         if not self.current_uid or self.current_uid not in self.platforms:
             return
 
+        # Check if another status check is already running - if so, skip this one
+        if self._status_check_in_progress:
+            logger.debug("Status check already in progress, skipping concurrent request")
+            return
+
+        # Set the lock
+        self._status_check_in_progress = True
+
         working_platform: Instance = self.working_platform
 
         # For new/unsaved platforms, don't try to fetch status
@@ -1581,6 +1590,7 @@ class PlatformPageState(rx.State):
                 "agents": {}
             }
             self._status_loading = False
+            self._status_check_in_progress = False
             return
 
         # Set loading state FIRST so UI shows "Checking..." immediately
@@ -1627,6 +1637,7 @@ class PlatformPageState(rx.State):
                 }
         finally:
             self._status_loading = False
+            self._status_check_in_progress = False  # Always release the lock
 
     @rx.event
     async def check_connection(self):
@@ -1996,27 +2007,73 @@ class PlatformPageState(rx.State):
             if not self.current_uid or self.current_uid not in self.platforms:
                 yield rx.toast.error("Platform not found")
                 return
-                
+
             working_platform: Instance = self.working_platform
-            self._starting_agent_uuid = agent_id
-            
-        yield
-        
+            platform_name = working_platform.platform.config.instance_name
+            logger.info(f"[START_AGENT_UI] Setting starting UUID to: {agent_id}")
+            self.starting_agent_uuid = agent_id
+
+        yield rx.call_script("void(0)")  # Force UI update to show spinner
+
         try:
-            await start_agent(working_platform.platform.config.instance_name, agent_id)
-            
+            await start_agent(platform_name, agent_id)
+
+            # Poll for status update
+            for i in range(15):  # 15 seconds timeout
+                await asyncio.sleep(1)
+                
+                # Respect lock to prevent VOLTTRON corruption
+                if self._status_check_in_progress:
+                    continue
+
+                try:
+                    async with self:
+                        self._status_check_in_progress = True
+                    
+                    status_response = await get_platform_status(platform_name)
+                    status = status_response.dict() if hasattr(status_response, 'dict') else status_response
+                    
+                    # Update global status 
+                    async with self:
+                        self._platform_status = status
+                    
+                    # Check agent state
+                    agents = status.get("agents", {})
+                    # Find agent by UUID since agents dict is keyed by identity
+                    agent_info = {}
+                    for a_data in agents.values():
+                        if a_data.get("uuid") == agent_id:
+                            agent_info = a_data
+                            break
+                    
+                    if agent_info.get("state") == "running":
+                        async with self:
+                            self.starting_agent_uuid = "" 
+                        yield rx.call_script("void(0)")
+                        yield rx.toast.success(f"Agent started successfully!")
+                        return 
+                except Exception as poll_error:
+                    logger.debug(f"Error polling status: {poll_error}")
+                finally:
+                    async with self:
+                        self._status_check_in_progress = False
+
+            # Timeout
             async with self:
-                self._starting_agent_uuid = ""
-            
-            yield rx.toast.success(f"Agent started successfully!")
+                self.starting_agent_uuid = ""
+            yield rx.call_script("void(0)")
+            yield rx.toast.warning("Agent start command sent but status update timed out.")
             yield PlatformPageState.refresh_platform_status_debounced()
+
         except ApiError as e:
             async with self:
-                self._starting_agent_uuid = ""
+                self.starting_agent_uuid = ""
+            yield rx.call_script("void(0)")  # Force UI update
             yield rx.toast.error(f"Failed to start agent: {e.detail}")
         except Exception as e:
             async with self:
-                self._starting_agent_uuid = ""
+                self.starting_agent_uuid = ""
+            yield rx.call_script("void(0)")  # Force UI update
             yield rx.toast.error(f"Error starting agent: {str(e)}")
 
     @rx.event(background=True)
@@ -2028,25 +2085,70 @@ class PlatformPageState(rx.State):
                 return
 
             working_platform: Instance = self.working_platform
-            self._stopping_agent_uuid = agent_id
-        
-        yield
+            platform_name = working_platform.platform.config.instance_name
+            logger.info(f"[STOP_AGENT_UI] Setting stopping UUID to: {agent_id}")
+            self.stopping_agent_uuid = agent_id
+
+        yield rx.call_script("void(0)")  # Force UI update to show spinner
 
         try:
-            await stop_agent(working_platform.platform.config.instance_name, agent_id)
-            
+            await stop_agent(platform_name, agent_id)
+
+            # Poll for status update
+            for i in range(15):  # 15 seconds timeout
+                await asyncio.sleep(1)
+                
+                # Respect lock to prevent VOLTTRON corruption
+                if self._status_check_in_progress:
+                    continue
+
+                try:
+                    async with self:
+                        self._status_check_in_progress = True
+                    status_response = await get_platform_status(platform_name)
+                    status = status_response.dict() if hasattr(status_response, 'dict') else status_response
+                    
+                    # Update global status 
+                    async with self:
+                        self._platform_status = status
+                    
+                    # Check agent state
+                    agents = status.get("agents", {})
+                    # Find agent by UUID since agents dict is keyed by identity
+                    agent_info = {}
+                    for a_data in agents.values():
+                        if a_data.get("uuid") == agent_id:
+                            agent_info = a_data
+                            break
+                    
+                    if agent_info.get("state") != "running":
+                        async with self:
+                            self.stopping_agent_uuid = ""
+                        yield rx.call_script("void(0)")
+                        yield rx.toast.success(f"Agent stopped successfully!")
+                        return
+                except Exception as poll_error:
+                    logger.debug(f"Error polling status: {poll_error}")
+                finally:
+                    async with self:
+                        self._status_check_in_progress = False
+
+            # Timeout
             async with self:
-                self._stopping_agent_uuid = ""
-            
-            yield rx.toast.success(f"Agent stopped successfully!")
+                self.stopping_agent_uuid = ""
+            yield rx.call_script("void(0)")
+            yield rx.toast.warning("Agent stop command sent but status update timed out.")
             yield PlatformPageState.refresh_platform_status_debounced()
+
         except ApiError as e:
             async with self:
-                self._stopping_agent_uuid = ""
+                self.stopping_agent_uuid = ""
+            yield rx.call_script("void(0)")  # Force UI update
             yield rx.toast.error(f"Failed to stop agent: {e.detail}")
         except Exception as e:
             async with self:
-                self._stopping_agent_uuid = ""
+                self.stopping_agent_uuid = ""
+            yield rx.call_script("void(0)")  # Force UI update
             yield rx.toast.error(f"Error stopping agent: {str(e)}")
 
     # Install agent dialog handlers

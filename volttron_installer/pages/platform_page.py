@@ -1502,10 +1502,7 @@ def data_tab_content() -> rx.Component:
                             color_scheme="gray",
                             on_click=rx.call_script(
                                 "navigator.clipboard.writeText('" +
-                                "ssh -p " + State.working_platform.host.ansible_port + " " +
-                                State.working_platform.host.ansible_user + "@" +
-                                State.working_platform.host.ansible_host + " " +
-                                "\"export VOLTTRON_HOME=" + State.working_platform.host.volttron_home + " && bash\"" + "')"
+                                "export VOLTTRON_HOME=" + State.working_platform.host.volttron_home + "')"
                             ),
                             style={"cursor": "pointer"},
                         ),
@@ -1522,10 +1519,7 @@ def data_tab_content() -> rx.Component:
                             color_scheme="gray",
                             on_click=rx.call_script(
                                 "navigator.clipboard.writeText('" +
-                                "ssh -p " + State.working_platform.host.ansible_port + " " +
-                                State.working_platform.host.ansible_user + "@" +
-                                State.working_platform.host.ansible_host + " " +
-                                "\"source " + State.working_platform.host.volttron_venv + "/bin/activate && bash\"" + "')"
+                                "source " + State.working_platform.host.volttron_venv + "/bin/activate" + "')"
                             ),
                             style={"cursor": "pointer"},
                         ),
@@ -1708,32 +1702,24 @@ def data_tab_content() -> rx.Component:
                                                         rx.cond(
                                                             agent.get("state") != "running",
                                                             rx.icon_button(
-                                                                rx.cond(
-                                                                    State._starting_agent_uuid == agent.get("uuid"),
-                                                                    rx.icon("loader-circle", size=18, class_name="animate-spin"),
-                                                                    rx.icon("play", size=18),
-                                                                ),
-                                                                on_click=lambda uuid=agent.get("uuid"): State.handle_start_agent(uuid),
+                                                                rx.icon("play", size=18),
+                                                                on_click=lambda: State.handle_start_agent(agent.get("uuid")),
+                                                                loading=State.starting_agent_uuid == agent.get("uuid"),
                                                                 size="2",
                                                                 variant="soft",
                                                                 color_scheme="green",
-                                                                disabled=State._starting_agent_uuid == agent.get("uuid"),
                                                             ),
                                                         ),
                                                         # Stop button (show when running)
                                                         rx.cond(
                                                             agent.get("state") == "running",
                                                             rx.icon_button(
-                                                                rx.cond(
-                                                                    State._stopping_agent_uuid == agent.get("uuid"),
-                                                                    rx.icon("loader-circle", size=18, class_name="animate-spin"),
-                                                                    rx.icon("square", size=18),
-                                                                ),
-                                                                on_click=lambda uuid=agent.get("uuid"): State.handle_stop_agent(uuid),
+                                                                rx.icon("square", size=18),
+                                                                on_click=lambda: State.handle_stop_agent(agent.get("uuid")),
+                                                                loading=State.stopping_agent_uuid == agent.get("uuid"),
                                                                 size="2",
                                                                 variant="soft",
                                                                 color_scheme="orange",
-                                                                disabled=State._stopping_agent_uuid == agent.get("uuid"),
                                                             ),
                                                         ),
                                                         # Config button

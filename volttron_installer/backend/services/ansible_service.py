@@ -492,7 +492,7 @@ class AnsibleService:
         )
     
     async def check_host_connection(self, instance_name: str) -> tuple[bool, str, str]:
-        """Quick connection check using Ansible ping module
+        """Quick connection check using SSH echo
         
         Args:
             instance_name: The instance name (inventory key) to check
@@ -509,32 +509,18 @@ class AnsibleService:
             
             host = all_hosts[instance_name]
             
-            # Use ansible ad-hoc ping command for lightweight connection check
-            cmd = [
-                "ansible",
-                instance_name,
-                "-i", inventory_service.inventory_path.as_posix(),
-                "-m", "ping"
-            ]
+            # Use lightweight SSH command instead of ansible ping to avoid potential conflicts
+            # and improve performance. This just checks connectivity.
+            return_code, stdout, stderr = await self.run_ssh_command(host, "echo hello", timeout=10)
             
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            stdout, stderr = await process.communicate()
-            stdout_str = stdout.decode() if stdout else ""
-            stderr_str = stderr.decode() if stderr else ""
-            
-            if process.returncode == 0 and "SUCCESS" in stdout_str:
+            if return_code == 0:
                 # Determine connection method from host config
                 conn_type = host.ansible_connection or "ssh"
                 auth_method = "key authentication" if not getattr(host, 'ansible_password', None) else "password"
                 connection_method = f"{conn_type.upper()} with {auth_method}"
                 return True, connection_method, ""
             else:
-                error_msg = stderr_str or stdout_str or "Connection check failed"
+                error_msg = stderr or stdout or "Connection check failed"
                 # Only log errors, not successful checks
                 logger.warning(f"Connection check failed for {instance_name}: {error_msg}")
                 return False, "", error_msg
