@@ -197,7 +197,7 @@ def connect_existing_form() -> rx.Component:
             rx.card(
                 rx.vstack(
                     rx.hstack(
-                        rx.icon("check-circle", size=16, color="green"),
+                        rx.icon("check", size=16, color="green"),
                         rx.text("Detected VOLTTRON Installation", weight="medium"),
                         spacing="2",
                     ),

@@ -2070,7 +2070,7 @@ def scan_info_dialog():
                     ),
                     rx.box(
                         rx.hstack(
-                            rx.icon("alert-triangle", size=16, color="orange"),
+                            rx.icon("triangle_alert", size=16, color="orange"),
                             rx.text("Warning: ", weight="bold", color="orange"),
                             rx.text("Large subnets (/16, /8) may take significant time and network resources. Consider using smaller ranges or targeted scans.", color="gray"),
                             spacing="1",

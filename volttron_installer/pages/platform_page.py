@@ -372,6 +372,33 @@ def install_agent_dialog() -> rx.Component:
         on_open_change=State.close_install_agent_dialog,
     )
 
+def remove_agent_dialog() -> rx.Component:
+    """Dialog for confirming agent removal."""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title("Remove Agent"),
+            rx.dialog.description(
+                "Are you sure you want to remove this agent? This action cannot be undone."
+            ),
+            rx.flex(
+                rx.dialog.close(
+                    rx.button("Cancel", variant="soft", color_scheme="gray"),
+                ),
+                rx.dialog.close(
+                    rx.button(
+                        "Remove Agent",
+                        on_click=State.confirm_remove_agent,
+                        color_scheme="red",
+                    ),
+                ),
+                spacing="3",
+                justify="end",
+            ),
+        ),
+        open=State.show_remove_agent_dialog,
+        on_open_change=State.close_remove_agent_dialog,
+    )
+
 @rx.page(route="/platform/[uid]", on_load=State.hydrate_state)
 def platform_page() -> rx.Component:
 
@@ -477,7 +504,7 @@ def platform_page() -> rx.Component:
                                     rx.vstack(
                                         rx.dialog.title(
                                             rx.hstack(
-                                                rx.icon("alert-triangle", color="red", size=24),
+                                                rx.icon("triangle_alert", color="red", size=24),
                                                 "Confirm Deletion",
                                                 spacing="2",
                                             )
@@ -488,7 +515,7 @@ def platform_page() -> rx.Component:
                                                 "This will permanently delete the platform configuration AND all VOLTTRON files on the remote system. This cannot be undone!",
                                                 "This will permanently delete the platform configuration. This cannot be undone!",
                                             ),
-                                            icon="alert-triangle",
+                                            icon="triangle_alert",
                                             color="red",
                                         ),
                                         rx.cond(
@@ -536,6 +563,7 @@ def platform_page() -> rx.Component:
             deployment_progress_dialog(),
             pyenv_install_dialog(),
             install_agent_dialog(),
+            remove_agent_dialog(),
         ),
         # Skeleton Stuff
         rx.vstack(
@@ -1731,16 +1759,13 @@ def data_tab_content() -> rx.Component:
                                                         ),
                                                         # Remove button
                                                         rx.icon_button(
-                                                            rx.cond(
-                                                                State._removing_agent,
-                                                                rx.icon("loader-circle", size=18, class_name="animate-spin"),
-                                                                rx.icon("trash-2", size=18),
-                                                            ),
-                                                            on_click=lambda: State.open_remove_agent_dialog(agent.get("uuid"), agent.get("name")),
+                                                            rx.icon("trash-2", size=18),
+                                                            on_click=lambda _, agent_uuid=agent.get("uuid"), agent_name=agent.get("name"): State.open_remove_agent_dialog(agent_uuid, agent_name),
+                                                            loading=State.removing_agent_uuid == agent.get("uuid"),
                                                             size="2",
                                                             variant="ghost",
                                                             color_scheme="red",
-                                                            disabled=State._removing_agent,
+                                                            disabled=State.removing_agent_uuid != "",
                                                         ),
                                                         spacing="2",
                                                         align="center",
@@ -1776,7 +1801,7 @@ def data_tab_content() -> rx.Component:
                         State.status_error != "",
                         rx.callout(
                             rx.hstack(
-                                rx.icon("alert-triangle", size=16),
+                                rx.icon("triangle_alert", size=16),
                                 rx.text(State.status_error),
                                 spacing="2",
                             ),
@@ -1813,36 +1838,6 @@ def data_tab_content() -> rx.Component:
                 ),
                 padding="1rem",
             ),
-        ),
-        # Remove agent confirmation dialog
-        rx.dialog.root(
-            rx.dialog.content(
-                rx.dialog.title("Remove Agent"),
-                rx.dialog.description(
-                    rx.text(
-                        f"Are you sure you want to remove ",
-                        rx.text(State._agent_to_remove_name, weight="bold", as_="span"),
-                        "? This action cannot be undone.",
-                    ),
-                ),
-                rx.flex(
-                    rx.dialog.close(
-                        rx.button("Cancel", variant="soft", color_scheme="gray"),
-                    ),
-                    rx.dialog.close(
-                        rx.button(
-                            "Remove Agent",
-                            on_click=State.confirm_remove_agent,
-                            color_scheme="red",
-                            loading=State._removing_agent,
-                        ),
-                    ),
-                    spacing="3",
-                    justify="end",
-                ),
-            ),
-            open=State._show_remove_agent_dialog,
-            on_open_change=State.close_remove_agent_dialog,
         ),
     )
 

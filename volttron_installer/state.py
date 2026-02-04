@@ -417,7 +417,7 @@ class PlatformPageState(rx.State):
     _install_agent_source: str = ""
     _install_agent_start: bool = True
     _installing_agent: bool = False
-    _removing_agent: bool = False
+    removing_agent_uuid: str = ""  # UUID of agent currently being removed
     starting_agent_uuid: str = ""  # UUID of agent currently being started
     stopping_agent_uuid: str = ""  # UUID of agent currently being stopped
     _selected_catalog_agent: str = ""  # identity of selected agent from catalog
@@ -790,6 +790,18 @@ class PlatformPageState(rx.State):
         return self._delete_remote_files
 
     @rx.var
+    def show_remove_agent_dialog(self) -> bool:
+        return self._show_remove_agent_dialog
+
+    @rx.var
+    def agent_to_remove_name(self) -> str:
+        return self._agent_to_remove_name
+
+    @rx.var
+    def agent_to_remove_uuid(self) -> str:
+        return self._agent_to_remove_uuid
+
+    @rx.var
     def delete_confirmed(self) -> bool:
         return self._delete_confirmed
 
@@ -862,10 +874,6 @@ class PlatformPageState(rx.State):
     @rx.var
     def installing_agent(self) -> bool:
         return self._installing_agent
-
-    @rx.var
-    def removing_agent(self) -> bool:
-        return self._removing_agent
 
     @rx.var
     def can_install_agent(self) -> bool:
@@ -2258,28 +2266,40 @@ class PlatformPageState(rx.State):
     @rx.event
     def open_remove_agent_dialog(self, agent_uuid: str, agent_name: str):
         """Open confirmation dialog before removing agent"""
+        logger.info(f"[REMOVE_DIALOG] Opening dialog for agent: {agent_name} ({agent_uuid})")
         self._agent_to_remove_uuid = agent_uuid
         self._agent_to_remove_name = agent_name
         self._show_remove_agent_dialog = True
+        logger.info(f"[REMOVE_DIALOG] Dialog state set to: {self._show_remove_agent_dialog}")
 
     @rx.event
-    def close_remove_agent_dialog(self):
+    def close_remove_agent_dialog(self, open_state: bool = False):
         """Close the remove agent confirmation dialog"""
-        self._show_remove_agent_dialog = False
-        self._agent_to_remove_uuid = ""
-        self._agent_to_remove_name = ""
+        if not open_state:
+            self._show_remove_agent_dialog = False
+            self._agent_to_remove_uuid = ""
+            self._agent_to_remove_name = ""
 
     @rx.event(background=True)
     async def confirm_remove_agent(self):
         """Actually remove the agent after confirmation"""
+        
+        # Check if status check is in progress to prevent VOLTTRON corruption
         async with self:
+            if self._status_check_in_progress:
+                yield rx.toast.warning("System busy with status check, please wait...")
+                return
+            
+            self._status_check_in_progress = True
             agent_uuid = self._agent_to_remove_uuid
+            
             if not self.current_uid or self.current_uid not in self.platforms:
+                self._status_check_in_progress = False
                 yield rx.toast.error("Platform not found")
                 return
 
             working_platform: Instance = self.working_platform
-            self._removing_agent = True
+            self.removing_agent_uuid = agent_uuid
             self._show_remove_agent_dialog = False
 
         yield
@@ -2291,21 +2311,37 @@ class PlatformPageState(rx.State):
             )
 
             async with self:
-                self._removing_agent = False
+                self.removing_agent_uuid = ""
                 self._agent_to_remove_uuid = ""
                 self._agent_to_remove_name = ""
+                
+                # Optimistic update: remove from status dict if present
+                if self._platform_status and "agents" in self._platform_status:
+                    agents = self._platform_status["agents"]
+                    key_to_remove = None
+                    for k, v in agents.items():
+                        if v.get("uuid") == agent_uuid:
+                            key_to_remove = k
+                            break
+                    if key_to_remove:
+                        status = self._platform_status.copy()
+                        status["agents"] = {k: v for k, v in status["agents"].items() if k != key_to_remove}
+                        self._platform_status = status
 
             yield rx.toast.success(f"Agent removed successfully!")
             yield PlatformPageState.refresh_platform_status_debounced()
 
         except ApiError as e:
             async with self:
-                self._removing_agent = False
+                self.removing_agent_uuid = ""
             yield rx.toast.error(f"Failed to remove agent: {e.detail}")
         except Exception as e:
             async with self:
-                self._removing_agent = False
+                self.removing_agent_uuid = ""
             yield rx.toast.error(f"Error removing agent: {str(e)}")
+        finally:
+            async with self:
+                self._status_check_in_progress = False
 
     @rx.event(background=True)
     async def handle_remove_agent(self, agent_uuid: str):
