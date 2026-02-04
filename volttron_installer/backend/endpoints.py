@@ -1477,6 +1477,7 @@ async def install_agent(
         volttron_source = host.volttron_source if host.volttron_source else "~/volttron"
 
         # Determine the agent source based on VOLTTRON type
+        pre_install_cmd = ""
         if volttron_type == "monolithic":
             # For monolithic VOLTTRON, agents are in the codebase
             # If agent_source looks like a pip package, resolve to monolithic path
@@ -1502,6 +1503,8 @@ async def install_agent(
         else:
             # For modular VOLTTRON, use the pip package name directly with vctl
             agent_source_for_vctl = shlex.quote(agent_source)
+            # Ensure the package is installed first via pip for Modular VOLTTRON
+            pre_install_cmd = f"pip install {agent_source_for_vctl}"
 
         # Build vctl install command (used for both modular and monolithic)
         vctl_install_cmd = f"\"$VENV_PATH/bin/vctl\" install {agent_source_for_vctl} --vip-identity {agent_identity_arg}"
@@ -1526,6 +1529,7 @@ if [ ! -f "$VENV_PATH/bin/activate" ]; then
 fi
 source "$VENV_PATH/bin/activate"
 
+{pre_install_cmd}
 {vctl_install_cmd}
 '''
 
