@@ -98,11 +98,10 @@ async def get_hosts() -> list[HostEntry]:
         hosts = await inventory_service.get_hosts()
         return list(hosts.values())
     except Exception as e:
-        # Return empty inventory on any error
-        return []
+        raise HTTPException(status_code=500, detail=str(e))
 
 @ansible_router.get("/hosts/{id}", response_model=HostEntry)
-async def get_host_id(id: str) -> HostEntry | None:
+async def get_host_id(id: str) -> HostEntry:
     """Retrieves a host entry by its ID"""
     try:
         inventory_service = await get_inventory_service()
@@ -112,9 +111,8 @@ async def get_host_id(id: str) -> HostEntry | None:
         return host_entry
     except HTTPException as e:
         raise e
-    except Exception as e:  
-        # Return empty inventory on any error
-        return None
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @ansible_router.post("/hosts")
 async def add_host(host_entry: CreateOrUpdateHostEntryRequest):
@@ -165,7 +163,6 @@ async def get_all_platforms() -> list[PlatformDefinition]:
         return platforms
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    return {"platforms": []}
 
 @platform_router.get("/{id}")
 async def get_platform_by_id(id: str) -> Optional[PlatformDefinition]:
@@ -232,24 +229,36 @@ async def get_platform_status(
         ansible_service: AnsibleService = Depends(get_ansible_service),
         platform_service: PlatformService = Depends(get_platform_service)):
     """Retrieves the status of a specific platform"""
-    status = await ansible_service.get_platform_status(platform_id)
+    try:
+        status = await ansible_service.get_platform_status(platform_id)
 
-    if status is None:
-        raise HTTPException(status_code=404, detail="Platform not found")
-    return status
+        if status is None:
+            raise HTTPException(status_code=404, detail="Platform not found")
+        return status
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @platform_router.get("/connection/{platform_id}")
 async def check_platform_connection(
         platform_id: str,
         ansible_service: AnsibleService = Depends(get_ansible_service)):
     """Quick connection check for a platform"""
-    is_connected, connection_method, error = await ansible_service.check_host_connection(platform_id)
+    try:
+        is_connected, connection_method, error = await ansible_service.check_host_connection(platform_id)
 
-    return {
-        "connected": is_connected,
-        "connection_method": connection_method,
-        "error": error
-    }
+        return {
+            "connected": is_connected,
+            "connection_method": connection_method,
+            "error": error
+        }
+    except Exception as e:
+        return {
+            "connected": False,
+            "connection_method": "unknown",
+            "error": str(e)
+        }
 
 @platform_router.post("/mark-deployed/{platform_id}")
 async def mark_platform_deployed(
@@ -260,14 +269,19 @@ async def mark_platform_deployed(
 
     Useful for existing platforms that were deployed before the deployed flag was persisted.
     """
-    platform = await platform_service.get_platform(platform_id)
-    if platform is None:
-        raise HTTPException(status_code=404, detail="Platform not found")
+    try:
+        platform = await platform_service.get_platform(platform_id)
+        if platform is None:
+            raise HTTPException(status_code=404, detail="Platform not found")
 
-    platform.deployed = deployed
-    await platform_service.update_platform(platform_id, platform)
+        platform.deployed = deployed
+        await platform_service.update_platform(platform_id, platform)
 
-    return {"status": "success", "deployed": deployed}
+        return {"status": "success", "deployed": deployed}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # @ansible_router.get("/update-all-status")
 # async def update_all_status():
@@ -370,18 +384,18 @@ async def ping_resolvable_host(host_id: str):
     try:
         # Run ping with a short timeout for faster response
         process = await asyncio.create_subprocess_exec(
-            "ping", "-c", "1", host_id,
+            "ping", "-c", "1", "-W", "3", host_id,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        
-        await process.communicate()
-        
+
+        await asyncio.wait_for(process.communicate(), timeout=5)
+
         # If returncode is 0, the host is reachable
         return {"reachable": process.returncode == 0}
-        
-    except Exception:
-        # Any error means the host is not reachable
+
+    except (asyncio.TimeoutError, Exception):
+        # Timeout or any error means the host is not reachable
         return {"reachable": False}
 
 @task_router.get("/")
@@ -1020,7 +1034,8 @@ fi
 . "$VENV_PATH/bin/activate"
 mkdir -p "$VOLTTRON_HOME"
 
-volttron -vv -l "$VOLTTRON_HOME/volttron.log" &>/dev/null &
+nohup volttron -vv -l "$VOLTTRON_HOME/volttron.log" </dev/null &>/dev/null &
+disown
 echo "VOLTTRON_STARTED"
 '''
 

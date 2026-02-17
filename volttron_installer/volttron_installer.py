@@ -14,15 +14,30 @@ from .pages.bacnet_scan import bacnet_scan_page
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    #await flet_fastapi.app_manager.start()
-    # Setup something at the loading of the application and
-    # tear it down when the application is done.
+    # Startup: Run migration and initialize storage
+    from .utils.migrate_yaml_to_json import migrate_yaml_to_json
+    from .backend.services.storage_service import get_storage_service
+    from loguru import logger
+    
+    logger.info("[STARTUP] Running YAML to JSON migration if needed...")
+    try:
+        stats = await migrate_yaml_to_json(backup=True)
+        if stats["migrated"] > 0:
+            logger.info(f"[STARTUP] Migrated {stats['migrated']} platforms from YAML to JSON")
+    except Exception as e:
+        logger.error(f"[STARTUP] Migration failed: {e}")
+    
+    # Initialize storage service
+    storage = get_storage_service()
+    await storage.initialize()
+    logger.info("[STARTUP] Storage service initialized")
 
     yield
-    # Shut down of the tools
+    
+    # Shutdown: Clean up tools
     from .backend.tool_manager import ToolManager
     ToolManager.stop_all_tools()
-    #await flet_fastapi.app_manager.shutdown()
+    logger.info("[SHUTDOWN] Tool manager stopped")
 
 
 

@@ -830,23 +830,73 @@ class PlatformPageState(PlatformDeploymentState):
             self.list_of_agents = await __agents_off_catalog__()
             platforms_from_api = await __instances_from_api__()
             
+            # Set all instances to loading status initially
+            for instance in platforms_from_api.values():
+                instance.status = "loading"
+            
             # Ensure we have a blank agent that the user can edit as they so choose
             self.list_of_agents.append(
                 blank_agent
             )
-            self.platforms.update(platforms_from_api)
+            
+            # Replace platforms entirely instead of updating to prevent deleted items from reappearing
+            if force_hydration:
+                self.platforms = platforms_from_api
+            else:
+                self.platforms.update(platforms_from_api)
+            
             self.session_hydrated = True
+            
+            # Fetch statuses asynchronously in the background
+            return PlatformPageState.fetch_statuses_async
 
     @rx.event(background=True)
     async def delete_temp_uid(self, uid_copy: str):
         import asyncio
         await asyncio.sleep(5)  # Wait for 5 seconds (adjust as needed)
         async with self:
-            del self.platforms[uid_copy]
+            self.platforms = {k: v for k, v in self.platforms.items() if k != uid_copy}
         logger.debug(f"this is the list of param afters: {list(self.platforms.keys())}")
+
+    @rx.event(background=True)
+    async def fetch_statuses_async(self):
+        """Fetch deployment status for all instances asynchronously."""
+        from .models import InstanceStatus
+
+        async with self:
+            instance_names = list(self.platforms.keys())
+
+        logger.info(f"[STATUS_FETCH] Starting async status fetch for {len(instance_names)} instances")
+
+        # Build a map of statuses
+        status_map: dict[str, str] = {}
+        for instance_name in instance_names:
+            try:
+                async with self:
+                    if instance_name in self.platforms:
+                        instance = self.platforms[instance_name]
+                        if instance.deployed:
+                            status_map[instance_name] = InstanceStatus.DEPLOYED.value
+                        else:
+                            status_map[instance_name] = InstanceStatus.NOT_DEPLOYED.value
+            except Exception as e:
+                logger.error(f"[STATUS_FETCH] Failed to fetch status for {instance_name}: {e}")
+                status_map[instance_name] = InstanceStatus.ERROR.value
+
+        # Apply all statuses and reassign to trigger Reflex reactivity
+        async with self:
+            for instance_name, status in status_map.items():
+                if instance_name in self.platforms:
+                    self.platforms[instance_name].status = status
+            # Reassign to trigger UI update
+            self.platforms = dict(self.platforms)
+
+        logger.info("[STATUS_FETCH] Completed async status fetch")
 
     @rx.event
     def handle_adding_agent(self, agent: AgentModelView, uid: str):
+        if uid not in self.platforms:
+            return
         working_platform = self.platforms[uid]
 
         # Take a copy of the agent we are adding and make sure we dont have an already existing agent of the same identity
@@ -909,12 +959,16 @@ class PlatformPageState(PlatformDeploymentState):
         
     @rx.event
     def handle_removing_agent(self, identity: str):
+        if self.current_uid not in self.platforms:
+            return
         working_platform = self.platforms[self.current_uid]
         del(working_platform.platform.agents[identity])
         yield rx.toast.info(f"Agent '{identity}' has been removed")
 
     @rx.event
     def handle_cancel(self):
+        if self.current_uid not in self.platforms:
+            return
         working_platform: Instance = self.platforms[self.current_uid]
         
         # Revert back to our previous host entry
@@ -941,7 +995,15 @@ class PlatformPageState(PlatformDeploymentState):
 
     @rx.event
     def open_delete_dialog(self):
-        """Open the delete platform dialog."""
+        """Open the delete platform dialog (uses current_uid)."""
+        self._show_delete_dialog = True
+        self._delete_remote_files = False
+        self._delete_confirmed = False
+
+    @rx.event
+    def open_delete_dialog_for_instance(self, instance_name: str):
+        """Open the delete platform dialog for a specific instance."""
+        self.current_uid = instance_name
         self._show_delete_dialog = True
         self._delete_remote_files = False
         self._delete_confirmed = False
@@ -971,7 +1033,7 @@ class PlatformPageState(PlatformDeploymentState):
 
     @rx.event(background=True)
     async def handle_delete_platform(self):
-        """Delete the current platform from both the backend and local state."""
+        """Delete the current platform with optimistic UI updates."""
         async with self:
             working_platform: Instance = self.platforms.get(self.current_uid)
             if working_platform is None:
@@ -981,77 +1043,98 @@ class PlatformPageState(PlatformDeploymentState):
 
             instance_name = working_platform.platform.config.instance_name
             delete_remote = self._delete_remote_files
-            self._deleting_platform = True
+            uid_to_delete = self.current_uid
+            platform_in_file = working_platform.platform.in_file
+            host_id = working_platform.host.id
 
-        yield
+            # Remove from UI immediately (reassign to trigger reactivity)
+            self.platforms = {k: v for k, v in self.platforms.items() if k != uid_to_delete}
 
-        try:
-            # If user wants to delete remote files, do that first
-            if delete_remote:
-                async with self:
-                    self._current_task = "Stopping VOLTTRON and deleting remote files..."
-                yield
+            # Reset dialog state
+            self._show_delete_dialog = False
+            self._delete_remote_files = False
+            self._delete_confirmed = False
+            self._deleting_platform = False
+
+        yield rx.toast.info(f"Removing {instance_name}...")
+        yield rx.redirect("/instances")
+
+        # Backend cleanup - always keep removed from UI regardless of errors
+        had_error = False
+
+        if delete_remote:
+            try:
+                await delete_remote_volttron_files(instance_name)
+                logger.info(f"Deleted remote files for {instance_name}")
+            except Exception as e:
+                logger.error(f"Failed to delete remote files: {e}")
+                yield rx.toast.error(f"Could not delete remote files for {instance_name}: {str(e)}")
+                had_error = True
+
+        if platform_in_file and instance_name:
+            try:
+                await delete_platform(instance_name)
+                logger.info(f"Deleted platform backend data for {instance_name}")
+            except Exception as e:
+                logger.warning(f"Platform files may not exist: {e}")
+                yield rx.toast.error(f"Could not delete platform files: {str(e)}")
+                had_error = True
+
+            if host_id:
                 try:
-                    await delete_remote_volttron_files(instance_name)
-                except ApiError as e:
-                    async with self:
-                        self._deleting_platform = False
-                    yield rx.toast.error(f"Failed to delete remote files: {e.detail}")
-                    return
+                    await remove_from_inventory(host_id)
+                    logger.info(f"Deleted host entry for {instance_name}")
                 except Exception as e:
-                    async with self:
-                        self._deleting_platform = False
-                    yield rx.toast.error(f"Failed to delete remote files: {str(e)}")
-                    return
+                    logger.warning(f"Could not delete host entry: {e}")
+                    yield rx.toast.error(f"Could not remove host from inventory: {str(e)}")
+                    had_error = True
 
-            # Delete from backend if the platform was previously saved
-            async with self:
-                if working_platform.platform.in_file and instance_name:
-                    try:
-                        # Delete platform definition files (may not exist if corrupted)
-                        try:
-                            await delete_platform(instance_name)
-                        except Exception as platform_del_error:
-                            logger.warning(f"Platform files may not exist: {platform_del_error}")
-                        
-                        # Also delete the host entry from inventory.yml
-                        # This prevents the platform from reappearing on reload
-                        from volttron_installer.thin_endpoint_wrappers import remove_from_inventory
-                        if working_platform.host.id:  # Only try if host_id exists
-                            try:
-                                await remove_from_inventory(working_platform.host.id)
-                            except Exception as host_del_error:
-                                # Log but don't fail if host is shared or doesn't exist
-                                logger.warning(f"Could not delete host entry: {host_del_error}")
-                            
-                    except ApiError as e:
-                        # Don't fail deletion if backend cleanup fails - still remove from UI
-                        logger.error(f"Backend deletion failed but continuing: {e.detail}")
-                    except Exception as e:
-                        # Don't fail deletion if backend cleanup fails - still remove from UI
-                        logger.error(f"Backend deletion failed but continuing: {str(e)}")
+        if not had_error:
+            yield rx.toast.success(f"Platform {instance_name} removed successfully")
 
-                # Remove from local state
-                if self.current_uid in self.platforms:
-                    del self.platforms[self.current_uid]
+    @rx.event(background=True)
+    async def delete_platform_instant(self, instance_name: str):
+        """Instantly delete a platform from the overview table - no confirmation dialog."""
+        async with self:
+            working_platform: Instance = self.platforms.get(instance_name)
+            if working_platform is None:
+                return
 
-                # Reset dialog state
-                self._show_delete_dialog = False
-                self._delete_remote_files = False
-                self._delete_confirmed = False
-                self._deleting_platform = False
-                
-            yield rx.toast.success("Platform removed successfully")
-            
-            # Force re-hydration to reload platforms from backend after deletion
-            yield PlatformPageState.hydrate_state(force_hydration=True)
-            
-            yield rx.redirect("/instances")
+            platform_in_file = working_platform.platform.in_file
+            host_id = working_platform.host.id
+            display_name = working_platform.platform.config.instance_name
 
-        except Exception as e:
-            async with self:
-                self._deleting_platform = False
-            yield rx.toast.error(f"Error during deletion: {str(e)}")
+            # Remove from UI immediately (reassign to trigger reactivity)
+            self.platforms = {k: v for k, v in self.platforms.items() if k != instance_name}
+
+            # Clear stale current_uid so it doesn't point to deleted platform
+            self.current_uid = ""
+
+        yield rx.toast.info(f"Removing {display_name}...")
+
+        # Backend cleanup - always keep removed from UI regardless of errors
+        had_error = False
+
+        if platform_in_file and instance_name:
+            try:
+                await delete_platform(instance_name)
+                logger.info(f"Deleted platform backend data for {instance_name}")
+            except Exception as e:
+                logger.warning(f"Failed to delete platform files: {e}")
+                yield rx.toast.error(f"Could not delete platform from backend: {str(e)}")
+                had_error = True
+
+            if host_id:
+                try:
+                    await remove_from_inventory(host_id)
+                    logger.info(f"Deleted host entry for {instance_name}")
+                except Exception as e:
+                    logger.warning(f"Could not delete host entry: {e}")
+                    yield rx.toast.error(f"Could not remove host from inventory: {str(e)}")
+                    had_error = True
+
+        if not had_error:
+            yield rx.toast.success(f"Platform {display_name} removed successfully")
 
     @rx.event
     async def generate_new_platform(self):
@@ -1068,6 +1151,7 @@ class PlatformPageState(PlatformDeploymentState):
         # Close the dialog if it's open
         self._show_create_platform_dialog = False
         self._connect_existing_mode = False
+        self.current_uid = new_uid
         yield NavigationState.route_to_platform(new_uid)
 
     # Create platform dialog handlers
@@ -1226,6 +1310,7 @@ class PlatformPageState(PlatformDeploymentState):
         self._status_loading = True
         self._connection_status = "checking"
 
+        self.current_uid = instance_name
         yield NavigationState.route_to_platform(instance_name)
         yield rx.toast.success("Connected to existing VOLTTRON instance!")
 
@@ -1236,6 +1321,7 @@ class PlatformPageState(PlatformDeploymentState):
         copy_instance.platform.config.instance_name = uid
         copy_instance.refresh_for_copy()
         self.platforms[uid] = copy_instance
+        self.current_uid = self.platforms[uid].platform.config.instance_name
         yield NavigationState.route_to_platform(self.platforms[uid].platform.config.instance_name)
         yield rx.toast.info(f"Platform: {instance_name} has been copied")
         # This is a weird way of doing it but we are doing this because 
@@ -1247,34 +1333,46 @@ class PlatformPageState(PlatformDeploymentState):
         
     @rx.event
     def toggle_advanced(self):
+        if self.current_uid not in self.platforms:
+            return
         working_platform: Instance = self.platforms[self.current_uid]
         working_platform.advanced_expanded = not working_platform.advanced_expanded
     
     @rx.event
     def toggle_agent_config_details(self):
+        if self.current_uid not in self.platforms:
+            return
         working_platform: Instance = self.platforms[self.current_uid]
         working_platform.agent_configuration_expanded = not working_platform.agent_configuration_expanded
 
     @rx.event
     def toggle_web(self):
+        if self.current_uid not in self.platforms:
+            return
         working_platform: Instance = self.platforms[self.current_uid]
         working_platform.web_checked = not working_platform.web_checked
 
     @rx.event
     def toggle_federation(self):
+        if self.current_uid not in self.platforms:
+            return
         working_platform: Instance = self.platforms[self.current_uid]
         working_platform.federation_checked = not working_platform.federation_checked
 
     @rx.event
     def update_password_field(self, value: str):
+        if self.current_uid not in self.platforms:
+            return
         working_platform_instance = self.platforms[self.current_uid]
         working_platform_instance.password = value
 
     @rx.event
     def use_local_details(self):
+        if self.current_uid not in self.platforms:
+            return
         import getpass
         current_user = getpass.getuser()
-        
+
         # Get the current platform instance
         working_platform = self.platforms[self.current_uid]
         
@@ -1299,6 +1397,8 @@ class PlatformPageState(PlatformDeploymentState):
 
     @rx.event
     def update_detail(self, field: str, value):
+        if self.current_uid not in self.platforms:
+            return
         logger.info(f"[HOST UPDATE] Updating {field} to: '{value}'")
         working_platform_instance = self.platforms[self.current_uid]
         if field == "id":
@@ -1310,6 +1410,8 @@ class PlatformPageState(PlatformDeploymentState):
 
     @rx.event
     def update_platform_config_detail(self, field: str, value: str):
+        if self.current_uid not in self.platforms:
+            return
         logger.info(f"[CONFIG UPDATE] Updating {field} to: '{value}'")
         working_platform = self.platforms[self.current_uid]
         if field == "web_bind_address":
@@ -1490,6 +1592,9 @@ class PlatformPageState(PlatformDeploymentState):
     @rx.event
     async def handle_save(self):
         """Save platform configuration and immediately start deployment"""
+        if self.current_uid not in self.platforms:
+            yield rx.toast.error("No platform selected")
+            return
         working_platform: Instance = self.platforms[self.current_uid]
         uid_copy = deepcopy(self.current_uid)
 

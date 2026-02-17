@@ -88,6 +88,9 @@ class PlatformDeploymentState(PlatformAgentState):
 
     @rx.event(background=True)
     async def handle_deploy(self):
+        if self.current_uid not in self.platforms:
+            yield rx.toast.error("Platform not found")
+            return
         working_platform: Instance = self.platforms[self.current_uid]
 
         # Show deployment dialog and initialize state
@@ -230,6 +233,9 @@ class PlatformDeploymentState(PlatformAgentState):
     @rx.event(background=True)
     async def handle_install_pyenv(self):
         """Install Python 3.10 via pyenv on the remote host and create venv."""
+        if self.current_uid not in self.platforms:
+            yield rx.toast.error("Platform not found")
+            return
         working_platform: Instance = self.platforms[self.current_uid]
         async with self:
             self._pyenv_installing = True

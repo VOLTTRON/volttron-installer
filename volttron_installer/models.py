@@ -1,6 +1,17 @@
 import reflex as rx
 from loguru import logger
+from enum import Enum
 from .model_views import HostEntryModelView, PlatformModelView
+
+
+class InstanceStatus(str, Enum):
+    """Status of instance deployment/connection"""
+    LOADING = "loading"
+    DEPLOYED = "deployed"
+    NOT_DEPLOYED = "not_deployed"
+    ERROR = "error"
+    UNKNOWN = "unknown"
+
 
 class Instance(rx.Base):
     # TODO: Implement a system to check the platform,
@@ -23,6 +34,7 @@ class Instance(rx.Base):
 
     new_instance: bool = True
     deployed: bool = False
+    status: str = InstanceStatus.LOADING.value  # New: deployment status
 
     def has_uncaught_changes(self) -> bool:
         return self.host.to_dict() != self.safe_host_entry

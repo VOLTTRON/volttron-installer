@@ -11,8 +11,11 @@ pip = "*"
 pytest = "*"
 sshpass = ">=1.6,<2"
 
+[activation]
+env = { PYTHONNOUSERSITE = "1" }
+
 [tasks]
-install-deps = { cmd = "pip uninstall -y reflex pydantic sqlmodel; pip install 'pydantic>=2.10.0,<2.11.0' 'sqlmodel==0.0.28' && pip install -e ../lib-protocol-proxy-fixed && pip install -e ../lib-protocol-proxy-bacnet-fixed && pip install -e ../eclipse-bacnet-scan-tool && pip install -r requirements.txt && pip install -e . && ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop" }
+install-deps = { cmd = "pip install --no-user 'pydantic>=2.10.0,<2.11.0' 'sqlmodel==0.0.28' && pip uninstall -y reflex && pip install --no-user -e ../lib-protocol-proxy-fixed && pip install --no-user -e ../lib-protocol-proxy-bacnet-fixed && pip install --no-user -e ../eclipse-bacnet-scan-tool && pip install --no-user -r requirements.txt && pip install --no-user -e . && ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop" }
 run = "reflex run"
 dev = { cmd = "reflex run", depends-on = ["install-deps"] }
 test = { cmd = "pytest tests/", depends-on = ["install-deps"] }

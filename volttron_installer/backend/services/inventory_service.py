@@ -76,7 +76,7 @@ class InventoryService:
     async def update_host(self, host_id: str, entry: HostEntry):
         """Update a host in the inventory"""
 
-        self.remove_host(host_id)
+        await self.remove_host(host_id)
 
         with self._lock:
             self._internal_state['all']['hosts'][entry.id] = entry.model_dump()

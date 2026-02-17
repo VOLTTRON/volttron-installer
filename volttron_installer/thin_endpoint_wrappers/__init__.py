@@ -89,20 +89,6 @@ async def get_request(url: str, params: Optional[dict[str, Any]] = None,
     except Exception as e:
         raise ApiError(500, str(e))
 
-async def delete_request(url: str, timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
-    """Send an async DELETE request to the specified URL."""
-    client = get_client()
-    try:
-        response = await client.delete(url, timeout=timeout)
-        response.raise_for_status()
-        return response
-    except httpx.TimeoutException:
-        raise ApiError(408, f"Request timed out connecting to {url}")
-    except httpx.HTTPStatusError as e:
-        raise ApiError(e.response.status_code, e.response.text)
-    except Exception as e:
-        raise ApiError(500, str(e))
-
 async def post_request(url: str, data: Optional[dict[str, Any]] = None, timeout: float = DEFAULT_TIMEOUT, params: Optional[dict[str, Any]] = None) -> httpx.Response:
     """Send an async POST request to the specified URL with optional JSON data and query params."""
     client = get_client()
