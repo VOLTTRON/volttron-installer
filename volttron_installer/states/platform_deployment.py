@@ -4,9 +4,10 @@ import json
 from loguru import logger
 from ..models import Instance
 from ..backend.models import CreatePlatformRequest, PlatformConfig, AgentDefinition, ConfigStoreEntry
-from ..thin_endpoint_wrappers import update_platform, deploy_platform, get_deploy_progress, install_python310
+from ..thin_endpoint_wrappers import update_platform, deploy_platform, get_deploy_progress, install_python310, mark_platform_deployed
 
 from .platform_agent import PlatformAgentState
+from .platform_status import PlatformStatusState
 
 class PlatformDeploymentState(PlatformAgentState):
     # Deployment progress tracking
@@ -125,7 +126,8 @@ class PlatformDeploymentState(PlatformAgentState):
             platform_request = CreatePlatformRequest(
                 host_id=working_platform.host.id,
                 config=PlatformConfig(**config_dict),
-                agents=agents_dict
+                agents=agents_dict,
+                deployed=True  # Ensure deployed flag is set/preserved
             )
             logger.info(f"[DEPLOY SAVE] Saving platform with volttron_version: {platform_request.config.volttron_version}")
             await update_platform(working_platform.platform.config.instance_name, platform_request)
@@ -170,8 +172,9 @@ class PlatformDeploymentState(PlatformAgentState):
                         self._deployment_logs.append(line)
                 self._deployment_logs = self._deployment_logs[-200:]
 
-                # Mark as deployed
+                # Mark as deployed and enable tabs
                 working_platform.deployed = True
+                working_platform.platform.in_file = True  # Enable Status and Logs tabs
                 logger.debug(f"response: {response_data}")
 
                 # Update deployment state to success
@@ -179,7 +182,20 @@ class PlatformDeploymentState(PlatformAgentState):
                 self._is_deploying = False
                 self._current_task = f"Deployment completed successfully ({len(tasks)} tasks executed)"
                 self._deployment_progress = 100
+            
+            # Persist deployed status to backend
+            try:
+                await mark_platform_deployed(working_platform.platform.config.instance_name, True)
+                logger.info(f"[DEPLOY] Marked platform {working_platform.platform.config.instance_name} as deployed")
+            except Exception as mark_err:
+                logger.warning(f"[DEPLOY] Could not persist deployed status: {mark_err}")
+            
             yield rx.toast.success("Deployed Successfully!")
+            
+            # Force refresh of platform status/connection to show updated deployment state
+            await asyncio.sleep(1.0) # wait for file write to settle
+            yield PlatformStatusState.load_platform_status_background
+            
         except Exception as e:
             logger.error(f"[DEPLOY] Error deploying platform {working_platform.platform.config.instance_name}: {e}")
             error_text = str(e)

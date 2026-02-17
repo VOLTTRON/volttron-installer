@@ -372,6 +372,12 @@ class PlatformPageState(PlatformDeploymentState):
     _connect_ssh_user: str = ""
     _connect_ssh_port: str = "22"
 
+    @rx.event(background=True)
+    async def on_platform_page_load(self):
+        """Ensure platform data is hydrated and status is refreshed on page load."""
+        await self.hydrate_state()
+        yield PlatformStatusState.load_platform_status_background
+
     # Install agent dialog variables moved to PlatformAgentState
 
     # Vars
@@ -690,6 +696,22 @@ class PlatformPageState(PlatformDeploymentState):
         return "Connection status unknown"
 
     @rx.var
+    def needs_password_for_deployment(self) -> bool:
+        """Check if current platform needs a password for deployment"""
+        if self.current_uid not in self.platforms:
+            return False
+        
+        working_platform = self.platforms[self.current_uid]
+        
+        # Local connections don't need passwords
+        if working_platform.host.ansible_connection == "local":
+            return False
+        
+        # SSH connections need password if not already provided
+        # (assumes key-based auth if password is not set)
+        return working_platform.password == ""
+
+    @rx.var
     def show_delete_dialog(self) -> bool:
         return self._show_delete_dialog
 
@@ -984,17 +1006,30 @@ class PlatformPageState(PlatformDeploymentState):
 
             # Delete from backend if the platform was previously saved
             async with self:
-                if working_platform.platform.in_file:
+                if working_platform.platform.in_file and instance_name:
                     try:
-                        await delete_platform(instance_name)
+                        # Delete platform definition files (may not exist if corrupted)
+                        try:
+                            await delete_platform(instance_name)
+                        except Exception as platform_del_error:
+                            logger.warning(f"Platform files may not exist: {platform_del_error}")
+                        
+                        # Also delete the host entry from inventory.yml
+                        # This prevents the platform from reappearing on reload
+                        from volttron_installer.thin_endpoint_wrappers import remove_from_inventory
+                        if working_platform.host.id:  # Only try if host_id exists
+                            try:
+                                await remove_from_inventory(working_platform.host.id)
+                            except Exception as host_del_error:
+                                # Log but don't fail if host is shared or doesn't exist
+                                logger.warning(f"Could not delete host entry: {host_del_error}")
+                            
                     except ApiError as e:
-                        self._deleting_platform = False
-                        yield rx.toast.error(f"Failed to delete platform: {e.detail}")
-                        return
+                        # Don't fail deletion if backend cleanup fails - still remove from UI
+                        logger.error(f"Backend deletion failed but continuing: {e.detail}")
                     except Exception as e:
-                        self._deleting_platform = False
-                        yield rx.toast.error(f"Failed to delete platform: {str(e)}")
-                        return
+                        # Don't fail deletion if backend cleanup fails - still remove from UI
+                        logger.error(f"Backend deletion failed but continuing: {str(e)}")
 
                 # Remove from local state
                 if self.current_uid in self.platforms:
@@ -1007,10 +1042,10 @@ class PlatformPageState(PlatformDeploymentState):
                 self._deleting_platform = False
                 
             yield rx.toast.success("Platform removed successfully")
-            yield rx.redirect("/instances")
             
-            # Additional wait and redirect to ensure instances page refreshes
-            await asyncio.sleep(0.5)
+            # Force re-hydration to reload platforms from backend after deletion
+            yield PlatformPageState.hydrate_state(force_hydration=True)
+            
             yield rx.redirect("/instances")
 
         except Exception as e:
@@ -1248,6 +1283,10 @@ class PlatformPageState(PlatformDeploymentState):
         working_platform.host.id = "localhost"
         working_platform.host.ansible_user = current_user
         working_platform.host.ansible_port = "22"
+        working_platform.host.ansible_connection = "local"  # Set to local connection - no SSH needed
+        
+        # No password needed for local connections
+        working_platform.password = ""
         
         # Update validation states since we trust localhost
         self._host_resolved = True
@@ -1256,7 +1295,7 @@ class PlatformPageState(PlatformDeploymentState):
         # Check for uncaught changes
         working_platform.uncaught = working_platform.has_uncaught_changes()
         
-        yield rx.toast.info("Filled with local connection details")
+        yield rx.toast.info("Configured for local connection (no SSH or password needed)")
 
     @rx.event
     def update_detail(self, field: str, value):
@@ -1450,6 +1489,7 @@ class PlatformPageState(PlatformDeploymentState):
 
     @rx.event
     async def handle_save(self):
+        """Save platform configuration and immediately start deployment"""
         working_platform: Instance = self.platforms[self.current_uid]
         uid_copy = deepcopy(self.current_uid)
 
@@ -1462,7 +1502,7 @@ class PlatformPageState(PlatformDeploymentState):
         # TODO save the federation field once we have it all up and running
         # federation = working_platform.enable_federation
 
-        # Create base platform
+        # Create base platform request with deployed=True since we're about to deploy
         base_platform_request = CreatePlatformRequest(
             host_id = working_platform.safe_host_entry["id"],
             config=PlatformConfig(
@@ -1486,39 +1526,62 @@ class PlatformPageState(PlatformDeploymentState):
                         ) for path, config in agent["config_store"].items()
                     }
                 ) for identity, agent in working_platform.platform.to_dict()["agents"].items()
-            }
+            },
+            deployed=True  # Mark as deployed since we're initiating deployment
         )
 
         logger.debug(f"this is the uid copy: {uid_copy}")
-        if working_platform.platform.config.instance_name in [p.config.instance_name for p in all_platforms]:
-            logger.debug("yes we have committed this already")
+        
+        # Check if this platform already exists
+        platform_exists = working_platform.platform.config.instance_name in [p.config.instance_name for p in all_platforms]
+        
+        if platform_exists:
+            logger.debug("Platform already exists, updating...")
             await update_platform(
                 working_platform.platform.config.instance_name,
                 base_platform_request
             )
-            yield rx.toast.success("Changes saved successfully")
-            return
-        
-        host_request = working_platform.host.to_dict()
-        host_request["ansible_port"] = int(host_request["ansible_port"])
-        # Use 'instance_name' to avoid Ansible reserved keyword 'name' conflict
-        host_request["instance_name"] = working_platform.platform.config.instance_name
-        logger.info(f"[SAVE] Host request volttron_home: '{host_request.get('volttron_home')}'")
-        logger.info(f"[SAVE] Host request volttron_venv: '{host_request.get('volttron_venv')}'")
-        request = CreateOrUpdateHostEntryRequest(**host_request)
+        else:
+            # Create new platform
+            host_request = working_platform.host.to_dict()
+            host_request["ansible_port"] = int(host_request["ansible_port"])
+            # Use 'instance_name' to avoid Ansible reserved keyword 'name' conflict
+            host_request["instance_name"] = working_platform.platform.config.instance_name
+            logger.info(f"[SAVE] Host request volttron_home: '{host_request.get('volttron_home')}'")
+            logger.info(f"[SAVE] Host request volttron_venv: '{host_request.get('volttron_venv')}'")
+            request = CreateOrUpdateHostEntryRequest(**host_request)
 
-        await add_host(request)
-        await create_platform(base_platform_request)
+            await add_host(request)
+            await create_platform(base_platform_request)
+            
+            # Update platforms dict and clean up temp UID
+            self.platforms[working_platform.platform.config.instance_name] = working_platform
+            logger.debug(f"this is the list of params: {list(self.platforms.keys())}")
+            logger.debug(f"this is the uid about to deletee: {uid_copy}")
+            
+            # Update current_uid to the instance name
+            self.current_uid = working_platform.platform.config.instance_name
         
-        # Lets say changes saved successfully and redirect to the new url while deleting our old one
-        logger.debug(f"this is the uid copy: {uid_copy}")
-        yield rx.toast.success("Changes saved successfully")
-        self.platforms[working_platform.platform.config.instance_name] = working_platform
-        logger.debug(f"this is the list of params: {list(self.platforms.keys())}")
+        yield rx.toast.success("Configuration saved, starting deployment...")
+        
+        # Mark platform as deployed in memory and enable tabs BEFORE navigating
+        # This ensures the status tab is enabled when the page loads
+        working_platform.deployed = True
+        working_platform.platform.in_file = True
+        working_platform.new_instance = False
+        
+        # Update safe_platform to reflect the new instance name in the UI
+        working_platform.platform.safe_platform = working_platform.platform.to_dict()
+        
+        # Navigate to the instance and trigger deployment
         yield NavigationState.route_to_platform(working_platform.platform.config.instance_name)
-        logger.debug(f"this is the uid about to deletee: {uid_copy}")
-        yield PlatformPageState.delete_temp_uid(uid_copy)
-        yield PlatformPageState.hydrate_state(True)
+        
+        # Delete temp UID if this was a new platform
+        if not platform_exists:
+            yield PlatformPageState.delete_temp_uid(uid_copy)
+        
+        # Trigger deployment immediately
+        yield PlatformDeploymentState.handle_deploy()
 
     @rx.event
     async def determine_host_reachability(self, working_platform: Instance):
@@ -1634,6 +1697,10 @@ class PlatformPageState(PlatformDeploymentState):
             "volttron_venv" : True,
             "volttron_home" : True
         }
+        
+        # Check if this is a local connection
+        is_local = working_platform.host.ansible_connection == "local"
+        
         # Validate the host id
         if working_platform.host.id == "":
             valid = False
@@ -1649,11 +1716,12 @@ class PlatformPageState(PlatformDeploymentState):
             valid = False
             validity_map["ansible_host"] = False
 
-        # Validate the ansible port
-        if not isinstance(working_platform.host.ansible_port, int):
-            if not working_platform.host.ansible_port.isnumeric():
-                valid = False
-                validity_map["ansible_port"] = False
+        # Validate the ansible port (only for SSH connections)
+        if not is_local:
+            if not isinstance(working_platform.host.ansible_port, int):
+                if not working_platform.host.ansible_port.isnumeric():
+                    valid = False
+                    validity_map["ansible_port"] = False
 
         return (valid, validity_map)
 

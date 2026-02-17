@@ -31,6 +31,16 @@ def configuration_tab_content() -> rx.Component:
                                     spacing="2",
                                     margin_bottom="1rem",
                                 ),
+                                rx.cond(
+                                    State.working_platform.host.ansible_connection == "local",
+                                    rx.callout(
+                                        rx.text("Local connection mode: No SSH or passwords needed"),
+                                        icon="info",
+                                        color_scheme="blue",
+                                        size="1",
+                                        margin_bottom="1rem",
+                                    )
+                                ),
                                 form_entry.form_entry(
                                     "Host",
                                     rx.input(
@@ -85,26 +95,29 @@ def configuration_tab_content() -> rx.Component:
                                     ),
                                     required_entry=True,
                                 ),
-                                form_entry.form_entry(
-                                    "Port SSH",
-                                    rx.input(
-                                        value= State.working_platform.host.ansible_port,
-                                        on_change=lambda v: State.update_detail("ansible_port", v),
-                                        size="3",
-                                        required=True,
-                                    ),
-                                    required_entry=True,
-                                    upload=tile_icon(
-                                        "badge-info",
-                                        tooltip="SSH port on the remote host (default: 22)"
-                                    ),
-                                    below_component=rx.cond(
-                                        State.connection_ansible_port_validity == False,
-                                        rx.text(
-                                            "Port SSH must be a valid port number",
-                                            color_scheme="red"
-                                        )
-                                    ),
+                                rx.cond(
+                                    State.working_platform.host.ansible_connection != "local",
+                                    form_entry.form_entry(
+                                        "Port SSH",
+                                        rx.input(
+                                            value= State.working_platform.host.ansible_port,
+                                            on_change=lambda v: State.update_detail("ansible_port", v),
+                                            size="3",
+                                            required=True,
+                                        ),
+                                        required_entry=True,
+                                        upload=tile_icon(
+                                            "badge-info",
+                                            tooltip="SSH port on the remote host (default: 22)"
+                                        ),
+                                        below_component=rx.cond(
+                                            State.connection_ansible_port_validity == False,
+                                            rx.text(
+                                                "Port SSH must be a valid port number",
+                                                color_scheme="red"
+                                            )
+                                        ),
+                                    )
                                 ),
                                 rx.box(
                                     rx.hstack(
@@ -181,16 +194,19 @@ def configuration_tab_content() -> rx.Component:
                                                 tooltip="Path to VOLTTRON source code for monolithic installations (default: ~/volttron). Only used for monolithic VOLTTRON."
                                             )
                                         ),
-                                        form_entry.form_entry(
-                                            "Ignore Host Keys",
-                                            rx.checkbox(
-                                                checked=State.working_platform.host.ignore_host_keys,
-                                                on_change=lambda v: State.update_detail("ignore_host_keys", v),
-                                                size="3",
-                                            ),
-                                            upload=tile_icon(
-                                                "badge-info",
-                                                tooltip="Skip SSH host key verification (StrictHostKeyChecking=no). Use if the remote host is not in your known_hosts file. Less secure but useful for initial setup."
+                                        rx.cond(
+                                            State.working_platform.host.ansible_connection != "local",
+                                            form_entry.form_entry(
+                                                "Ignore Host Keys",
+                                                rx.checkbox(
+                                                    checked=State.working_platform.host.ignore_host_keys,
+                                                    on_change=lambda v: State.update_detail("ignore_host_keys", v),
+                                                    size="3",
+                                                ),
+                                                upload=tile_icon(
+                                                    "badge-info",
+                                                    tooltip="Skip SSH host key verification (StrictHostKeyChecking=no). Use if the remote host is not in your known_hosts file. Less secure but useful for initial setup."
+                                                )
                                             )
                                         ),
                                         form_entry.form_entry(
@@ -475,83 +491,86 @@ def configuration_tab_content() -> rx.Component:
                     variant="outline"
                 ),
                 rx.box(
-                    rx.button(
-                        "Save", 
-                        size="4", 
-                        variant="surface",
-                        color_scheme="green",
-                        on_click=State.handle_save,
-                        disabled=rx.cond(
-                            (State.instance_savable)
-                            & (State.instance_uncaught),
-                            # (State.working_platform.uncaught),
-                            False,
-                            True
-                        )
-                    ),
-                    rx.dialog.root(
-                        rx.dialog.trigger(
-                            rx.button(
-                                rx.cond(
-                                    State.platform_deployed,
-                                    "Re-Deploy",
-                                    "Deploy"
-                                ), 
-                                size="4", 
-                                variant="surface", 
-                                color_scheme="blue",
-                                disabled=rx.cond(
-                                    (State.instance_uncaught == False)
-                                    & (State.instance_deployable==True),
-                                    False,
-                                    True
-                                )
+                    # Single "Save & Deploy" button that saves and immediately deploys
+                    # For SSH connections, shows password dialog first
+                    # For local connections, deploys directly
+                    rx.cond(
+                        State.needs_password_for_deployment,
+                        # SSH connection - need password dialog before deploy
+                        rx.dialog.root(
+                            rx.dialog.trigger(
+                                rx.button(
+                                    rx.cond(
+                                        State.platform_deployed,
+                                        "Save & Re-Deploy",
+                                        "Save & Deploy"
+                                    ), 
+                                    size="4", 
+                                    variant="solid",
+                                    color_scheme="green",
+                                    disabled=rx.cond(
+                                        (State.instance_savable) & (State.instance_uncaught),
+                                        False,
+                                        True
+                                    )
+                                ),
+                            ),
+                            rx.dialog.content(
+                                rx.dialog.title("Enter SSH Password"),
+                                rx.dialog.description(
+                                    "Enter the password for SSH connection to deploy the platform.",
+                                    size="2",
+                                    mb="4",
+                                ),
+                                rx.flex(
+                                    rx.input(
+                                        value=State.working_platform.password,
+                                        on_change=State.update_password_field,
+                                        type="password",
+                                        placeholder="Enter SSH password"
+                                    ),
+                                    rx.flex(
+                                        rx.dialog.close(
+                                            rx.button(
+                                                "Cancel",
+                                                variant="soft",
+                                                color_scheme="gray",
+                                            ),
+                                        ),
+                                        rx.dialog.close(
+                                            rx.button(
+                                                "Deploy",
+                                                on_click=State.handle_save,
+                                                variant="solid",
+                                                color_scheme="green"
+                                            ),
+                                        ),
+                                        spacing="3",
+                                        mt="4",
+                                        justify="end",
+                                    ),
+                                    direction="column",
+                                    spacing="3",
+                                ),
                             ),
                         ),
-                        rx.dialog.content(
-                            rx.dialog.title("Password Required"),
-                            rx.dialog.description("To deploy, please provide your ssh password"),
-                            rx.vstack(
-                                rx.vstack(
-                                    form_entry.form_entry(
-                                        "Password",
-                                        rx.input(
-                                            type="password",
-                                            on_change=State.update_password_field,
-                                            value=State.password_field
-                                        ),
-                                        required_entry=True
-                                    ),
-                                    align="center",
-                                    justify="center"
-                                ),
-                                rx.hstack(
-                                    rx.dialog.close(
-                                        rx.button(
-                                            "Cancel",
-                                            variant="soft",
-                                            color_scheme="gray",
-                                        )
-                                    ),
-                                    rx.dialog.close(
-                                        rx.button(
-                                            "Submit",
-                                            on_click=State.handle_deploy,
-                                            disabled=rx.cond(
-                                                State.password_field=="",
-                                                True,
-                                                False
-                                            )
-                                        )
-                                    ),
-                                    spacing="3",
-                                    justify="end",
-                                ),
-                                width="100%",
-                                padding_top="1rem",
-                                spacing="6"
+                        # Local connection - deploy directly without password
+                        rx.button(
+                            rx.cond(
+                                State.platform_deployed,
+                                "Save & Re-Deploy",
+                                "Save & Deploy"
+                            ),
+                            size="4",
+                            variant="solid",
+                            color_scheme="green",
+                            on_click=State.handle_save,
+                            disabled=rx.cond(
+                                (State.instance_savable) & (State.instance_uncaught),
+                                False,
+                                True
                             )
-                        )
+                        ),
                     ),
                     rx.button(
                             "Cancel", 

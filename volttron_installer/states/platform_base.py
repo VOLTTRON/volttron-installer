@@ -21,6 +21,15 @@ class PlatformBaseState(rx.State):
         return self._working_platform
 
     @rx.var
+    def is_local_connection(self) -> bool:
+        if self.current_uid == "":
+            return False
+        working_platform: Instance | None = self.platforms.get(self.current_uid, None)
+        if working_platform is None:
+            return False
+        return working_platform.host.ansible_connection == "local"
+
+    @rx.var
     def platform_deployed(self) -> bool:
         if self.current_uid == "":
             return False

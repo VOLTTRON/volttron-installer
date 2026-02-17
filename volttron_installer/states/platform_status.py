@@ -280,6 +280,11 @@ class PlatformStatusState(PlatformLogState):
             else:
                 yield rx.toast.success("Platform started successfully!")
 
+            # Wait for VOLTTRON to fully initialize before confirming status
+            # The start endpoint returns immediately after launching the background process,
+            # but vctl needs a few seconds to be able to connect to the platform
+            await asyncio.sleep(5)
+
             # Background refresh to confirm (don't block UI)
             yield PlatformStatusState.refresh_platform_status
 

@@ -11,30 +11,38 @@ def data_tab_content() -> rx.Component:
                 rx.vstack(
                     # Status Badges Row
                     rx.hstack(
-                        # SSH Connection Status Badge
+                        # Connection Status Badge (adapts for local vs SSH)
                         rx.tooltip(
                             rx.badge(
                                 rx.hstack(
                                     rx.cond(
                                         State.connection_status == "connected",
-                                        rx.icon("wifi", size=14),
+                                        rx.cond(
+                                            State.is_local_connection,
+                                            rx.icon("monitor", size=14),
+                                            rx.icon("wifi", size=14),
+                                        ),
                                         rx.cond(
                                             State.connection_status == "checking",
                                             rx.spinner(size="1"),
-                                            rx.icon("wifi-off", size=14),
+                                            rx.cond(
+                                                State.is_local_connection,
+                                                rx.icon("monitor-x", size=14),
+                                                rx.icon("wifi-off", size=14),
+                                            ),
                                         ),
                                     ),
                                     rx.text(
                                         rx.cond(
                                             State.connection_status == "connected",
-                                            "SSH Connected",
+                                            rx.cond(State.is_local_connection, "Local Connected", "SSH Connected"),
                                             rx.cond(
                                                 State.connection_status == "checking",
-                                                "Checking SSH...",
+                                                rx.cond(State.is_local_connection, "Checking Local...", "Checking SSH..."),
                                                 rx.cond(
                                                     State.connection_status == "disconnected",
-                                                    "SSH Disconnected",
-                                                    "SSH Unknown"
+                                                    rx.cond(State.is_local_connection, "Local Error", "SSH Disconnected"),
+                                                    rx.cond(State.is_local_connection, "Local Unknown", "SSH Unknown"),
                                                 )
                                             )
                                         ),
@@ -119,31 +127,46 @@ def data_tab_content() -> rx.Component:
                         spacing="3",
                     ),
 
-                    # Remote connection info
+                    # Connection info
                     rx.hstack(
-                        rx.badge(
-                            rx.hstack(
-                                rx.icon("terminal", size=12),
-                                rx.text("SSH:", size="1", weight="medium"),
-                                rx.text(
-                                    State.working_platform.host.ansible_user + "@" +
-                                    State.working_platform.host.ansible_host + ":" +
-                                    State.working_platform.host.ansible_port,
-                                    size="1",
+                        rx.cond(
+                            State.is_local_connection,
+                            # Local connection badge
+                            rx.badge(
+                                rx.hstack(
+                                    rx.icon("monitor", size=12),
+                                    rx.text("Local Connection", size="1", weight="medium"),
+                                    spacing="1",
+                                    align="center",
                                 ),
-                                rx.icon("copy", size=12),
-                                spacing="1",
-                                align="center",
+                                variant="soft",
+                                color_scheme="gray",
                             ),
-                            variant="soft",
-                            color_scheme="gray",
-                            on_click=rx.call_script(
-                                "navigator.clipboard.writeText('" +
-                                "ssh -p " + State.working_platform.host.ansible_port + " " +
-                                State.working_platform.host.ansible_user + "@" +
-                                State.working_platform.host.ansible_host + "')"
+                            # SSH connection badge with copy
+                            rx.badge(
+                                rx.hstack(
+                                    rx.icon("terminal", size=12),
+                                    rx.text("SSH:", size="1", weight="medium"),
+                                    rx.text(
+                                        State.working_platform.host.ansible_user + "@" +
+                                        State.working_platform.host.ansible_host + ":" +
+                                        State.working_platform.host.ansible_port,
+                                        size="1",
+                                    ),
+                                    rx.icon("copy", size=12),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                variant="soft",
+                                color_scheme="gray",
+                                on_click=rx.call_script(
+                                    "navigator.clipboard.writeText('" +
+                                    "ssh -p " + State.working_platform.host.ansible_port + " " +
+                                    State.working_platform.host.ansible_user + "@" +
+                                    State.working_platform.host.ansible_host + "')"
+                                ),
+                                style={"cursor": "pointer"},
                             ),
-                            style={"cursor": "pointer"},
                         ),
                         rx.badge(
                             rx.hstack(
@@ -282,16 +305,20 @@ def data_tab_content() -> rx.Component:
                                 rx.vstack(
                                     rx.text("Keys Verified", size="2", weight="bold", color="gray"),
                                     rx.cond(
-                                        State.platform_status.get("keys_verified", False),
-                                        rx.hstack(
-                                            rx.icon("check", size=16, color="green"),
-                                            rx.text("Yes", size="3"),
-                                            spacing="2",
-                                        ),
-                                        rx.hstack(
-                                            rx.icon("x", size=16, color="red"),
-                                            rx.text("No", size="3"),
-                                            spacing="2",
+                                        State.is_local_connection,
+                                        rx.text("N/A (local)", size="3", color="gray"),
+                                        rx.cond(
+                                            State.platform_status.get("keys_verified", False),
+                                            rx.hstack(
+                                                rx.icon("check", size=16, color="green"),
+                                                rx.text("Yes", size="3"),
+                                                spacing="2",
+                                            ),
+                                            rx.hstack(
+                                                rx.icon("x", size=16, color="red"),
+                                                rx.text("No", size="3"),
+                                                spacing="2",
+                                            ),
                                         ),
                                     ),
                                     align="start",

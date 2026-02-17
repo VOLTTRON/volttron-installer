@@ -22,7 +22,7 @@ from ..components.platform import (
 
 parts = Literal["connection", "instance_configuration"]
 
-@rx.page(route="/platform/[uid]", on_load=State.hydrate_state)
+@rx.page(route="/platform/[uid]", on_load=State.on_platform_page_load)
 def platform_page() -> rx.Component:
 
     # State.working_platform: Instance = State.platforms[State.current_uid]

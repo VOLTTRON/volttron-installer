@@ -26,6 +26,7 @@ class AnsibleService:
 
     async def run_ssh_command(self, host: 'HostEntry', command: str, timeout: int = 30) -> tuple[int, str, str]:
         """Run a command via SSH directly (bypassing Ansible for speed).
+        For local connections, runs command directly without SSH.
 
         Args:
             host: HostEntry with connection details
@@ -36,6 +37,33 @@ class AnsibleService:
             Tuple of (return_code, stdout, stderr)
         """
         try:
+            # Check if this is a local connection - run directly without SSH
+            if hasattr(host, 'ansible_connection') and host.ansible_connection == 'local':
+                logger.debug(f"Running local command: {command[:100]}...")
+                
+                # Use bash explicitly to support source, arrays, and other bash features
+                process = await asyncio.create_subprocess_exec(
+                    '/bin/bash', '-c', command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=timeout
+                    )
+                except asyncio.TimeoutError:
+                    process.kill()
+                    return -1, "", "Local command timed out"
+                
+                return (
+                    process.returncode,
+                    stdout.decode() if stdout else "",
+                    stderr.decode() if stderr else ""
+                )
+            
+            # For SSH connections, use SSH as before
             # For multi-line scripts, use bash -s to read from stdin
             # This is more reliable than passing complex scripts as arguments
             is_multiline = '\n' in command.strip()
@@ -111,6 +139,17 @@ class AnsibleService:
         output_cmd: str
         pass_holder = "********"
         
+        # Check if any hosts use local connection
+        uses_local_connection = False
+        all_hosts = await inventory_service.get_hosts()
+        host_list = [hosts] if isinstance(hosts, str) else hosts
+        
+        for host_id in host_list:
+            if host_id in all_hosts:
+                if all_hosts[host_id].ansible_connection == "local":
+                    uses_local_connection = True
+                    break
+        
         # Build extra vars dictionary
         combined_extra_vars = {}
         if extra_vars:
@@ -130,10 +169,12 @@ class AnsibleService:
         extra_vars_json = json.dumps(combined_extra_vars)
         safe_extra_vars_json = json.dumps(safe_extra_vars)
 
-        if password == None: 
+        # Don't use sshpass for local connections or when no password provided
+        if uses_local_connection or password == None: 
             cmd = ["ansible-playbook", "-i", inventory_service.inventory_path.as_posix()]
             output_cmd = ["ansible-playbook", "-i", inventory_service.inventory_path.as_posix()]
         else:
+            # Only use sshpass for SSH connections with password
             cmd = ["sshpass","-p", password, "ansible-playbook", "-k", "-i", inventory_service.inventory_path.as_posix()]
             output_cmd = ["sshpass","-p", pass_holder, "ansible-playbook", "-k", "-i", inventory_service.inventory_path.as_posix()]
 
@@ -284,12 +325,25 @@ class AnsibleService:
             True if VOLTTRON process is running, False otherwise
         """
         try:
-            # Use vctl status to check if VOLTTRON is running - this is the authoritative check
-            # vctl returns exit code 0 when running, non-zero when not running
+            # Check if VOLTTRON is running - first via PID file (instant), then fallback to vctl
             venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
             volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
 
-            cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl status > /dev/null 2>&1 && echo RUNNING || echo STOPPED"
+            # PID file check is more reliable than vctl during startup/shutdown transitions
+            # because vctl needs the platform to be fully initialized to connect
+            cmd = f'''
+VH="{volttron_home}"
+VH="${{VH/#\\~/$HOME}}"
+VP="{venv_path}"
+VP="${{VP/#\\~/$HOME}}"
+if [ -f "$VH/.volttron.pid" ] && kill -0 $(cat "$VH/.volttron.pid") 2>/dev/null; then
+    echo RUNNING
+else
+    export VOLTTRON_HOME="$VH"
+    source "$VP/bin/activate" 2>/dev/null
+    vctl status > /dev/null 2>&1 && echo RUNNING || echo STOPPED
+fi
+'''
 
             logger.debug(f"Running vctl status check for {instance_name}")
 
@@ -467,10 +521,21 @@ class AnsibleService:
         logger.debug(f"Verify keys: {verify_keys}")
         logger.debug(f"Getting status for platform {platform_id}")
         logger.debug(f"Platform {platform_id} found: {platform}")
+        logger.debug(f"Platform deployed flag: {platform.deployed}")
         
         keys_verified, _ = verify_keys
         
-        # Get actual runtime status
+        # If platform hasn't been deployed yet, return "not deployed" state
+        if not platform.deployed:
+            return PlatformDeploymentStatus(
+                platform_id=platform_id,
+                host_configured=True,
+                keys_verified=keys_verified,
+                state="not deployed",
+                agents={}
+            )
+        
+        # Get actual runtime status for deployed platforms
         is_running, agent_statuses = await self.get_runtime_status(
             platform.config.instance_name, 
             host
@@ -544,6 +609,13 @@ class AnsibleService:
             Tuple of (success: bool, message: str)
         """
         try:
+            # Check if this is a local connection - skip SSH verification
+            inventory_service = await get_inventory_service()
+            all_hosts = await inventory_service.get_hosts()
+            
+            if host in all_hosts and all_hosts[host].ansible_connection == "local":
+                return True, "Local connection - no SSH verification needed"
+            
             host_vars = {
                 # "ansible_host": host,
                 # "ansible_user": user,  # System user is safe to use directly
