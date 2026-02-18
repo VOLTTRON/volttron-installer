@@ -16,6 +16,7 @@ from .states.platform_deployment import PlatformDeploymentState
 from .states.platform_status import PlatformStatusState
 from .states.platform_agent import PlatformAgentState
 from .states.platform_logs import PlatformLogState
+from .states.driver_management import DriverManagementState
 from .utils.create_component_uid import generate_unique_uid
 from .utils.conversion_methods import csv_string_to_usable_dict
 from .utils.validate_content import check_json
@@ -336,7 +337,7 @@ async def __instances_from_api__() -> dict[str, Instance]:
 
     return instances
 
-class PlatformPageState(PlatformDeploymentState):
+class PlatformPageState(DriverManagementState):
     #TODO once we save a platform, we create a routing id 
     # off of it's instance name, and redirect the user to 
     # platforms/x, maybe we might have to delete the old 
@@ -790,6 +791,10 @@ class PlatformPageState(PlatformDeploymentState):
         return self._selected_catalog_agent
 
     @rx.var
+    def selected_local_agent(self) -> str:
+        return self._selected_local_agent
+
+    @rx.var
     def install_agent_identity(self) -> str:
         return self._install_agent_identity
 
@@ -806,10 +811,20 @@ class PlatformPageState(PlatformDeploymentState):
         return self._installing_agent
 
     @rx.var
+    def has_github_agents(self) -> bool:
+        return len(self.github_agents) > 0
+
+    @rx.var
+    def has_local_agents(self) -> bool:
+        return len(self.local_agents) > 0
+
+    @rx.var
     def can_install_agent(self) -> bool:
-        """Check if agent can be installed (identity and source are provided)."""
+        """Check if agent can be installed based on current mode."""
         if self._install_agent_mode == "catalog":
             return bool(self._selected_catalog_agent)
+        elif self._install_agent_mode == "local":
+            return bool(self._selected_local_agent)
         else:
             return bool(self._install_agent_identity.strip() and self._install_agent_source.strip())
 
@@ -827,23 +842,26 @@ class PlatformPageState(PlatformDeploymentState):
                     },
                 )
             
-            self.list_of_agents = await __agents_off_catalog__()
+            # Collect async results into local variables first
+            agent_list = await __agents_off_catalog__()
             platforms_from_api = await __instances_from_api__()
-            
+
             # Set all instances to loading status initially
             for instance in platforms_from_api.values():
                 instance.status = "loading"
-            
-            # Ensure we have a blank agent that the user can edit as they so choose
-            self.list_of_agents.append(
-                blank_agent
-            )
+
+            # Append blank agent to the local list before assigning to state
+            # (mutating self.list_of_agents directly after an await fails in background tasks)
+            agent_list.append(blank_agent)
+            self.list_of_agents = agent_list
             
             # Replace platforms entirely instead of updating to prevent deleted items from reappearing
+            # Note: .update() on a StateProxy dict triggers _mark_dirty and raises ImmutableStateError
+            # after an await, so we always do a direct assignment.
             if force_hydration:
                 self.platforms = platforms_from_api
             else:
-                self.platforms.update(platforms_from_api)
+                self.platforms = {**self.platforms, **platforms_from_api}
             
             self.session_hydrated = True
             
@@ -3840,6 +3858,67 @@ class BacnetScanState(rx.State):
             escaped_csv_data,
             path
         )
+        
+        # Step 3: Create corresponding device config JSON
+        # Extract location info from the current scan if available
+        registry_name = path if path else "bacnet_registry.csv"
+        if not registry_name.endswith(".csv"):
+            registry_name += ".csv"
+        
+        # Parse device info from selected device
+        campus = "campus"
+        building = "building"
+        unit = "bacnet_device"
+        
+        # Try to get device info from selected device
+        if self.selected_device:
+            device = self.selected_device
+            # Use device instance or ID as unit name
+            unit = f"bacnet_{device.device_id}" if device.device_id else "bacnet_device"
+            # If device has a name, use it
+            if device.name:
+                unit = device.name.lower().replace(" ", "_")
+        
+        # Create device config JSON
+        device_config = {
+            "driver_config": {
+                "device_address": getattr(self.selected_device, "address", ""),
+                "device_id": getattr(self.selected_device, "device_id", 0)
+            },
+            "driver_type": "bacnet",
+            "registry_config": f"config://{registry_name}",
+            "interval": 5,
+            "timezone": "US/Pacific",
+            "campus": campus,
+            "building": building,
+            "unit": unit,
+        }
+        
+        device_path = f"devices/{campus}/{building}/{unit}"
+        
+        # Add device config to platform.driver
+        driver_agent = platform.platform.agents.get("platform.driver")
+        if driver_agent:
+            device_component_id = generate_unique_uid()
+            device_entry = ConfigStoreEntryModelView(
+                path=device_path,
+                data_type="JSON",
+                value=json.dumps(device_config, indent=2),
+                component_id=device_component_id,
+                uncommitted=False,
+                valid=True,
+            )
+            device_entry.safe_entry = {
+                "path": device_path,
+                "data_type": "JSON",
+                "value": json.dumps(device_config, indent=2),
+                "component_id": device_component_id,
+                "csv_variants": ""
+            }
+            driver_agent.config_store.append(device_entry)
+            driver_agent.safe_agent = driver_agent.to_dict()
+            
+            yield rx.toast.success(f"BACnet driver added: {device_path}")
 
     @rx.event
     async def ensure_platform_driver_exists(self, platform_uid: str):

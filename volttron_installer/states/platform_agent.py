@@ -2,14 +2,18 @@ import reflex as rx
 import asyncio
 from loguru import logger
 from ..models import Instance
-from ..thin_endpoint_wrappers import install_agent, remove_agent, start_agent, stop_agent, get_platform_status, ApiError
+from ..model_views import AgentModelView
+from ..thin_endpoint_wrappers import (
+    install_agent, remove_agent, start_agent, stop_agent, get_platform_status,
+    get_github_agents, get_local_agents, ApiError,
+)
 
 from .platform_status import PlatformStatusState
 
 class PlatformAgentState(PlatformStatusState):
     # Install agent dialog
     _show_install_agent_dialog: bool = False
-    _install_agent_mode: str = "catalog"  # "catalog" or "manual"
+    _install_agent_mode: str = "catalog"  # "catalog", "local", or "manual"
     _install_agent_identity: str = ""
     _install_agent_source: str = ""
     _install_agent_start: bool = True
@@ -18,6 +22,7 @@ class PlatformAgentState(PlatformStatusState):
     starting_agent_uuid: str = ""  # UUID of agent currently being started
     stopping_agent_uuid: str = ""  # UUID of agent currently being stopped
     _selected_catalog_agent: str = ""  # identity of selected agent from catalog
+    _selected_local_agent: str = ""    # identity of selected local workspace agent
     _show_remove_agent_dialog: bool = False
     _agent_to_remove_uuid: str = ""
     _agent_to_remove_name: str = ""
@@ -56,22 +61,33 @@ class PlatformAgentState(PlatformStatusState):
     @rx.var
     def selected_catalog_agent(self) -> str:
         return self._selected_catalog_agent
-    
+
+    @rx.var
+    def selected_local_agent(self) -> str:
+        return self._selected_local_agent
+
     @rx.var
     def can_install_agent(self) -> bool:
         if self._install_agent_mode == "catalog":
             return self._selected_catalog_agent != ""
-        else:
+        elif self._install_agent_mode == "local":
+            return self._selected_local_agent != ""
+        else:  # manual
             return self._install_agent_identity != "" and self._install_agent_source != ""
 
     @rx.event
     def open_install_agent_dialog(self):
-        """Open the install agent dialog"""
+        """Open the install agent dialog and trigger background fetches."""
         self._show_install_agent_dialog = True
         self._install_agent_mode = "catalog"
         self._install_agent_identity = ""
         self._install_agent_source = ""
         self._selected_catalog_agent = ""
+        self._selected_local_agent = ""
+        return [
+            PlatformAgentState.fetch_github_agents,
+            PlatformAgentState.load_local_agents,
+        ]
 
     @rx.event
     def close_install_agent_dialog(self, open_state: bool = False):
@@ -99,16 +115,107 @@ class PlatformAgentState(PlatformStatusState):
     @rx.event
     def select_catalog_agent(self, identity: str):
         self._selected_catalog_agent = identity
-        # Also pre-fill fields for manual mode just in case they switch
+        # Pre-fill manual fields in case the user switches modes
+        for agent in self.github_agents:
+            if agent.identity == identity:
+                self._install_agent_identity = agent.identity
+                self._install_agent_source = agent.source
+                return
         for agent in self.list_of_agents:
             if agent.identity == identity:
                 self._install_agent_identity = agent.identity
                 self._install_agent_source = agent.source
-                break
+                return
+
+    @rx.event
+    def select_local_agent(self, identity: str):
+        """Select a local workspace agent for installation."""
+        self._selected_local_agent = identity
+        # Pre-fill manual fields in case the user switches modes
+        for agent in self.local_agents:
+            if agent.identity == identity:
+                self._install_agent_identity = agent.identity
+                self._install_agent_source = agent.local_path
+                return
 
     @rx.event
     def set_install_agent_start(self, value: bool):
         self._install_agent_start = value
+
+    @rx.event(background=True)
+    async def fetch_github_agents(self):
+        """Background event: fetch modular VOLTTRON agents from eclipse-volttron GitHub org."""
+        async with self:
+            self.github_agents_loading = True
+            self.github_agents_offline = False
+
+        try:
+            result = await get_github_agents()
+            agent_views: list[AgentModelView] = []
+            for agent in result.agents:
+                desc = agent.default_config.get("_description", "") if isinstance(agent.default_config, dict) else ""
+                agent_views.append(AgentModelView(
+                    identity=agent.identity,
+                    source=agent.source or "",
+                    config="{}",
+                    config_store=[],
+                    routing_id=agent.identity,
+                    description=desc,
+                    config_store_allowed=agent.config_store_allowed,
+                    safe_agent={
+                        "identity": agent.identity,
+                        "source": agent.source or "",
+                        "config": "{}",
+                        "config_store": {},
+                    },
+                ))
+            async with self:
+                self.github_agents = agent_views
+                self.github_agents_loading = False
+                self.github_agents_offline = result.offline
+        except Exception as exc:
+            logger.error(f"Failed to fetch GitHub agents: {exc}")
+            async with self:
+                self.github_agents = []
+                self.github_agents_loading = False
+                self.github_agents_offline = True
+
+    @rx.event(background=True)
+    async def load_local_agents(self):
+        """Background event: scan the local workspace for custom agent directories."""
+        async with self:
+            self.local_agents_loading = True
+
+        try:
+            agents = await get_local_agents()
+            agent_views: list[AgentModelView] = []
+            for agent in agents:
+                desc = agent.default_config.get("_description", "") if isinstance(agent.default_config, dict) else ""
+                agent_views.append(AgentModelView(
+                    identity=agent.identity,
+                    source=agent.source or "",
+                    config="{}",
+                    config_store=[],
+                    routing_id=agent.identity,
+                    is_local=True,
+                    local_path=agent.local_path or agent.source or "",
+                    description=desc,
+                    config_store_allowed=False,
+                    safe_agent={
+                        "identity": agent.identity,
+                        "source": agent.source or "",
+                        "config": "{}",
+                        "config_store": {},
+                    },
+                ))
+            async with self:
+                self.local_agents = agent_views
+                self.local_agents_loading = False
+        except Exception as exc:
+            logger.warning(f"Failed to load local agents: {exc}")
+            async with self:
+                self.local_agents = []
+                self.local_agents_loading = False
 
     @rx.event(background=True)
     async def handle_install_agent(self):
@@ -116,12 +223,17 @@ class PlatformAgentState(PlatformStatusState):
         async with self:
             # Get agent details based on mode
             if self._install_agent_mode == "catalog":
-                # Find the selected agent from the catalog
+                # Search github_agents first, fall back to hardcoded list_of_agents
                 selected_agent = None
-                for agent in self.list_of_agents:
+                for agent in self.github_agents:
                     if agent.identity == self._selected_catalog_agent:
                         selected_agent = agent
                         break
+                if selected_agent is None:
+                    for agent in self.list_of_agents:
+                        if agent.identity == self._selected_catalog_agent:
+                            selected_agent = agent
+                            break
 
                 if not selected_agent:
                     yield rx.toast.error("Please select an agent from the catalog")
@@ -129,6 +241,21 @@ class PlatformAgentState(PlatformStatusState):
 
                 agent_identity = selected_agent.identity
                 agent_source = selected_agent.source
+
+            elif self._install_agent_mode == "local":
+                selected_agent = None
+                for agent in self.local_agents:
+                    if agent.identity == self._selected_local_agent:
+                        selected_agent = agent
+                        break
+
+                if not selected_agent:
+                    yield rx.toast.error("Please select a local agent")
+                    return
+
+                agent_identity = selected_agent.identity
+                agent_source = selected_agent.local_path  # absolute path on disk
+
             else:
                 # Manual mode
                 if not self._install_agent_identity or not self._install_agent_source:

@@ -103,6 +103,9 @@ class AgentModelView(rx.Base):
     config_store_allowed: bool = True
 
     in_file: bool = False
+    is_local: bool = False      # True for agents discovered in the local workspace
+    local_path: str = ""        # Absolute filesystem path for local agents
+    description: str = ""       # Human-readable description (from pyproject.toml or GitHub)
 
     # Fields that handle UI actions and functionality
     selected_agent_config_tab: str = "1"

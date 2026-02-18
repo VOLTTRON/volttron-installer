@@ -10,6 +10,7 @@ class _InstallerSettings(BaseSettings):
     app_name: str = Field()
     upload_dir: str = Field()
     data_dir: str = Field()
+    local_agents_dir: str = Field(default="~/volttron-workspace")
 
     def model_post_init(self, __context):
         if upload_dir := self.upload_dir:

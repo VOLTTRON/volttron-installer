@@ -6,4 +6,5 @@ pydantic-settings
 sqlmodel==0.0.28
 loguru
 aiofiles
+tomli; python_version < "3.11"
 -e ../eclipse-bacnet-scan-tool

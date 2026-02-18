@@ -5,7 +5,7 @@ from ..backend.models import AgentType, HostEntry, PlatformDefinition, \
     CreatePlatformRequest, CreateOrUpdateHostEntryRequest, ReachableResponse, \
     PlatformDeploymentStatus, CreateAgentRequest, ToolRequest, ToolStatusResponse, \
     BACnetReadDeviceAllRequest, BACnetDevice, BACnetReadPropertyRequest, BACnetScanResults, \
-    BACnetWritePropertyRequest, BACnetReadObjectListRequest
+    BACnetWritePropertyRequest, BACnetReadObjectListRequest, GitHubAgentsResponse
 from ..models import WindowsHostIPModel, LocalIPModel, NetworkDiscoveryModel
 from rxconfig import config
 
@@ -192,13 +192,22 @@ async def get_agent_catalog() -> dict[str, AgentType]:
 async def get_agent_from_catalog(agent_id: str) -> AgentType:
     return await get_request(f"{API_BASE_URL}{CATALOG_PREFIX}/agents/{agent_id}")
 
+async def get_github_agents() -> GitHubAgentsResponse:
+    """Fetch modular VOLTTRON agents from the GitHub catalog endpoint."""
+    response = await get_request(f"{API_BASE_URL}{CATALOG_PREFIX}/agents/github", timeout=12.0)
+    data = response.json()
+    agents = [AgentType(**a) for a in data.get("agents", [])]
+    offline = data.get("offline", False)
+    return GitHubAgentsResponse(agents=agents, offline=offline)
+
+async def get_local_agents() -> list[AgentType]:
+    """Fetch locally discovered workspace agents."""
+    response = await get_request(f"{API_BASE_URL}{CATALOG_PREFIX}/agents/local", timeout=5.0)
+    return [AgentType(**a) for a in response.json()]
+
 @with_model(PlatformDefinition, response_type="list")
 async def get_all_platforms() -> list[PlatformDefinition]:
     return await get_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/")
-
-@with_model(AgentType, response_type="dict")
-async def get_agent_catalog() -> dict[str, AgentType]:
-    return await get_request(f"{API_BASE_URL}{CATALOG_PREFIX}/agents")
 
 @with_model(PlatformDefinition)
 async def get_platform_by_id(platform_id: str) -> PlatformDefinition:
@@ -470,6 +479,19 @@ async def remove_agent(platform_id: str, agent_uuid: str):
     return await post_request(
         f"{API_BASE_URL}{ANSIBLE_PREFIX}/remove_agent/{platform_id}/{agent_uuid}",
         timeout=30.0
+    )
+
+
+async def deploy_agent_config_store(platform_id: str, agent_identity: str):
+    """Deploy config store entries for an agent to running VOLTTRON platform.
+
+    Args:
+        platform_id: The platform instance name
+        agent_identity: The VIP identity of the agent whose configs to deploy
+    """
+    return await post_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/platforms/{platform_id}/agents/{agent_identity}/deploy_config_store",
+        timeout=120.0  # Config deployment can take a while with multiple configs
     )
 
 

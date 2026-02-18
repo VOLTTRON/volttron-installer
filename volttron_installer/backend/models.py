@@ -144,6 +144,8 @@ class AgentType(BaseModel):
     monolithic_source: str | None = None  # relative path in VOLTTRON codebase for monolithic
     pypi_package: str | None = None
     config_store_allowed: bool = True
+    is_local: bool = False  # True for local workspace agents
+    local_path: str | None = None  # absolute path to local agent directory
 
 class AgentCatalog(BaseModel):
     """Catalog of default agents available with default configurations"""
@@ -723,6 +725,21 @@ EKG_Cos,EKG_Cos,1-0,COS Wave,TRUE,0,float,COS wave"""),
 
     def get_agent(self, identity: str) -> Optional[AgentType]:
         return self.agents.get(identity)
+
+    @property
+    def modular_agents(self) -> dict[str, "AgentType"]:
+        """Return only agents with a proper modular VOLTTRON pip package source."""
+        return {
+            k: v for k, v in self.agents.items()
+            if v.source and v.source.startswith("volttron-")
+        }
+
+
+class GitHubAgentsResponse(BaseModel):
+    """Response model for the GitHub agent catalog endpoint."""
+    agents: list[AgentType]
+    offline: bool = False  # True when GitHub was unreachable and fallback catalog is returned
+
 
 class KeyValuePair(BaseModel):
     key: str

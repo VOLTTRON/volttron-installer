@@ -9,6 +9,13 @@ class PlatformBaseState(rx.State):
     platforms: dict[str, Instance] = {}
     _working_platform: Instance = Instance(host=HostEntryModelView(), platform=PlatformModelView())
     list_of_agents: list[AgentModelView] = []
+
+    # Dynamically fetched agent lists
+    github_agents: list[AgentModelView] = []
+    local_agents: list[AgentModelView] = []
+    github_agents_loading: bool = False
+    github_agents_offline: bool = False
+    local_agents_loading: bool = False
     
     # State Vars
     @rx.var(cache=True)

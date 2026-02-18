@@ -8,7 +8,10 @@ from volttron_installer.backend.tool_manager import ToolManager
 from volttron_installer.backend.services.ansible_service import AnsibleService, get_ansible_service
 from volttron_installer.backend.services.inventory_service import InventoryService, get_inventory_service
 from volttron_installer.backend.services.platform_service import PlatformService, get_platform_service
+from volttron_installer.backend.services.github_agent_service import fetch_github_agents
+from volttron_installer.backend.services.local_agent_service import scan_local_agents
 from volttron_installer.backend.models import AgentCatalog
+from volttron_installer.settings import get_settings
 
 from volttron_installer.backend.tool_proxy_factory import ToolProxyFactory
 
@@ -23,6 +26,7 @@ from .models import (
     PlatformConfig,
     AgentType,
     AgentCatalog,
+    GitHubAgentsResponse,
     CreateAgentRequest,
     AgentDefinition,
     DeployPlatformRequest,
@@ -1665,6 +1669,157 @@ source "$VENV_PATH/bin/activate"
         )
 
 
+@ansible_router.post("/platforms/{platform_id}/agents/{agent_identity}/deploy_config_store")
+async def deploy_agent_config_store(
+    platform_id: str,
+    agent_identity: str,
+    ansible: AnsibleService = Depends(get_ansible_service)
+):
+    """Deploy agent config store entries to remote VOLTTRON platform.
+    
+    This function takes all config_store entries defined for an agent in the platform
+    definition and deploys them to the running VOLTTRON instance using vctl config store commands.
+    
+    Args:
+        platform_id: The platform instance name
+        agent_identity: The VIP identity of the agent whose configs to deploy
+    
+    Returns:
+        Status response with details about deployed configs
+    """
+    logger.info(f"[DEPLOY_CONFIG_STORE] Called for platform={platform_id}, agent={agent_identity}")
+    
+    try:
+        # Get platform definition and host entry
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(platform_id)
+
+        if platform is None:
+            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+
+        # Check if agent exists in platform definition
+        if agent_identity not in platform.agents:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Agent {agent_identity} not found in platform definition"
+            )
+
+        agent = platform.agents[agent_identity]
+        
+        if not agent.config_store:
+            return {
+                "status": "success",
+                "message": "No config store entries to deploy",
+                "deployed_count": 0
+            }
+
+        # Get host entry from inventory
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+
+        if platform.config.instance_name not in all_hosts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
+            )
+
+        host = all_hosts[platform.config.instance_name]
+
+        # Build paths
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        agent_identity_arg = shlex.quote(agent_identity)
+
+        deployed_configs = []
+        failed_configs = []
+
+        # Deploy each config store entry
+        for config_name, config_entry in agent.config_store.items():
+            try:
+                logger.info(f"Deploying config: {config_name} (type: {config_entry.data_type})")
+                
+                # Sanitize config name for temp file
+                safe_config_name = config_name.replace("/", "_").replace(" ", "_")
+                temp_file = f"/tmp/volttron_config_{safe_config_name}_{os.urandom(4).hex()}"
+                
+                # Escape content for shell
+                content_escaped = config_entry.value.replace("\\", "\\\\").replace("$", "\\$").replace("`", "\\`").replace('"', '\\"')
+                
+                # Build command to upload content and run vctl config store
+                csv_flag = "--csv" if config_entry.data_type == "CSV" else ""
+                config_name_arg = shlex.quote(config_name)
+                
+                cmd = f'''
+VENV_PATH="{venv_path}"
+VOLTTRON_HOME="{volttron_home}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+export VOLTTRON_HOME
+
+if [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+    exit 1
+fi
+
+# Write config content to temp file
+cat > {temp_file} << 'VOLTTRON_CONFIG_EOF'
+{content_escaped}
+VOLTTRON_CONFIG_EOF
+
+# Activate venv and deploy config
+source "$VENV_PATH/bin/activate"
+"$VENV_PATH/bin/vctl" config store {agent_identity_arg} {config_name_arg} {temp_file} {csv_flag}
+
+# Clean up temp file
+rm -f {temp_file}
+'''
+
+                return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=60)
+
+                if return_code != 0:
+                    error_msg = stderr or stdout
+                    logger.error(f"Failed to deploy config {config_name}: {error_msg}")
+                    failed_configs.append({
+                        "config_name": config_name,
+                        "error": error_msg
+                    })
+                else:
+                    logger.info(f"Successfully deployed config: {config_name}")
+                    deployed_configs.append(config_name)
+                    
+            except Exception as e:
+                logger.error(f"Exception deploying config {config_name}: {e}")
+                failed_configs.append({
+                    "config_name": config_name,
+                    "error": str(e)
+                })
+
+        # Return summary
+        result = {
+            "status": "success" if not failed_configs else "partial",
+            "message": f"Deployed {len(deployed_configs)}/{len(agent.config_store)} configs",
+            "deployed_count": len(deployed_configs),
+            "failed_count": len(failed_configs),
+            "deployed_configs": deployed_configs,
+            "failed_configs": failed_configs
+        }
+
+        if failed_configs and not deployed_configs:
+            result["status"] = "failed"
+            raise HTTPException(status_code=500, detail=result)
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deploying config store: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
 @ansible_router.get("/ping/{id}")
 async def ping_host(id: str, ansible: AnsibleService = Depends(get_ansible_service)):
     """Pings a specific host using Ansible"""
@@ -1780,12 +1935,42 @@ async def detect_existing_volttron(
 
 @catalog_router.get("/agents", response_model=dict[str, AgentType])
 async def get_agent_catalog() -> dict[str, AgentType]:
-    """Retrieves the agent catalog"""
+    """Retrieves the agent catalog — modular VOLTTRON agents only (those with a pip package source)."""
     try:
         catalog = AgentCatalog()
-        return catalog.agents
+        return catalog.modular_agents
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@catalog_router.get("/agents/github", response_model=GitHubAgentsResponse)
+async def get_github_agents() -> GitHubAgentsResponse:
+    """Fetch modular VOLTTRON agents from the eclipse-volttron GitHub org.
+    Falls back to the built-in modular catalog when offline."""
+    try:
+        agents, is_offline = await fetch_github_agents()
+        if is_offline:
+            catalog = AgentCatalog()
+            fallback = list(catalog.modular_agents.values())
+            return GitHubAgentsResponse(agents=fallback, offline=True)
+        return GitHubAgentsResponse(agents=agents, offline=False)
+    except Exception as e:
+        logger.error(f"GitHub agent fetch error: {e}")
+        catalog = AgentCatalog()
+        fallback = list(catalog.modular_agents.values())
+        return GitHubAgentsResponse(agents=fallback, offline=True)
+
+
+@catalog_router.get("/agents/local", response_model=list[AgentType])
+async def get_local_agents() -> list[AgentType]:
+    """Scan the local workspace directory for custom agent directories."""
+    try:
+        settings = get_settings()
+        return await scan_local_agents(settings.local_agents_dir)
+    except Exception as e:
+        logger.warning(f"Local agent scan failed: {e}")
+        return []
+
 
 @catalog_router.get("/agents/{identity}", response_model=AgentType)
 async def get_agent_from_catalog(identity: str) -> AgentType:
