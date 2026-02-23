@@ -15,7 +15,8 @@ sshpass = ">=1.6,<2"
 env = { PYTHONNOUSERSITE = "1" }
 
 [tasks]
-install-deps = { cmd = "pip install --no-user 'pydantic>=2.10.0,<2.11.0' 'sqlmodel==0.0.28' && pip uninstall -y reflex && pip install --no-user -e ../lib-protocol-proxy-fixed && pip install --no-user -e ../lib-protocol-proxy-bacnet-fixed && pip install --no-user -e ../eclipse-bacnet-scan-tool && pip install --no-user -r requirements.txt && pip install --no-user -e . && ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop" }
+clone-deps = { cmd = "cd .. && test -d lib-protocol-proxy-fixed || git clone -b bus_adapter_changes https://github.com/riley206-pnnl/lib-protocol-proxy-fixed.git && test -d lib-protocol-proxy-bacnet-fixed || git clone -b merge_of_rileys_code_and_latest_changes https://github.com/riley206-pnnl/lib-protocol-proxy-bacnet-fixed.git && test -d eclipse-bacnet-scan-tool || git clone -b develop https://github.com/riley206-pnnl/eclipse-bacnet-scan-tool.git" }
+install-deps = { cmd = "pip install --no-user 'pydantic>=2.10.0,<2.11.0' 'sqlmodel==0.0.28' && pip uninstall -y reflex && pip install --no-user -e ../lib-protocol-proxy-fixed && pip install --no-user -e ../lib-protocol-proxy-bacnet-fixed && pip install --no-user -e ../eclipse-bacnet-scan-tool && pip install --no-user -r requirements.txt && pip install --no-user -e . && ansible-galaxy collection install git+https://github.com/eclipse-volttron/volttron-ansible.git,develop", depends-on = ["clone-deps"] }
 run = "reflex run"
 dev = { cmd = "reflex run", depends-on = ["install-deps"] }
 test = { cmd = "pytest tests/", depends-on = ["install-deps"] }

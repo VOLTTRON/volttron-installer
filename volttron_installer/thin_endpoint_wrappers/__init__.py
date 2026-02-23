@@ -495,6 +495,44 @@ async def deploy_agent_config_store(platform_id: str, agent_identity: str):
     )
 
 
+async def get_vctl_config_list(platform_id: str, agent_identity: str = None):
+    """Run vctl config list [agent_identity] on the VOLTTRON platform.
+
+    Without agent_identity: returns {"entries": [...]} of agent identities.
+    With agent_identity: returns {"entries": [...]} of config keys for that agent.
+    """
+    params = {}
+    if agent_identity:
+        params["agent_identity"] = agent_identity
+    return await get_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/platforms/{platform_id}/vctl_config_list",
+        params=params,
+        timeout=15.0,
+    )
+
+
+async def get_installed_driver_libraries(platform_id: str):
+    """Get list of driver libraries installed in the VOLTTRON venv."""
+    return await get_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/installed_driver_libraries/{platform_id}",
+        timeout=60.0,
+    )
+
+
+async def install_driver_library(platform_id: str, pip_package: str):
+    """Install a driver library (pip package) into the VOLTTRON venv.
+
+    Args:
+        platform_id: The platform instance name
+        pip_package: The pip package name (e.g. 'volttron-lib-fake-driver')
+    """
+    return await post_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/install_driver_library/{platform_id}",
+        params={"pip_package": pip_package},
+        timeout=300.0,
+    )
+
+
 async def create_agent(platform_id: str, agent: CreateAgentRequest):
     await post_request(f"{API_BASE_URL}{PLATFORMS_PREFIX}/{platform_id}/agents", data=agent.model_dump())
 

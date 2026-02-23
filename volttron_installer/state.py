@@ -818,6 +818,103 @@ class PlatformPageState(DriverManagementState):
     def has_local_agents(self) -> bool:
         return len(self.local_agents) > 0
 
+    # Driver management dialog computed vars
+    @rx.var
+    def show_add_driver_dialog(self) -> bool:
+        return self._show_add_driver_dialog
+
+    @rx.var
+    def show_edit_driver_dialog(self) -> bool:
+        return self._show_edit_driver_dialog
+
+    @rx.var
+    def show_delete_driver_dialog(self) -> bool:
+        return self._show_delete_driver_dialog
+
+    @rx.var
+    def show_install_driver_lib_dialog(self) -> bool:
+        return self._show_install_driver_lib_dialog
+
+    @rx.var
+    def show_configure_driver_dialog(self) -> bool:
+        return self._show_configure_driver_dialog
+
+    @rx.var
+    def configure_driver_name(self) -> str:
+        return self._configure_driver_name
+
+    @rx.var
+    def selected_driver_lib(self) -> str:
+        return self._selected_driver_lib
+
+    @rx.var
+    def custom_driver_lib(self) -> str:
+        return self._custom_driver_lib
+
+    @rx.var
+    def installing_driver_lib(self) -> bool:
+        return self._installing_driver_lib
+
+    @rx.var
+    def driver_lib_install_result(self) -> str:
+        return self._driver_lib_install_result
+
+    @rx.var
+    def deploying_configs(self) -> bool:
+        return self._deploying_configs
+
+    @rx.var
+    def installed_driver_libs(self) -> list[dict[str, str]]:
+        return self._installed_driver_libs
+
+    @rx.var
+    def loading_installed_drivers(self) -> bool:
+        return self._loading_installed_drivers
+
+    @rx.var
+    def driver_type(self) -> str:
+        return self._driver_type
+
+    @rx.var
+    def campus(self) -> str:
+        return self._campus
+
+    @rx.var
+    def building(self) -> str:
+        return self._building
+
+    @rx.var
+    def unit(self) -> str:
+        return self._unit
+
+    @rx.var
+    def interval(self) -> int:
+        return self._interval
+
+    @rx.var
+    def timezone(self) -> str:
+        return self._timezone
+
+    @rx.var
+    def heart_beat_point(self) -> str:
+        return self._heart_beat_point
+
+    @rx.var
+    def registry_config_name(self) -> str:
+        return self._registry_config_name
+
+    @rx.var
+    def new_registry_name(self) -> str:
+        return self._new_registry_name
+
+    @rx.var
+    def new_registry_content(self) -> str:
+        return self._new_registry_content
+
+    @rx.var
+    def driver_config_json(self) -> str:
+        return self._driver_config_json
+
     @rx.var
     def can_install_agent(self) -> bool:
         """Check if agent can be installed based on current mode."""

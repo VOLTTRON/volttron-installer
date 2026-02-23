@@ -17,6 +17,52 @@ from ..model_views import AgentModelView, ConfigStoreEntryModelView
 from ..utils.create_component_uid import generate_unique_uid
 
 
+async def _save_platform_config(platform_instance, current_uid: str):
+    """Save platform config to the backend API.
+
+    Builds a CreatePlatformRequest from the working platform state and calls
+    update_platform. This is the correct way to persist config changes —
+    it mirrors the serialization in PlatformPageState.handle_save.
+    """
+    from ..thin_endpoint_wrappers import update_platform
+    from ..backend.models import (
+        CreatePlatformRequest,
+        PlatformConfig,
+        AgentDefinition,
+        ConfigStoreEntry,
+    )
+
+    request = CreatePlatformRequest(
+        host_id=platform_instance.safe_host_entry.get("id", current_uid),
+        config=PlatformConfig(
+            instance_name=platform_instance.platform.config.instance_name,
+            vip_address=platform_instance.platform.config.vip_address,
+            message_bus=platform_instance.platform.config.message_bus,
+            volttron_type=platform_instance.platform.config.volttron_type,
+            volttron_version=platform_instance.platform.config.volttron_version,
+        ),
+        agents={
+            identity: AgentDefinition(
+                identity=identity,
+                source=agent["source"],
+                config=agent["config"],
+                config_store_allowed=agent.get("config_store_allowed", True),
+                config_store={
+                    path: ConfigStoreEntry(
+                        path=path,
+                        data_type=cfg["data_type"],
+                        value=cfg["value"],
+                    )
+                    for path, cfg in agent["config_store"].items()
+                },
+            )
+            for identity, agent in platform_instance.platform.to_dict()["agents"].items()
+        },
+        deployed=platform_instance.deployed,
+    )
+    await update_platform(current_uid, request)
+
+
 class DriverManagementState(PlatformDeploymentState):
     """State for managing platform driver configurations"""
     
@@ -25,9 +71,14 @@ class DriverManagementState(PlatformDeploymentState):
     _show_edit_driver_dialog: bool = False
     _show_delete_driver_dialog: bool = False
     _show_deploy_drivers_dialog: bool = False
+    _show_install_driver_lib_dialog: bool = False
+    _show_configure_driver_dialog: bool = False
+    
+    # Configure driver from installed lib
+    _configure_driver_name: str = ""  # Display name of driver being configured
     
     # Driver form fields
-    _driver_type: str = "fakedriver"
+    _driver_type: str = "fake"
     _campus: str = "campus"
     _building: str = "building"
     _unit: str = "fake"
@@ -39,6 +90,22 @@ class DriverManagementState(PlatformDeploymentState):
     _new_registry_content: str = ""  # Content for new registry
     _driver_config_json: str = "{}"  # Advanced driver_config
     
+    # Driver library install fields
+    _selected_driver_lib: str = ""  # pip package name of selected catalog driver
+    _custom_driver_lib: str = ""  # custom pip package name entered by user
+    _installing_driver_lib: bool = False
+    _driver_lib_install_result: str = ""
+    
+    # Installed driver libraries (from pip list)
+    _installed_driver_libs: list[dict[str, str]] = []  # [{"name": ..., "version": ...}]
+    _loading_installed_drivers: bool = False
+
+    # vctl config list state
+    _vctl_config_agents: list[str] = []        # agents with config store entries
+    _vctl_config_keys: list[str] = []          # config keys for platform.driver
+    _vctl_config_loading: bool = False
+    _platform_driver_tree_expanded: bool = False
+
     # Editing state
     _editing_driver_path: str = ""  # Path of driver being edited
     _editing_driver_config_id: str = ""  # Config ID being edited
@@ -50,6 +117,34 @@ class DriverManagementState(PlatformDeploymentState):
     
     # Validation
     _form_errors: dict[str, str] = {}
+
+    @rx.var
+    def installed_driver_libs(self) -> list[dict[str, str]]:
+        """List of installed driver library packages [{name, version}]."""
+        return self._installed_driver_libs
+
+    @rx.var
+    def loading_installed_drivers(self) -> bool:
+        return self._loading_installed_drivers
+
+    @rx.var
+    def installed_driver_names(self) -> list[str]:
+        """Lowercase pip package names of installed drivers for quick lookup."""
+        return [d.get("name", "").lower() for d in self._installed_driver_libs]
+
+    @rx.var
+    def driver_library_catalog(self) -> list[dict]:
+        """Return the hardcoded driver library catalog as dicts for the UI."""
+        from ..backend.models import DriverLibraryCatalog
+        catalog = DriverLibraryCatalog()
+        return [d.model_dump() for d in catalog.drivers]
+
+    @rx.var
+    def driver_lib_to_install(self) -> str:
+        """The pip package that will be installed — either catalog selection or custom."""
+        if self._custom_driver_lib.strip():
+            return self._custom_driver_lib.strip()
+        return self._selected_driver_lib
 
     @rx.var
     def platform_driver_agent(self) -> Optional[AgentModelView]:
@@ -64,8 +159,10 @@ class DriverManagementState(PlatformDeploymentState):
         """Check if platform.driver agent is configured in saved config or running live."""
         if self.platform_driver_agent is not None:
             return True
-        # Also accept it when the live VOLTTRON instance reports it as running
-        return "platform.driver" in self.platform_agents
+        # Also accept it when the live VOLTTRON instance reports it as running.
+        # vctl uses "platform-driver" (hyphen) as the VIP identity key,
+        # while the saved config uses "platform.driver" (dot). Check both.
+        return "platform.driver" in self.platform_agents or "platform-driver" in self.platform_agents
 
     @rx.var
     def driver_configs(self) -> list[dict]:
@@ -151,12 +248,354 @@ class DriverManagementState(PlatformDeploymentState):
         """Generate device config path from form fields"""
         return f"devices/{self._campus}/{self._building}/{self._unit}"
 
-    # Dialog actions
+    @rx.event
+    async def on_drivers_tab_mount(self):
+        """Called when the Drivers tab is mounted — fires both fetch events."""
+        yield DriverManagementState.fetch_installed_driver_libs
+        yield DriverManagementState.fetch_vctl_config_list
+
+    # Fetch installed driver libraries
+    @rx.event
+    async def fetch_installed_driver_libs(self):
+        """Query the VOLTTRON venv for currently installed driver libraries."""
+        if not self.current_uid:
+            return
+        self._loading_installed_drivers = True
+        yield
+        try:
+            from ..thin_endpoint_wrappers import get_installed_driver_libraries
+            response = await get_installed_driver_libraries(self.current_uid)
+            if response.status_code == 200:
+                data = response.json()
+                self._installed_driver_libs = data.get("installed_drivers", [])
+            else:
+                logger.warning(f"Failed to fetch installed drivers: {response.text}")
+                self._installed_driver_libs = []
+        except Exception as e:
+            logger.error(f"Error fetching installed driver libraries: {e}")
+            self._installed_driver_libs = []
+        finally:
+            self._loading_installed_drivers = False
+            yield
+
+    # vctl config list computed vars
+    @rx.var
+    def vctl_config_agents(self) -> list[str]:
+        return self._vctl_config_agents
+
+    @rx.var
+    def vctl_config_keys(self) -> list[str]:
+        return self._vctl_config_keys
+
+    @rx.var
+    def vctl_config_loading(self) -> bool:
+        return self._vctl_config_loading
+
+    @rx.var
+    def platform_driver_tree_expanded(self) -> bool:
+        return self._platform_driver_tree_expanded
+
+    @rx.var
+    def platform_driver_in_config_store(self) -> bool:
+        """True if platform.driver appears in vctl config list output."""
+        return "platform.driver" in self._vctl_config_agents
+
+    @rx.event
+    async def fetch_vctl_config_list(self):
+        """Run vctl config list to get agents with config store entries."""
+        if not self.current_uid:
+            return
+        self._vctl_config_loading = True
+        yield
+        try:
+            from ..thin_endpoint_wrappers import get_vctl_config_list, ApiError
+            response = await get_vctl_config_list(self.current_uid)
+            self._vctl_config_agents = response.get("entries", [])
+            # If platform.driver is present and tree was expanded, refresh its keys too
+            if self._platform_driver_tree_expanded and "platform.driver" in self._vctl_config_agents:
+                yield DriverManagementState.fetch_platform_driver_config_keys
+        except Exception as e:
+            logger.error(f"Error running vctl config list: {e}")
+            self._vctl_config_agents = []
+        finally:
+            self._vctl_config_loading = False
+            yield
+
+    @rx.event
+    async def fetch_platform_driver_config_keys(self):
+        """Run vctl config list platform.driver to get its config keys."""
+        if not self.current_uid:
+            return
+        self._vctl_config_loading = True
+        yield
+        try:
+            from ..thin_endpoint_wrappers import get_vctl_config_list, ApiError
+            response = await get_vctl_config_list(self.current_uid, "platform.driver")
+            self._vctl_config_keys = response.get("entries", [])
+        except Exception as e:
+            logger.error(f"Error running vctl config list platform.driver: {e}")
+            self._vctl_config_keys = []
+        finally:
+            self._vctl_config_loading = False
+            yield
+
+    @rx.event
+    async def toggle_platform_driver_tree(self):
+        """Expand/collapse the platform.driver config tree."""
+        self._platform_driver_tree_expanded = not self._platform_driver_tree_expanded
+        if self._platform_driver_tree_expanded and "platform.driver" in self._vctl_config_agents:
+            yield DriverManagementState.fetch_platform_driver_config_keys
+
+    # Dialog actions — Configure Driver (from installed lib)
+    @rx.event
+    def open_configure_driver_dialog(self, pip_package_name: str):
+        """Open the configure dialog pre-filled with templates for a driver type.
+
+        Looks up the installed pip_package_name in the catalog to find the
+        driver_type and default templates, then populates the form fields.
+        """
+        from ..backend.models import DriverLibraryCatalog
+        catalog = DriverLibraryCatalog()
+
+        # Normalise: pip uses hyphens, catalog might too
+        normalised = pip_package_name.strip().lower().replace("_", "-")
+        entry = next(
+            (d for d in catalog.drivers if d.pip_package.lower() == normalised),
+            None,
+        )
+
+        if entry:
+            self._driver_type = entry.driver_type
+            self._configure_driver_name = entry.name
+            self._new_registry_name = f"{entry.driver_type}_registry.csv"
+            self._new_registry_content = entry.default_registry_csv
+            self._driver_config_json = entry.default_device_config or "{}"
+        else:
+            # Unknown driver — open with blanks
+            self._driver_type = normalised.replace("volttron-lib-", "").replace("-driver", "")
+            self._configure_driver_name = pip_package_name
+            self._new_registry_name = "registry.csv"
+            self._new_registry_content = "Point Name,Volttron Point Name,Units,Writable,Type\n"
+            self._driver_config_json = "{}"
+
+        # Sensible defaults for location fields
+        self._campus = "campus"
+        self._building = "building"
+        self._unit = self._driver_type
+        self._interval = 5
+        self._timezone = "US/Pacific"
+        self._heart_beat_point = "Heartbeat"
+        self._registry_config_name = ""  # force "new registry" path
+        self._form_errors = {}
+        self._show_configure_driver_dialog = True
+
+    @rx.event
+    def close_configure_driver_dialog(self):
+        self._show_configure_driver_dialog = False
+
+    @rx.event
+    async def handle_configure_driver_save(self):
+        """Save the driver config from the configure dialog.
+
+        Reuses the same logic as handle_add_driver.
+        """
+        if not self.can_add_driver:
+            return
+
+        if not self.current_uid or self.current_uid not in self.platforms:
+            return
+
+        platform = self.platforms[self.current_uid]
+
+        # Ensure platform.driver agent exists in saved config
+        if "platform.driver" not in platform.platform.agents:
+            from ..backend.models import AgentCatalog
+            catalog = AgentCatalog()
+            if "platform.driver" in catalog.agents:
+                catalog_agent = catalog.agents["platform.driver"]
+                new_agent = AgentModelView(
+                    identity="platform.driver",
+                    source=catalog_agent.source,
+                    config=json.dumps(catalog_agent.default_config, indent=2),
+                    config_store=[],
+                    is_new=True,
+                    config_store_allowed=catalog_agent.config_store_allowed,
+                    routing_id=generate_unique_uid(),
+                )
+                platform.platform.agents["platform.driver"] = new_agent
+
+        agent = platform.platform.agents["platform.driver"]
+
+        # Add registry
+        registry_name = self._registry_config_name
+        if self._new_registry_name and self._new_registry_content:
+            registry_name = self._new_registry_name
+            if not registry_name.endswith(".csv"):
+                registry_name += ".csv"
+            registry_entry = ConfigStoreEntryModelView(
+                path=registry_name,
+                data_type="CSV",
+                value=self._new_registry_content,
+                component_id=generate_unique_uid(),
+                uncommitted=True,
+                valid=True,
+            )
+            registry_entry.safe_entry = {
+                "path": registry_name,
+                "data_type": "CSV",
+                "value": self._new_registry_content,
+                "component_id": registry_entry.component_id,
+                "csv_variants": ""
+            }
+            agent.config_store.append(registry_entry)
+
+        # Build device config
+        device_config = {
+            "driver_config": {},
+            "driver_type": self._driver_type,
+            "registry_config": f"config://{registry_name}",
+            "interval": self._interval,
+            "timezone": self._timezone,
+            "publish_breadth_first_all": False,
+            "publish_depth_first": False,
+            "publish_breadth_first": False,
+        }
+        if self._driver_config_json.strip() and self._driver_config_json.strip() != "{}":
+            try:
+                device_config["driver_config"] = json.loads(self._driver_config_json)
+            except json.JSONDecodeError:
+                pass
+        if self._heart_beat_point:
+            device_config["heart_beat_point"] = self._heart_beat_point
+
+        device_path = self.driver_path
+        device_entry = ConfigStoreEntryModelView(
+            path=device_path,
+            data_type="JSON",
+            value=json.dumps(device_config, indent=2),
+            component_id=generate_unique_uid(),
+            uncommitted=True,
+            valid=True,
+        )
+        device_entry.safe_entry = {
+            "path": device_path,
+            "data_type": "JSON",
+            "value": json.dumps(device_config, indent=2),
+            "component_id": device_entry.component_id,
+            "csv_variants": ""
+        }
+        agent.config_store.append(device_entry)
+
+        # Save platform config to API
+        try:
+            await _save_platform_config(platform, self.current_uid)
+            yield rx.toast.success(f"Driver config saved to {device_path}")
+        except Exception as e:
+            logger.error(f"Failed to save platform: {e}")
+            yield rx.toast.error(f"Failed to save: {e}")
+            self._show_configure_driver_dialog = False
+            yield
+            return
+
+        # Auto-deploy to the running VOLTTRON instance
+        self._deploying_configs = True
+        yield
+        try:
+            from ..thin_endpoint_wrappers import deploy_agent_config_store
+            response = await deploy_agent_config_store(self.current_uid, "platform.driver")
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"Config deployment result: {result}")
+                # Mark platform as deployed since we successfully pushed configs
+                platform.deployed = True
+                platform.platform.in_file = True
+                platform.new_instance = False
+                platform.platform.safe_platform = platform.platform.to_dict()
+                yield rx.toast.success("Driver configs deployed to running platform")
+            else:
+                logger.error(f"Failed to deploy configs: {response.text}")
+                yield rx.toast.error("Saved but failed to deploy — use 'Deploy Configs' manually")
+        except Exception as e:
+            logger.error(f"Error deploying configs: {e}")
+            yield rx.toast.error(f"Saved but deploy failed: {e}")
+        finally:
+            self._deploying_configs = False
+
+        self._show_configure_driver_dialog = False
+        yield
+
+    # Dialog actions — Driver Library Install
+    @rx.event
+    def open_install_driver_lib_dialog(self):
+        """Open dialog to install a driver library."""
+        self._show_install_driver_lib_dialog = True
+        self._selected_driver_lib = ""
+        self._custom_driver_lib = ""
+        self._driver_lib_install_result = ""
+
+    @rx.event
+    def close_install_driver_lib_dialog(self):
+        self._show_install_driver_lib_dialog = False
+
+    @rx.event
+    def set_selected_driver_lib(self, value: str):
+        self._selected_driver_lib = value
+        # Clear custom when selecting from catalog
+        if value:
+            self._custom_driver_lib = ""
+
+    @rx.event
+    def set_custom_driver_lib(self, value: str):
+        self._custom_driver_lib = value
+        # Clear catalog selection when typing custom
+        if value.strip():
+            self._selected_driver_lib = ""
+
+    @rx.event
+    async def handle_install_driver_lib(self):
+        """Install the selected driver library via pip into the VOLTTRON venv."""
+        package = self.driver_lib_to_install
+        if not package:
+            return
+
+        self._installing_driver_lib = True
+        self._driver_lib_install_result = ""
+        yield
+
+        try:
+            from ..thin_endpoint_wrappers import install_driver_library
+            platform_id = self.current_uid
+            if not platform_id:
+                self._driver_lib_install_result = "No platform selected"
+                self._installing_driver_lib = False
+                yield
+                return
+
+            response = await install_driver_library(platform_id, package)
+            if response.status_code == 200:
+                result = response.json()
+                self._driver_lib_install_result = f"✅ {result.get('message', 'Installed successfully')}"
+                yield rx.toast.success(f"Installed {package}")
+                # Refresh the installed drivers list
+                yield DriverManagementState.fetch_installed_driver_libs
+            else:
+                detail = response.json().get("detail", response.text) if response.text else "Unknown error"
+                self._driver_lib_install_result = f"❌ {detail}"
+                yield rx.toast.error(f"Failed to install {package}")
+        except Exception as e:
+            logger.error(f"Error installing driver library {package}: {e}")
+            self._driver_lib_install_result = f"❌ {str(e)}"
+            yield rx.toast.error(f"Error: {e}")
+        finally:
+            self._installing_driver_lib = False
+            yield
+
+    # Dialog actions — Driver Config
     @rx.event
     def open_add_driver_dialog(self):
         """Open dialog to add new driver"""
         self._show_add_driver_dialog = True
-        self._driver_type = "fakedriver"
+        self._driver_type = "fake"
         self._campus = "campus"
         self._building = "building"
         self._unit = "fake"
@@ -328,9 +767,9 @@ class DriverManagementState(PlatformDeploymentState):
             "registry_config": f"config://{registry_name}",
             "interval": self._interval,
             "timezone": self._timezone,
-            "campus": self._campus,
-            "building": self._building,
-            "unit": self._unit,
+            "publish_breadth_first_all": False,
+            "publish_depth_first": False,
+            "publish_breadth_first": False,
         }
         
         # Parse advanced driver_config if provided
@@ -363,9 +802,8 @@ class DriverManagementState(PlatformDeploymentState):
         agent.config_store.append(device_entry)
         
         # Save platform
-        from ..thin_endpoint_wrappers import put_platform
         try:
-            await put_platform(self.current_uid, platform.platform.to_dict())
+            await _save_platform_config(platform, self.current_uid)
         except Exception as e:
             logger.error(f"Failed to save platform: {e}")
         
@@ -422,9 +860,8 @@ class DriverManagementState(PlatformDeploymentState):
                 break
         
         # Save platform
-        from ..thin_endpoint_wrappers import put_platform
         try:
-            await put_platform(self.current_uid, platform.platform.to_dict())
+            await _save_platform_config(platform, self.current_uid)
         except Exception as e:
             logger.error(f"Failed to save platform: {e}")
         
@@ -452,9 +889,8 @@ class DriverManagementState(PlatformDeploymentState):
         ]
         
         # Save platform
-        from ..thin_endpoint_wrappers import put_platform
         try:
-            await put_platform(self.current_uid, platform.platform.to_dict())
+            await _save_platform_config(platform, self.current_uid)
         except Exception as e:
             logger.error(f"Failed to save platform: {e}")
         

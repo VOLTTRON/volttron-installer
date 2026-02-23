@@ -149,8 +149,9 @@ class PlatformStatusState(PlatformLogState):
 
         working_platform: Instance = self.working_platform
 
-        # For new/unsaved platforms, don't try to fetch status
-        if working_platform.new_instance or not working_platform.platform.in_file:
+        # For brand-new platforms with no host configured, skip status check
+        host_id = working_platform.safe_host_entry.get("id", "") if working_platform.safe_host_entry else ""
+        if (working_platform.new_instance or not working_platform.platform.in_file) and not host_id:
             self._platform_status = {
                 "platform_id": working_platform.platform.config.instance_name,
                 "state": "not deployed",
@@ -221,8 +222,9 @@ class PlatformStatusState(PlatformLogState):
             self._connection_method = "Platform not saved"
             return
         
-        # Skip check if platform isn't deployed or in error state
-        if not working_platform.deployed:
+        # Skip check if platform isn't deployed and has no host configured
+        host_id = working_platform.safe_host_entry.get("id", "") if working_platform.safe_host_entry else ""
+        if not working_platform.deployed and not host_id:
             self._connection_status = "unknown"
             self._connection_method = "Platform not deployed"
             return

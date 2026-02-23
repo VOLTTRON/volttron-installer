@@ -52,6 +52,7 @@ def platform_tabs() -> rx.Component:
                 rx.tabs.content(
                     rx.box(
                         drivers_tab_content(),
+                        on_mount=State.on_drivers_tab_mount,
                     ),
                     value="drivers"
                 ),

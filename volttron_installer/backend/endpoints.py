@@ -1586,6 +1586,150 @@ source "$VENV_PATH/bin/activate"
         )
 
 
+@ansible_router.get("/installed_driver_libraries/{platform_id}")
+async def get_installed_driver_libraries(
+    platform_id: str,
+    ansible: AnsibleService = Depends(get_ansible_service)
+):
+    """List driver libraries currently installed in the VOLTTRON venv.
+
+    Runs `pip list --format=json` and filters for packages matching known
+    driver library prefixes (volttron-lib-*-driver).
+    """
+    logger.info(f"[INSTALLED_DRIVERS] Listing installed driver libraries for {platform_id}")
+    try:
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(platform_id)
+        if platform is None:
+            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+        if platform.config.instance_name not in all_hosts:
+            raise HTTPException(status_code=404, detail=f"Host entry for {platform.config.instance_name} not found")
+
+        host = all_hosts[platform.config.instance_name]
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+
+        cmd = f'''
+VENV_PATH="{venv_path}"
+VENV_PATH="${{VENV_PATH/#\\~/$HOME}}"
+
+if [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+    exit 1
+fi
+source "$VENV_PATH/bin/activate"
+pip list --format=json 2>/dev/null
+'''
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=60)
+        if return_code != 0:
+            raise HTTPException(status_code=500, detail=f"pip list failed: {stderr or stdout}")
+
+        import json as _json
+        try:
+            all_packages = _json.loads(stdout)
+        except _json.JSONDecodeError:
+            # stdout might contain extra lines before the JSON
+            for line in stdout.strip().split("\n"):
+                line = line.strip()
+                if line.startswith("["):
+                    all_packages = _json.loads(line)
+                    break
+            else:
+                all_packages = []
+
+        # Filter for driver libraries
+        driver_packages = [
+            pkg for pkg in all_packages
+            if "driver" in pkg.get("name", "").lower()
+            and pkg.get("name", "").lower().startswith("volttron-lib")
+        ]
+
+        return {"installed_drivers": driver_packages}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing installed driver libraries: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@ansible_router.post("/install_driver_library/{platform_id}")
+async def install_driver_library(
+    platform_id: str,
+    pip_package: str,
+    ansible: AnsibleService = Depends(get_ansible_service)
+):
+    """Install a driver library (e.g. volttron-lib-fake-driver) into the VOLTTRON venv.
+
+    Driver libraries are pip packages that the platform.driver agent uses to
+    communicate with specific device protocols. They must be installed into the
+    same venv as VOLTTRON before adding driver configurations.
+
+    Args:
+        platform_id: The platform instance name
+        pip_package: The pip package name (e.g. 'volttron-lib-fake-driver')
+    """
+    logger.info(f"[INSTALL_DRIVER_LIB] Installing {pip_package} on platform {platform_id}")
+    try:
+        platform_service = await get_platform_service()
+        platform = await platform_service.get_platform(platform_id)
+
+        if platform is None:
+            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+
+        if platform.config.instance_name not in all_hosts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host entry for {platform.config.instance_name} not found"
+            )
+
+        host = all_hosts[platform.config.instance_name]
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        package_arg = shlex.quote(pip_package)
+
+        cmd = f'''
+VENV_PATH="{venv_path}"
+VENV_PATH="${{VENV_PATH/#\\~/$HOME}}"
+
+if [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+    exit 1
+fi
+source "$VENV_PATH/bin/activate"
+pip install {package_arg}
+'''
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=300)
+
+        if return_code != 0:
+            error_msg = stderr or stdout
+            logger.error(f"Failed to install driver library {pip_package}: {error_msg}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to install {pip_package}: {error_msg}"
+            )
+
+        logger.info(f"Driver library {pip_package} installed successfully on platform {platform_id}")
+        return {
+            "status": "success",
+            "message": f"Driver library {pip_package} installed successfully",
+            "output": stdout,
+            "package": pip_package,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error installing driver library: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @ansible_router.post("/remove_agent/{platform_id}/{agent_uuid}")
 async def remove_agent(
     platform_id: str,
@@ -1742,12 +1886,19 @@ async def deploy_agent_config_store(
                 safe_config_name = config_name.replace("/", "_").replace(" ", "_")
                 temp_file = f"/tmp/volttron_config_{safe_config_name}_{os.urandom(4).hex()}"
                 
-                # Escape content for shell
-                content_escaped = config_entry.value.replace("\\", "\\\\").replace("$", "\\$").replace("`", "\\`").replace('"', '\\"')
-                
-                # Build command to upload content and run vctl config store
-                csv_flag = "--csv" if config_entry.data_type == "CSV" else ""
+                # Determine data type flag for vctl config store
+                if config_entry.data_type == "CSV":
+                    type_flag = "--csv"
+                elif config_entry.data_type == "JSON":
+                    type_flag = "--json"
+                else:
+                    type_flag = "--raw"
                 config_name_arg = shlex.quote(config_name)
+                
+                # Use base64 encoding to transfer content safely
+                # This avoids any shell escaping issues with heredocs
+                import base64
+                content_b64 = base64.b64encode(config_entry.value.encode("utf-8")).decode("ascii")
                 
                 cmd = f'''
 VENV_PATH="{venv_path}"
@@ -1761,17 +1912,17 @@ if [ ! -f "$VENV_PATH/bin/activate" ]; then
     exit 1
 fi
 
-# Write config content to temp file
-cat > {temp_file} << 'VOLTTRON_CONFIG_EOF'
-{content_escaped}
-VOLTTRON_CONFIG_EOF
+# Decode base64 config content to temp file
+echo "{content_b64}" | base64 -d > {temp_file}
 
 # Activate venv and deploy config
 source "$VENV_PATH/bin/activate"
-"$VENV_PATH/bin/vctl" config store {agent_identity_arg} {config_name_arg} {temp_file} {csv_flag}
+"$VENV_PATH/bin/vctl" config store {agent_identity_arg} {config_name_arg} {temp_file} {type_flag}
+DEPLOY_RC=$?
 
 # Clean up temp file
 rm -f {temp_file}
+exit $DEPLOY_RC
 '''
 
                 return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=60)
@@ -1818,6 +1969,61 @@ rm -f {temp_file}
             status_code=500,
             detail=str(e)
         )
+
+
+@ansible_router.get("/platforms/{platform_id}/vctl_config_list")
+async def vctl_config_list(
+    platform_id: str,
+    agent_identity: str = None,
+    ansible: AnsibleService = Depends(get_ansible_service)
+):
+    """Run vctl config list [agent_identity] on the VOLTTRON platform.
+
+    Without agent_identity: returns list of agents that have config store entries.
+    With agent_identity: returns list of config keys for that agent.
+    """
+    try:
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+
+        if platform_id not in all_hosts:
+            raise HTTPException(status_code=404, detail=f"Host {platform_id} not found")
+
+        host = all_hosts[platform_id]
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+
+        identity_arg = f" {shlex.quote(agent_identity)}" if agent_identity else ""
+
+        cmd = f'''
+VENV_PATH="{venv_path}"
+VOLTTRON_HOME="{volttron_home}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+export VOLTTRON_HOME
+
+if [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+    exit 1
+fi
+
+source "$VENV_PATH/bin/activate"
+"$VENV_PATH/bin/vctl" config list{identity_arg}
+'''
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=15)
+
+        if return_code != 0:
+            raise HTTPException(status_code=500, detail=stderr or stdout)
+
+        entries = [line.strip() for line in stdout.splitlines() if line.strip()]
+        return {"entries": entries}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running vctl config list: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @ansible_router.get("/ping/{id}")

@@ -1,3 +1,4 @@
+import os
 import reflex as rx
 import subprocess
 import asyncio
@@ -141,7 +142,7 @@ class PlatformLogState(PlatformBaseState):
 
     @rx.event(background=True)
     async def start_tailing(self):
-        """Start tailing logs with tail -f over SSH"""
+        """Start tailing logs with tail -f (local or SSH)"""
         global _tail_processes
 
         async with self:
@@ -157,6 +158,7 @@ class PlatformLogState(PlatformBaseState):
             host = working_platform.host
 
             # Get connection details
+            ansible_connection = host.ansible_connection
             ansible_user = host.ansible_user
             ansible_host = host.ansible_host
             ansible_port = str(host.ansible_port)
@@ -168,22 +170,27 @@ class PlatformLogState(PlatformBaseState):
         yield
 
         try:
-            # Build SSH command for tail -f
-            ssh_cmd = [
-                "ssh",
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "BatchMode=yes",
-                "-p", ansible_port,
-                f"{ansible_user}@{ansible_host}",
-                f"tail -f {volttron_home}/volttron.log 2>/dev/null || echo 'Log file not found'"
-            ]
+            if ansible_connection == "local":
+                # Local instance: tail the log file directly without SSH
+                log_path = os.path.expanduser(f"{volttron_home}/volttron.log")
+                cmd = ["tail", "-f", log_path]
+            else:
+                # Remote instance: use SSH to tail the log file
+                cmd = [
+                    "ssh",
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "UserKnownHostsFile=/dev/null",
+                    "-o", "BatchMode=yes",
+                    "-p", ansible_port,
+                    f"{ansible_user}@{ansible_host}",
+                    f"tail -f {volttron_home}/volttron.log 2>/dev/null || echo 'Log file not found'"
+                ]
 
-            logger.debug(f"Starting tail process: {' '.join(ssh_cmd)}")
+            logger.debug(f"Starting tail process: {' '.join(cmd)}")
 
             # Start the subprocess
             process = subprocess.Popen(
-                ssh_cmd,
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,

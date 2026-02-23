@@ -866,3 +866,78 @@ class BACnetReadObjectListRequest(BaseModel):
     page: int | None = None
     page_size: int | None = None
     force_fresh_read: bool = True
+
+
+class DriverLibrary(BaseModel):
+    """Represents an installable driver library for the platform driver."""
+    name: str  # Display name
+    pip_package: str  # pip package name
+    driver_type: str  # driver_type value used in device configs
+    description: str
+    default_registry_csv: str = ""  # Template registry CSV content
+    default_device_config: str = "{}"  # Template driver_config JSON
+
+
+_FAKE_REGISTRY_CSV = """Point Name,Volttron Point Name,Units,Units Details,Writable,Starting Value,Type,Notes
+EKG,EKG,waveform,,TRUE,sin,float,Sine wave
+Heartbeat,Heartbeat,On/Off,On/Off,TRUE,0,boolean,Point for heartbeat toggle
+OutsideAirTemperature1,OutsideAirTemperature1,F,-100 to 300,FALSE,50,float,CO2 Reading 0.00-2000.00
+SampleWritableFloat1,SampleWritableFloat1,PPM,1000.00 (default),TRUE,10,float,Setpoint
+SampleLong1,SampleLong1,Enumeration,1 through 13,FALSE,50,int,Status indicator
+SampleWritableShort1,SampleWritableShort1,%,0.00 to 100.00 (75 default),TRUE,20,int,Command
+SampleBool1,SampleBool1,On / Off,on/off,FALSE,TRUE,boolean,Status
+SampleWritableBool1,SampleWritableBool1,On / Off,on/off,TRUE,TRUE,boolean,Command"""
+
+_BACNET_REGISTRY_CSV = """Point Name,Volttron Point Name,Units,Unit Details,BACnet Object Type,Property,Writable,Index,Notes
+SupplyFanStatus,SupplyFanStatus,On/Off,on/off,binaryValue,presentValue,FALSE,,Status
+ReturnFanStatus,ReturnFanStatus,On/Off,on/off,binaryValue,presentValue,FALSE,,Status
+OutsideAirTemperature,OutsideAirTemperature,degreesFahrenheit,-100 to 300,analogInput,presentValue,FALSE,,Reading"""
+
+_MODBUS_REGISTRY_CSV = """Point Name,Volttron Point Name,Units,Writable,Default Value,Transform,Table,Register Address,Type
+SampleAnalog,SampleAnalog,units,TRUE,0,,HoldingRegister,0,float
+SampleBool,SampleBool,bool,TRUE,FALSE,,CoilRegister,0,bool"""
+
+
+class DriverLibraryCatalog(BaseModel):
+    """Hardcoded catalog of available driver libraries."""
+    drivers: list[DriverLibrary] = [
+        DriverLibrary(
+            name="Fake Driver",
+            pip_package="volttron-lib-fake-driver",
+            driver_type="fake",
+            description="Simulated driver for testing — generates sample data points",
+            default_registry_csv=_FAKE_REGISTRY_CSV,
+            default_device_config='{}',
+        ),
+        DriverLibrary(
+            name="BACnet Driver",
+            pip_package="volttron-lib-bacnet-driver",
+            driver_type="bacnet",
+            description="BACnet protocol driver for building automation devices",
+            default_registry_csv=_BACNET_REGISTRY_CSV,
+            default_device_config='{\n  "device_address": "10.0.0.1",\n  "device_id": 1000\n}',
+        ),
+        DriverLibrary(
+            name="Modbus TK Driver",
+            pip_package="volttron-lib-modbustk-driver",
+            driver_type="modbus",
+            description="Modbus driver using the MinimalModbus/ModbusTK library",
+            default_registry_csv=_MODBUS_REGISTRY_CSV,
+            default_device_config='{\n  "device_address": "10.0.0.1",\n  "port": 502,\n  "slave_id": 1\n}',
+        ),
+        DriverLibrary(
+            name="Modbus Driver",
+            pip_package="volttron-lib-modbus-driver",
+            driver_type="modbus",
+            description="Modbus driver using pymodbus",
+            default_registry_csv=_MODBUS_REGISTRY_CSV,
+            default_device_config='{\n  "device_address": "10.0.0.1",\n  "port": 502,\n  "slave_id": 1\n}',
+        ),
+        DriverLibrary(
+            name="Home Assistant Driver",
+            pip_package="volttron-lib-homeassistant-driver",
+            driver_type="homeassistant",
+            description="Driver for Home Assistant smart home devices",
+            default_device_config='{\n  "url": "http://localhost:8123",\n  "access_token": "YOUR_TOKEN"\n}',
+        ),
+    ]
