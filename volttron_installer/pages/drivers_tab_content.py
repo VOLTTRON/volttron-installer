@@ -18,6 +18,13 @@ def _installed_driver_card(driver: dict) -> rx.Component:
                 align_items="start",
                 flex="1",
             ),
+            rx.button(
+                rx.icon("settings", size=14),
+                "Configure",
+                size="1",
+                variant="soft",
+                on_click=State.open_configure_driver_dialog(driver["name"]),
+            ),
             spacing="3",
             align="center",
             width="100%",
@@ -78,99 +85,114 @@ def installed_driver_libs_section() -> rx.Component:
     )
 
 
-def _config_key_row(key: str) -> rx.Component:
-    """A single config key row in the platform.driver tree."""
-    return rx.hstack(
-        rx.icon("file-text", size=14, color="gray"),
-        rx.text(key, size="2", font_family="monospace"),
-        spacing="2",
-        align="center",
-        padding_left="1.5rem",
-        padding_y="2px",
-        width="100%",
+def _tree_row(row: dict) -> rx.Component:
+    """Render one row of the config store tree — either an agent header or a key entry."""
+    return rx.cond(
+        row["type"] == "agent",
+        # ── Agent header row ──────────────────────────────────────────────
+        rx.hstack(
+            rx.cond(
+                row["expanded"],
+                rx.icon("chevron-down", size=15, color="gray"),
+                rx.icon("chevron-right", size=15, color="gray"),
+            ),
+            rx.icon("layers", size=15, color="#60a5fa"),
+            rx.text(
+                row["agent"],
+                size="2",
+                weight="medium",
+                font_family="monospace",
+                flex="1",
+            ),
+            rx.cond(
+                row["loading"],
+                rx.spinner(size="1"),
+                rx.fragment(),
+            ),
+            on_click=State.toggle_agent_tree(row["agent"]),
+            style={"cursor": "pointer"},
+            spacing="2",
+            align="center",
+            padding_y="5px",
+            padding_x="4px",
+            border_radius="4px",
+            _hover={"background": "var(--gray-3)"},
+            width="100%",
+        ),
+        # ── Config key row ────────────────────────────────────────────────
+        rx.hstack(
+            rx.icon("file-text", size=14, color="gray"),
+            rx.text(
+                row["key"],
+                size="2",
+                font_family="monospace",
+                flex="1",
+            ),
+            rx.hstack(
+                rx.button(
+                    rx.icon("pencil", size=14),
+                    size="2",
+                    variant="ghost",
+                    color_scheme="gray",
+                    loading=State.live_key_loading & (State.live_editing_key == row["key"]),
+                    on_click=State.open_edit_live_config_key(row["agent"], row["key"]),
+                    title="Edit",
+                ),
+                rx.button(
+                    rx.icon("trash-2", size=14),
+                    size="2",
+                    variant="ghost",
+                    color_scheme="red",
+                    on_click=State.open_delete_live_config_dialog(row["agent"], row["key"]),
+                    title="Delete",
+                ),
+                spacing="1",
+            ),
+            spacing="2",
+            align="center",
+            padding_left="2rem",
+            padding_y="3px",
+            width="100%",
+        ),
     )
 
 
 def platform_driver_config_section() -> rx.Component:
-    """Section showing live vctl config list output as a simple tree."""
+    """Section showing live vctl config store as a dynamic, flicker-free tree."""
     return rx.vstack(
         rx.hstack(
             rx.text("Config Store (live)", size="4", weight="bold"),
-            rx.button(
-                rx.icon("refresh-cw", size=14),
-                "Refresh",
-                on_click=State.fetch_vctl_config_list,
-                size="1",
-                variant="ghost",
-                color_scheme="gray",
-                loading=State.vctl_config_loading,
+            rx.cond(
+                State.vctl_agents_loading,
+                rx.hstack(
+                    rx.spinner(size="1"),
+                    rx.text("Refreshing…", size="1", color="gray"),
+                    spacing="1",
+                    align="center",
+                ),
+                rx.button(
+                    rx.icon("refresh-cw", size=13),
+                    "Refresh",
+                    on_click=State.fetch_vctl_config_list,
+                    size="1",
+                    variant="ghost",
+                    color_scheme="gray",
+                ),
             ),
-            spacing="2",
+            spacing="3",
             align="center",
         ),
         rx.cond(
-            State.vctl_config_loading,
-            rx.center(
-                rx.hstack(
-                    rx.spinner(size="2"),
-                    rx.text("Running vctl config list…", size="2", color="gray"),
-                    spacing="2",
-                    align="center",
-                ),
-                padding="1rem",
+            State.vctl_config_agents.length() > 0,
+            rx.box(
+                rx.foreach(State.config_tree_rows, _tree_row),
                 width="100%",
             ),
             rx.cond(
-                State.platform_driver_in_config_store,
-                # platform.driver is present — show tree row
-                rx.vstack(
-                    rx.box(
-                        rx.hstack(
-                            rx.cond(
-                                State.platform_driver_tree_expanded,
-                                rx.icon("chevron-down", size=16),
-                                rx.icon("chevron-right", size=16),
-                            ),
-                            rx.icon("layers", size=16, color="blue"),
-                            rx.text("platform.driver", size="2", weight="medium", font_family="monospace"),
-                            spacing="2",
-                            align="center",
-                        ),
-                        on_click=State.toggle_platform_driver_tree,
-                        style={"cursor": "pointer"},
-                        padding_y="4px",
-                        width="100%",
-                    ),
-                    rx.cond(
-                        State.platform_driver_tree_expanded,
-                        rx.cond(
-                            State.vctl_config_keys.length() > 0,
-                            rx.vstack(
-                                rx.foreach(State.vctl_config_keys, _config_key_row),
-                                spacing="0",
-                                width="100%",
-                            ),
-                            rx.hstack(
-                                rx.text("No configs found", size="2", color="gray"),
-                                rx.button(
-                                    rx.icon("plus", size=14),
-                                    "Add Config",
-                                    on_click=State.open_add_driver_dialog,
-                                    size="1",
-                                    variant="soft",
-                                ),
-                                spacing="3",
-                                align="center",
-                                padding_left="1.5rem",
-                            ),
-                        ),
-                    ),
-                    spacing="0",
-                    width="100%",
-                ),
-                # platform.driver not yet in config store
+                State.vctl_agents_loading,
+                rx.fragment(),
                 rx.text(
-                    "platform.driver not found in config store",
+                    "No agents found in config store — click Refresh to scan.",
                     size="2",
                     color="gray",
                 ),
@@ -214,6 +236,8 @@ def drivers_tab_content() -> rx.Component:
         delete_driver_dialog(),
         install_driver_lib_dialog(),
         configure_driver_dialog(),
+        delete_live_config_dialog(),
+        live_config_edit_dialog(),
 
         spacing="4",
         width="100%",
@@ -744,6 +768,114 @@ def delete_driver_dialog() -> rx.Component:
     )
 
 
+def delete_live_config_dialog() -> rx.Component:
+    """Confirm-delete dialog for a live vctl config key."""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title("Delete Config Entry"),
+            rx.dialog.description(
+                rx.hstack(
+                    rx.code(State.live_editing_agent, size="1"),
+                    rx.text("→", size="2", color="gray"),
+                    rx.code(State.live_editing_key, size="1"),
+                    spacing="2",
+                    align="center",
+                ),
+            ),
+            rx.callout.root(
+                rx.callout.icon(rx.icon("triangle-alert")),
+                rx.callout.text(
+                    "This will permanently remove the entry via ",
+                    rx.text.strong("vctl config delete"),
+                    ".",
+                ),
+                color_scheme="red",
+                variant="soft",
+                size="1",
+                margin_top="0.5rem",
+            ),
+            rx.flex(
+                rx.dialog.close(
+                    rx.button(
+                        "Cancel",
+                        variant="soft",
+                        color_scheme="gray",
+                        on_click=State.close_delete_live_config_dialog,
+                    ),
+                ),
+                rx.dialog.close(
+                    rx.button(
+                        "Delete",
+                        on_click=State.confirm_delete_live_config_key,
+                        color_scheme="red",
+                    ),
+                ),
+                spacing="3",
+                margin_top="1rem",
+                justify="end",
+            ),
+            max_width="450px",
+        ),
+        open=State.show_delete_live_config_dialog,
+        on_open_change=State.close_delete_live_config_dialog,
+    )
+
+
+def live_config_edit_dialog() -> rx.Component:
+    """Simple raw-text editor for any live vctl config entry."""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title(
+                rx.hstack(
+                    rx.icon("file-pen"),
+                    rx.code(State.live_editing_agent, size="2"),
+                    rx.text("→", size="2", color="gray"),
+                    rx.code(State.live_editing_key, size="2"),
+                    align="center",
+                    spacing="2",
+                ),
+            ),
+            rx.text_area(
+                value=State.live_edit_content,
+                on_change=State.set_live_edit_content,
+                rows="22",
+                font_family="monospace",
+                font_size="12px",
+                width="100%",
+                margin_top="0.75rem",
+                resize="vertical",
+            ),
+            rx.flex(
+                rx.dialog.close(
+                    rx.button(
+                        "Cancel",
+                        variant="soft",
+                        color_scheme="gray",
+                        on_click=State.close_live_edit_dialog,
+                    ),
+                ),
+                rx.button(
+                    rx.cond(
+                        State.live_edit_saving,
+                        rx.hstack(rx.spinner(size="1"), rx.text("Saving…"), spacing="2", align="center"),
+                        rx.text("Save"),
+                    ),
+                    on_click=State.save_live_edit_content,
+                    disabled=State.live_edit_saving,
+                    color_scheme="blue",
+                ),
+                spacing="3",
+                margin_top="1rem",
+                justify="end",
+            ),
+            max_width="800px",
+            width="90vw",
+        ),
+        open=State.show_live_edit_dialog,
+        on_open_change=State.close_live_edit_dialog,
+    )
+
+
 def _driver_lib_card(driver: dict) -> rx.Component:
     """Render a single driver library option as a selectable card."""
     return rx.box(
@@ -860,206 +992,141 @@ def install_driver_lib_dialog() -> rx.Component:
 
 
 def configure_driver_dialog() -> rx.Component:
-    """Dialog for configuring a driver with pre-filled templates."""
+    """Two-step wizard: step 1 = device JSON editor, step 2 = registry CSV editor."""
     return rx.dialog.root(
         rx.dialog.content(
-            rx.vstack(
-                rx.dialog.title(
+            # ── Step 1: Device config JSON ──────────────────────────────────
+            rx.cond(
+                State.configure_step == 1,
+                rx.vstack(
                     rx.hstack(
-                        rx.icon("settings", size=20),
-                        rx.text(f"Configure {State.configure_driver_name}"),
-                        spacing="2",
+                        rx.icon("settings", size=18),
+                        rx.dialog.title(
+                            f"Configure {State.configure_driver_name} — Step 1 of 2: Device Config",
+                            size="4",
+                        ),
                         align="center",
+                        spacing="2",
                     ),
-                ),
-                rx.dialog.description(
-                    "Edit the device config and registry CSV below, then save. "
-                    "You can modify the templates or replace them entirely.",
-                    size="2",
-                ),
-
-                # Location fields
-                rx.text("Device Location", size="3", weight="bold"),
-                rx.grid(
-                    rx.vstack(
-                        rx.text("Campus", size="2", weight="medium"),
-                        rx.input(
-                            value=State.campus,
-                            on_change=State.set_campus,
-                            placeholder="campus",
-                            size="2",
-                        ),
-                        spacing="1",
-                        width="100%",
-                        align_items="start",
-                    ),
-                    rx.vstack(
-                        rx.text("Building", size="2", weight="medium"),
-                        rx.input(
-                            value=State.building,
-                            on_change=State.set_building,
-                            placeholder="building",
-                            size="2",
-                        ),
-                        spacing="1",
-                        width="100%",
-                        align_items="start",
-                    ),
-                    rx.vstack(
-                        rx.text("Unit", size="2", weight="medium"),
-                        rx.input(
-                            value=State.unit,
-                            on_change=State.set_unit,
-                            placeholder="device_name",
-                            size="2",
-                        ),
-                        spacing="1",
-                        width="100%",
-                        align_items="start",
-                    ),
-                    columns="3",
-                    spacing="3",
-                    width="100%",
-                ),
-
-                # Path preview
-                rx.callout.root(
-                    rx.callout.icon(rx.icon("map-pin")),
-                    rx.callout.text(
-                        rx.text("Path: "),
-                        rx.code(State.driver_path),
-                    ),
-                    size="1",
-                    variant="soft",
-                    width="100%",
-                ),
-
-                # Scrape settings
-                rx.grid(
-                    rx.vstack(
-                        rx.text("Interval (s)", size="2", weight="medium"),
-                        rx.input(
-                            value=str(State.interval),
-                            on_change=State.set_interval,
-                            type="number",
-                            size="2",
-                        ),
-                        spacing="1",
-                        width="100%",
-                        align_items="start",
-                    ),
-                    rx.vstack(
-                        rx.text("Timezone", size="2", weight="medium"),
-                        rx.input(
-                            value=State.timezone,
-                            on_change=State.set_timezone,
-                            size="2",
-                        ),
-                        spacing="1",
-                        width="100%",
-                        align_items="start",
-                    ),
-                    rx.vstack(
-                        rx.text("Heartbeat Point", size="2", weight="medium"),
-                        rx.input(
-                            value=State.heart_beat_point,
-                            on_change=State.set_heart_beat_point,
-                            size="2",
-                        ),
-                        spacing="1",
-                        width="100%",
-                        align_items="start",
-                    ),
-                    columns="3",
-                    spacing="3",
-                    width="100%",
-                ),
-
-                rx.separator(),
-
-                # Device Config JSON
-                rx.vstack(
-                    rx.text("Device Config JSON", size="3", weight="bold"),
-                    rx.text(
-                        "Protocol-specific settings (e.g. device address, port).",
+                    rx.dialog.description(
+                        "Set the config key name (e.g. devices/campus/building/fake) and edit the JSON below.",
                         size="2",
-                        color="gray",
-                    ),
-                    rx.text_area(
-                        value=State.driver_config_json,
-                        on_change=State.set_driver_config_json,
-                        placeholder='{"device_address": "10.0.0.1"}',
-                        size="2",
-                        rows="5",
-                        font_family="monospace",
-                        width="100%",
-                    ),
-                    spacing="1",
-                    width="100%",
-                    align_items="start",
-                ),
-
-                rx.separator(),
-
-                # Registry CSV
-                rx.vstack(
-                    rx.text("Registry CSV", size="3", weight="bold"),
-                    rx.text(
-                        "Defines the data points to scrape from the device.",
-                        size="2",
-                        color="gray",
                     ),
                     rx.vstack(
-                        rx.text("Registry Name", size="2", weight="medium"),
+                        rx.text("Config Key Name", size="2", weight="medium"),
                         rx.input(
-                            value=State.new_registry_name,
-                            on_change=State.set_new_registry_name,
-                            placeholder="fake_registry.csv",
+                            value=State.configure_device_name,
+                            on_change=State.set_configure_device_name,
+                            placeholder="devices/campus/building/fake",
                             size="2",
+                            width="100%",
+                            font_family="monospace",
                         ),
                         spacing="1",
                         width="100%",
                         align_items="start",
                     ),
                     rx.text_area(
-                        value=State.new_registry_content,
-                        on_change=State.set_new_registry_content,
-                        placeholder="Point Name,Volttron Point Name,Units,Writable,Type",
-                        size="2",
-                        rows="8",
+                        value=State.configure_device_json,
+                        on_change=State.set_configure_device_json,
+                        rows="22",
                         font_family="monospace",
+                        font_size="12px",
                         width="100%",
+                        resize="vertical",
+                        margin_top="0.25rem",
                     ),
-                    spacing="2",
+                    rx.flex(
+                        rx.dialog.close(
+                            rx.button(
+                                "Cancel",
+                                variant="soft",
+                                color_scheme="gray",
+                                on_click=State.close_configure_driver_dialog,
+                            ),
+                        ),
+                        rx.button(
+                            "Next →",
+                            on_click=State.configure_next_step,
+                            color_scheme="blue",
+                            disabled=State.configure_device_name == "",
+                        ),
+                        spacing="3",
+                        margin_top="1rem",
+                        justify="end",
+                    ),
+                    spacing="3",
                     width="100%",
-                    align_items="start",
                 ),
-
-                spacing="4",
-                width="100%",
             ),
-
-            rx.flex(
-                rx.button(
-                    "Cancel",
-                    on_click=State.close_configure_driver_dialog,
-                    variant="soft",
-                    color_scheme="gray",
+            # ── Step 2: Registry CSV editor ─────────────────────────────────
+            rx.cond(
+                State.configure_step == 2,
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("table", size=18),
+                        rx.dialog.title(
+                            f"Configure {State.configure_driver_name} — Step 2 of 2: Registry CSV",
+                            size="4",
+                        ),
+                        align="center",
+                        spacing="2",
+                    ),
+                    rx.dialog.description(
+                        "Set the CSV key name (e.g. fake.csv) and edit the registry contents below.",
+                        size="2",
+                    ),
+                    rx.vstack(
+                        rx.text("CSV Key Name", size="2", weight="medium"),
+                        rx.input(
+                            value=State.configure_csv_name,
+                            on_change=State.set_configure_csv_name,
+                            placeholder="fake.csv",
+                            size="2",
+                            width="100%",
+                            font_family="monospace",
+                        ),
+                        spacing="1",
+                        width="100%",
+                        align_items="start",
+                    ),
+                    rx.text_area(
+                        value=State.configure_csv_content,
+                        on_change=State.set_configure_csv_content,
+                        rows="22",
+                        font_family="monospace",
+                        font_size="12px",
+                        width="100%",
+                        resize="vertical",
+                        margin_top="0.25rem",
+                    ),
+                    rx.flex(
+                        rx.button(
+                            "← Back",
+                            on_click=State.configure_prev_step,
+                            variant="soft",
+                            color_scheme="gray",
+                        ),
+                        rx.button(
+                            rx.cond(
+                                State.deploying_configs,
+                                rx.hstack(rx.spinner(size="1"), rx.text("Saving…"), spacing="2", align="center"),
+                                rx.text("Save & Deploy"),
+                            ),
+                            on_click=State.handle_configure_driver_save,
+                            disabled=State.configure_csv_name == "" | State.deploying_configs,
+                            color_scheme="blue",
+                        ),
+                        spacing="3",
+                        margin_top="1rem",
+                        justify="end",
+                    ),
+                    spacing="3",
+                    width="100%",
                 ),
-                rx.button(
-                    "Save Driver Config",
-                    on_click=State.handle_configure_driver_save,
-                    disabled=~State.can_add_driver,
-                    color_scheme="blue",
-                ),
-                spacing="3",
-                margin_top="1rem",
-                justify="end",
             ),
-
-            max_width="700px",
-            max_height="85vh",
-            overflow_y="auto",
+            max_width="800px",
+            width="90vw",
         ),
         open=State.show_configure_driver_dialog,
         on_open_change=State.close_configure_driver_dialog,

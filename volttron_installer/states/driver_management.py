@@ -76,6 +76,11 @@ class DriverManagementState(PlatformDeploymentState):
     
     # Configure driver from installed lib
     _configure_driver_name: str = ""  # Display name of driver being configured
+    _configure_step: int = 1            # 1 = device JSON editor, 2 = CSV editor
+    _configure_device_name: str = ""    # key name for the device JSON entry
+    _configure_device_json: str = "{}"  # raw JSON text for step 1
+    _configure_csv_name: str = ""       # key name for the registry CSV entry
+    _configure_csv_content: str = ""    # raw CSV text for step 2
     
     # Driver form fields
     _driver_type: str = "fake"
@@ -101,10 +106,22 @@ class DriverManagementState(PlatformDeploymentState):
     _loading_installed_drivers: bool = False
 
     # vctl config list state
-    _vctl_config_agents: list[str] = []        # agents with config store entries
-    _vctl_config_keys: list[str] = []          # config keys for platform.driver
-    _vctl_config_loading: bool = False
-    _platform_driver_tree_expanded: bool = False
+    _vctl_config_agents: list[str] = []         # all agents with config store entries
+    _agent_config_keys: dict[str, list[str]] = {}  # keys per agent
+    _expanded_agents: dict[str, bool] = {}      # which agents are expanded
+    _vctl_agents_loading: bool = False          # loading the top-level agent list
+    _vctl_keys_loading: str = ""               # agent whose keys are currently loading
+
+    # Live config key editing
+    _live_editing_agent: str = ""               # agent for the current edit/delete op
+    _live_editing_key: str = ""                 # key being edited/deleted via vctl
+    _show_delete_live_config_dialog: bool = False
+    _live_key_loading: bool = False
+
+    # Simple live config editor
+    _show_live_edit_dialog: bool = False
+    _live_edit_content: str = ""
+    _live_edit_saving: bool = False
 
     # Editing state
     _editing_driver_path: str = ""  # Path of driver being edited
@@ -284,76 +301,244 @@ class DriverManagementState(PlatformDeploymentState):
         return self._vctl_config_agents
 
     @rx.var
-    def vctl_config_keys(self) -> list[str]:
-        return self._vctl_config_keys
+    def vctl_agents_loading(self) -> bool:
+        return self._vctl_agents_loading
 
     @rx.var
-    def vctl_config_loading(self) -> bool:
-        return self._vctl_config_loading
+    def vctl_keys_loading(self) -> str:
+        return self._vctl_keys_loading
 
     @rx.var
-    def platform_driver_tree_expanded(self) -> bool:
-        return self._platform_driver_tree_expanded
-
-    @rx.var
-    def platform_driver_in_config_store(self) -> bool:
-        """True if platform.driver appears in vctl config list output."""
-        return "platform.driver" in self._vctl_config_agents
+    def config_tree_rows(self) -> list[dict]:
+        """Flat list of rows for the config store tree UI.
+        Each row is {type, agent, key, expanded, loading}.
+        """
+        rows: list[dict] = []
+        for agent in self._vctl_config_agents:
+            expanded = self._expanded_agents.get(agent, False)
+            loading = self._vctl_keys_loading == agent
+            rows.append({
+                "type": "agent",
+                "agent": agent,
+                "key": "",
+                "expanded": expanded,
+                "loading": loading,
+            })
+            if expanded:
+                for key in self._agent_config_keys.get(agent, []):
+                    rows.append({
+                        "type": "key",
+                        "agent": agent,
+                        "key": key,
+                        "expanded": False,
+                        "loading": False,
+                    })
+        return rows
 
     @rx.event
     async def fetch_vctl_config_list(self):
-        """Run vctl config list to get agents with config store entries."""
+        """Run vctl config list to get all agents with config store entries."""
         if not self.current_uid:
             return
-        self._vctl_config_loading = True
+        self._vctl_agents_loading = True
         yield
         try:
-            from ..thin_endpoint_wrappers import get_vctl_config_list, ApiError
+            from ..thin_endpoint_wrappers import get_vctl_config_list
             response = await get_vctl_config_list(self.current_uid)
-            self._vctl_config_agents = response.get("entries", [])
-            # If platform.driver is present and tree was expanded, refresh its keys too
-            if self._platform_driver_tree_expanded and "platform.driver" in self._vctl_config_agents:
-                yield DriverManagementState.fetch_platform_driver_config_keys
+            data = response.json() if hasattr(response, "json") else response
+            self._vctl_config_agents = data.get("entries", [])
+            # Refresh keys for any agent that is currently expanded
+            for agent in list(self._expanded_agents.keys()):
+                if self._expanded_agents.get(agent) and agent in self._vctl_config_agents:
+                    yield DriverManagementState.fetch_agent_config_keys(agent)
         except Exception as e:
             logger.error(f"Error running vctl config list: {e}")
-            self._vctl_config_agents = []
         finally:
-            self._vctl_config_loading = False
+            self._vctl_agents_loading = False
             yield
 
     @rx.event
-    async def fetch_platform_driver_config_keys(self):
-        """Run vctl config list platform.driver to get its config keys."""
-        if not self.current_uid:
+    async def fetch_agent_config_keys(self, agent: str):
+        """Run vctl config list <agent> to get its config keys."""
+        if not self.current_uid or not agent:
             return
-        self._vctl_config_loading = True
+        self._vctl_keys_loading = agent
         yield
         try:
-            from ..thin_endpoint_wrappers import get_vctl_config_list, ApiError
-            response = await get_vctl_config_list(self.current_uid, "platform.driver")
-            self._vctl_config_keys = response.get("entries", [])
+            from ..thin_endpoint_wrappers import get_vctl_config_list
+            response = await get_vctl_config_list(self.current_uid, agent)
+            data = response.json() if hasattr(response, "json") else response
+            self._agent_config_keys[agent] = data.get("entries", [])
         except Exception as e:
-            logger.error(f"Error running vctl config list platform.driver: {e}")
-            self._vctl_config_keys = []
+            logger.error(f"Error running vctl config list {agent}: {e}")
+            self._agent_config_keys[agent] = []
         finally:
-            self._vctl_config_loading = False
+            if self._vctl_keys_loading == agent:
+                self._vctl_keys_loading = ""
             yield
 
+    @rx.var
+    def live_editing_agent(self) -> str:
+        return self._live_editing_agent
+
+    @rx.var
+    def live_editing_key(self) -> str:
+        return self._live_editing_key
+
+    @rx.var
+    def show_delete_live_config_dialog(self) -> bool:
+        return self._show_delete_live_config_dialog
+
+    @rx.var
+    def live_key_loading(self) -> bool:
+        return self._live_key_loading
+
+    @rx.var
+    def configure_step(self) -> int:
+        return self._configure_step
+
+    @rx.var
+    def configure_device_name(self) -> str:
+        return self._configure_device_name
+
+    @rx.var
+    def configure_device_json(self) -> str:
+        return self._configure_device_json
+
+    @rx.var
+    def configure_csv_name(self) -> str:
+        return self._configure_csv_name
+
+    @rx.var
+    def configure_csv_content(self) -> str:
+        return self._configure_csv_content
+
+    @rx.var
+    def show_live_edit_dialog(self) -> bool:
+        return self._show_live_edit_dialog
+
+    @rx.var
+    def live_edit_content(self) -> str:
+        return self._live_edit_content
+
+    @rx.var
+    def live_edit_saving(self) -> bool:
+        return self._live_edit_saving
+
     @rx.event
-    async def toggle_platform_driver_tree(self):
-        """Expand/collapse the platform.driver config tree."""
-        self._platform_driver_tree_expanded = not self._platform_driver_tree_expanded
-        if self._platform_driver_tree_expanded and "platform.driver" in self._vctl_config_agents:
-            yield DriverManagementState.fetch_platform_driver_config_keys
+    async def toggle_agent_tree(self, agent: str):
+        """Expand/collapse the config key tree for any agent."""
+        currently = self._expanded_agents.get(agent, False)
+        self._expanded_agents[agent] = not currently
+        if not currently:  # we just expanded
+            yield DriverManagementState.fetch_agent_config_keys(agent)
+
+    @rx.event(background=True)
+    async def open_edit_live_config_key(self, agent: str, key: str):
+        """Fetch config content via vctl config get and open the simple text editor."""
+        async with self:
+            self._live_key_loading = True
+            self._live_editing_agent = agent
+            self._live_editing_key = key
+            current_uid = self.current_uid
+
+        try:
+            from ..thin_endpoint_wrappers import get_vctl_config_get
+            response = await get_vctl_config_get(current_uid, agent, key)
+            data = response.json() if hasattr(response, "json") else response
+            content = data.get("content", "")
+        except Exception as e:
+            logger.error(f"Error fetching config key {key}: {e}")
+            yield rx.toast.error(f"Failed to fetch config: {e}")
+            async with self:
+                self._live_key_loading = False
+            return
+
+        async with self:
+            self._live_key_loading = False
+            self._live_edit_content = content
+            self._show_live_edit_dialog = True
+
+    @rx.event
+    def set_live_edit_content(self, value: str):
+        """Update the live edit text area content."""
+        self._live_edit_content = value
+
+    @rx.event
+    def close_live_edit_dialog(self):
+        """Close the live config edit dialog."""
+        self._show_live_edit_dialog = False
+        self._live_edit_content = ""
+        self._live_editing_key = ""
+        self._live_editing_agent = ""
+
+    @rx.event(background=True)
+    async def save_live_edit_content(self):
+        """Save the edited content back via vctl config store."""
+        async with self:
+            agent = self._live_editing_agent
+            key = self._live_editing_key
+            content = self._live_edit_content
+            current_uid = self.current_uid
+            self._live_edit_saving = True
+
+        try:
+            from ..thin_endpoint_wrappers import store_vctl_config_key
+            await store_vctl_config_key(current_uid, agent, key, content)
+            yield rx.toast.success(f"Saved {key}")
+            async with self:
+                self._show_live_edit_dialog = False
+                self._live_edit_content = ""
+                self._live_editing_key = ""
+                self._live_editing_agent = ""
+        except Exception as e:
+            logger.error(f"Error storing config key {key}: {e}")
+            yield rx.toast.error(f"Failed to save: {e}")
+        finally:
+            async with self:
+                self._live_edit_saving = False
+
+    @rx.event
+    def open_delete_live_config_dialog(self, agent: str, key: str):
+        """Open the confirm-delete dialog for a live config key."""
+        self._live_editing_agent = agent
+        self._live_editing_key = key
+        self._show_delete_live_config_dialog = True
+
+    @rx.event
+    def close_delete_live_config_dialog(self):
+        self._show_delete_live_config_dialog = False
+        self._live_editing_key = ""
+        self._live_editing_agent = ""
+
+    @rx.event(background=True)
+    async def confirm_delete_live_config_key(self):
+        """Run vctl config delete <agent> <key> then refresh that agent's key list."""
+        async with self:
+            agent = self._live_editing_agent
+            key = self._live_editing_key
+            current_uid = self.current_uid
+            self._show_delete_live_config_dialog = False
+            self._live_key_loading = True
+
+        try:
+            from ..thin_endpoint_wrappers import delete_vctl_config_key
+            await delete_vctl_config_key(current_uid, agent, key)
+            yield rx.toast.success(f"Deleted {key}")
+        except Exception as e:
+            logger.error(f"Error deleting config key {key}: {e}")
+            yield rx.toast.error(f"Failed to delete: {e}")
+        finally:
+            async with self:
+                self._live_key_loading = False
+                self._live_editing_key = ""
+                self._live_editing_agent = ""
+            yield DriverManagementState.fetch_agent_config_keys(agent)
 
     # Dialog actions — Configure Driver (from installed lib)
     @rx.event
     def open_configure_driver_dialog(self, pip_package_name: str):
-        """Open the configure dialog pre-filled with templates for a driver type.
-
-        Looks up the installed pip_package_name in the catalog to find the
-        driver_type and default templates, then populates the form fields.
-        """
+        """Open the two-step configure wizard pre-filled with templates for a driver type."""
         from ..backend.models import DriverLibraryCatalog
         catalog = DriverLibraryCatalog()
 
@@ -365,152 +550,194 @@ class DriverManagementState(PlatformDeploymentState):
         )
 
         if entry:
-            self._driver_type = entry.driver_type
+            driver_type = entry.driver_type
             self._configure_driver_name = entry.name
-            self._new_registry_name = f"{entry.driver_type}_registry.csv"
-            self._new_registry_content = entry.default_registry_csv
-            self._driver_config_json = entry.default_device_config or "{}"
+            csv_name = f"{driver_type}.csv"
+            csv_content = entry.default_registry_csv
+            default_device_config = {
+                "driver_config": {},
+                "registry_config": f"config://{csv_name}",
+                "interval": 5,
+                "timezone": "US/Pacific",
+                "heart_beat_point": "Heartbeat",
+                "driver_type": driver_type,
+                "publish_breadth_first_all": False,
+                "publish_depth_first": False,
+                "publish_breadth_first": False,
+            }
         else:
-            # Unknown driver — open with blanks
-            self._driver_type = normalised.replace("volttron-lib-", "").replace("-driver", "")
+            driver_type = normalised.replace("volttron-lib-", "").replace("-driver", "")
             self._configure_driver_name = pip_package_name
-            self._new_registry_name = "registry.csv"
-            self._new_registry_content = "Point Name,Volttron Point Name,Units,Writable,Type\n"
-            self._driver_config_json = "{}"
+            csv_name = f"{driver_type}.csv"
+            csv_content = "Point Name,Volttron Point Name,Units,Writable,Type\n"
+            default_device_config = {
+                "driver_config": {},
+                "registry_config": f"config://{csv_name}",
+                "interval": 5,
+                "timezone": "US/Pacific",
+                "heart_beat_point": "Heartbeat",
+                "driver_type": driver_type,
+                "publish_breadth_first_all": False,
+                "publish_depth_first": False,
+                "publish_breadth_first": False,
+            }
 
-        # Sensible defaults for location fields
-        self._campus = "campus"
-        self._building = "building"
-        self._unit = self._driver_type
-        self._interval = 5
-        self._timezone = "US/Pacific"
-        self._heart_beat_point = "Heartbeat"
-        self._registry_config_name = ""  # force "new registry" path
+        self._configure_device_name = f"devices/campus/building/{driver_type}"
+        self._configure_device_json = json.dumps(default_device_config, indent=2)
+        self._configure_csv_name = csv_name
+        self._configure_csv_content = csv_content
+        self._configure_step = 1
         self._form_errors = {}
         self._show_configure_driver_dialog = True
 
     @rx.event
-    def close_configure_driver_dialog(self):
-        self._show_configure_driver_dialog = False
+    def set_configure_device_name(self, value: str):
+        self._configure_device_name = value
 
     @rx.event
+    def set_configure_device_json(self, value: str):
+        self._configure_device_json = value
+
+    @rx.event
+    def set_configure_csv_name(self, value: str):
+        self._configure_csv_name = value
+
+    @rx.event
+    def set_configure_csv_content(self, value: str):
+        self._configure_csv_content = value
+
+    @rx.event
+    def configure_next_step(self):
+        """Advance from step 1 (device JSON) to step 2 (CSV)."""
+        self._configure_step = 2
+
+    @rx.event
+    def configure_prev_step(self):
+        """Go back from step 2 to step 1."""
+        self._configure_step = 1
+
+    @rx.event
+    def close_configure_driver_dialog(self):
+        self._show_configure_driver_dialog = False
+        self._configure_step = 1
+
+    @rx.event(background=True)
     async def handle_configure_driver_save(self):
-        """Save the driver config from the configure dialog.
+        """Save the driver config from the two-step configure wizard."""
+        async with self:
+            if not self.current_uid or self.current_uid not in self.platforms:
+                return
 
-        Reuses the same logic as handle_add_driver.
-        """
-        if not self.can_add_driver:
-            return
+            device_path = self._configure_device_name.strip()
+            device_json_text = self._configure_device_json.strip()
+            csv_name = self._configure_csv_name.strip()
+            csv_content = self._configure_csv_content
+            current_uid = self.current_uid
 
-        if not self.current_uid or self.current_uid not in self.platforms:
-            return
+            if not device_path or not csv_name:
+                return
 
-        platform = self.platforms[self.current_uid]
+            platform = self.platforms[current_uid]
 
-        # Ensure platform.driver agent exists in saved config
-        if "platform.driver" not in platform.platform.agents:
-            from ..backend.models import AgentCatalog
-            catalog = AgentCatalog()
-            if "platform.driver" in catalog.agents:
-                catalog_agent = catalog.agents["platform.driver"]
-                new_agent = AgentModelView(
-                    identity="platform.driver",
-                    source=catalog_agent.source,
-                    config=json.dumps(catalog_agent.default_config, indent=2),
-                    config_store=[],
-                    is_new=True,
-                    config_store_allowed=catalog_agent.config_store_allowed,
-                    routing_id=generate_unique_uid(),
-                )
-                platform.platform.agents["platform.driver"] = new_agent
+            # Ensure platform.driver agent exists in saved config
+            if "platform.driver" not in platform.platform.agents:
+                from ..backend.models import AgentCatalog
+                catalog = AgentCatalog()
+                if "platform.driver" in catalog.agents:
+                    catalog_agent = catalog.agents["platform.driver"]
+                    new_agent = AgentModelView(
+                        identity="platform.driver",
+                        source=catalog_agent.source,
+                        config=json.dumps(catalog_agent.default_config, indent=2),
+                        config_store=[],
+                        is_new=True,
+                        config_store_allowed=catalog_agent.config_store_allowed,
+                        routing_id=generate_unique_uid(),
+                    )
+                    platform.platform.agents["platform.driver"] = new_agent
 
-        agent = platform.platform.agents["platform.driver"]
+            agent = platform.platform.agents["platform.driver"]
 
-        # Add registry
-        registry_name = self._registry_config_name
-        if self._new_registry_name and self._new_registry_content:
-            registry_name = self._new_registry_name
-            if not registry_name.endswith(".csv"):
-                registry_name += ".csv"
+            # Clean up any stale entries for this device path or CSV name.
+            # If there's an existing device entry pointing to a different CSV, remove that CSV too.
+            paths_to_remove: set[str] = {device_path, csv_name}
+            for e in list(agent.config_store):
+                if e.path == device_path:
+                    try:
+                        old_cfg = json.loads(e.value)
+                        old_csv = old_cfg.get("registry_config", "").replace("config://", "")
+                        if old_csv:
+                            paths_to_remove.add(old_csv)
+                    except Exception:
+                        pass
+            agent.config_store = [e for e in agent.config_store if e.path not in paths_to_remove]
+
+            # Add registry CSV entry
+            if not csv_name.endswith(".csv"):
+                csv_name += ".csv"
             registry_entry = ConfigStoreEntryModelView(
-                path=registry_name,
+                path=csv_name,
                 data_type="CSV",
-                value=self._new_registry_content,
+                value=csv_content,
                 component_id=generate_unique_uid(),
                 uncommitted=True,
                 valid=True,
             )
             registry_entry.safe_entry = {
-                "path": registry_name,
+                "path": csv_name,
                 "data_type": "CSV",
-                "value": self._new_registry_content,
+                "value": csv_content,
                 "component_id": registry_entry.component_id,
                 "csv_variants": ""
             }
             agent.config_store.append(registry_entry)
 
-        # Build device config
-        device_config = {
-            "driver_config": {},
-            "driver_type": self._driver_type,
-            "registry_config": f"config://{registry_name}",
-            "interval": self._interval,
-            "timezone": self._timezone,
-            "publish_breadth_first_all": False,
-            "publish_depth_first": False,
-            "publish_breadth_first": False,
-        }
-        if self._driver_config_json.strip() and self._driver_config_json.strip() != "{}":
-            try:
-                device_config["driver_config"] = json.loads(self._driver_config_json)
-            except json.JSONDecodeError:
-                pass
-        if self._heart_beat_point:
-            device_config["heart_beat_point"] = self._heart_beat_point
-
-        device_path = self.driver_path
-        device_entry = ConfigStoreEntryModelView(
-            path=device_path,
-            data_type="JSON",
-            value=json.dumps(device_config, indent=2),
-            component_id=generate_unique_uid(),
-            uncommitted=True,
-            valid=True,
-        )
-        device_entry.safe_entry = {
-            "path": device_path,
-            "data_type": "JSON",
-            "value": json.dumps(device_config, indent=2),
-            "component_id": device_entry.component_id,
-            "csv_variants": ""
-        }
-        agent.config_store.append(device_entry)
+            # Add device JSON entry — use the raw text as-is
+            device_entry = ConfigStoreEntryModelView(
+                path=device_path,
+                data_type="JSON",
+                value=device_json_text,
+                component_id=generate_unique_uid(),
+                uncommitted=True,
+                valid=True,
+            )
+            device_entry.safe_entry = {
+                "path": device_path,
+                "data_type": "JSON",
+                "value": device_json_text,
+                "component_id": device_entry.component_id,
+                "csv_variants": ""
+            }
+            agent.config_store.append(device_entry)
 
         # Save platform config to API
         try:
-            await _save_platform_config(platform, self.current_uid)
+            async with self:
+                platform_snapshot = self.platforms[current_uid]
+            await _save_platform_config(platform_snapshot, current_uid)
             yield rx.toast.success(f"Driver config saved to {device_path}")
         except Exception as e:
             logger.error(f"Failed to save platform: {e}")
             yield rx.toast.error(f"Failed to save: {e}")
-            self._show_configure_driver_dialog = False
-            yield
+            async with self:
+                self._show_configure_driver_dialog = False
             return
 
         # Auto-deploy to the running VOLTTRON instance
-        self._deploying_configs = True
-        yield
+        async with self:
+            self._deploying_configs = True
         try:
             from ..thin_endpoint_wrappers import deploy_agent_config_store
-            response = await deploy_agent_config_store(self.current_uid, "platform.driver")
+            response = await deploy_agent_config_store(current_uid, "platform.driver")
             if response.status_code == 200:
                 result = response.json()
                 logger.info(f"Config deployment result: {result}")
-                # Mark platform as deployed since we successfully pushed configs
-                platform.deployed = True
-                platform.platform.in_file = True
-                platform.new_instance = False
-                platform.platform.safe_platform = platform.platform.to_dict()
+                async with self:
+                    platform = self.platforms[current_uid]
+                    platform.deployed = True
+                    platform.platform.in_file = True
+                    platform.new_instance = False
+                    platform.platform.safe_platform = platform.platform.to_dict()
                 yield rx.toast.success("Driver configs deployed to running platform")
             else:
                 logger.error(f"Failed to deploy configs: {response.text}")
@@ -519,10 +746,14 @@ class DriverManagementState(PlatformDeploymentState):
             logger.error(f"Error deploying configs: {e}")
             yield rx.toast.error(f"Saved but deploy failed: {e}")
         finally:
-            self._deploying_configs = False
+            async with self:
+                self._deploying_configs = False
 
-        self._show_configure_driver_dialog = False
-        yield
+        async with self:
+            self._show_configure_driver_dialog = False
+
+        # Refresh the config store tree so the new entries appear
+        yield DriverManagementState.fetch_vctl_config_list
 
     # Dialog actions — Driver Library Install
     @rx.event
@@ -704,216 +935,233 @@ class DriverManagementState(PlatformDeploymentState):
         self._driver_config_json = value
 
     # CRUD operations
-    @rx.event
+    @rx.event(background=True)
     async def handle_add_driver(self):
         """Add new driver configuration to platform.driver"""
-        if not self.can_add_driver:
-            return
-        
-        # Get or create platform.driver agent
-        if not self.current_uid or self.current_uid not in self.platforms:
-            return
-        
-        platform = self.platforms[self.current_uid]
-        
-        # Ensure platform.driver exists in saved config (it may be running live without being saved)
-        if "platform.driver" not in platform.platform.agents:
-            from ..backend.models import AgentCatalog
-            catalog = AgentCatalog()
-            if "platform.driver" in catalog.agents:
-                catalog_agent = catalog.agents["platform.driver"]
-                new_agent = AgentModelView(
-                    identity="platform.driver",
-                    source=catalog_agent.source,
-                    config=json.dumps(catalog_agent.default_config, indent=2),
-                    config_store=[],
-                    is_new=True,
-                    config_store_allowed=catalog_agent.config_store_allowed,
-                    routing_id=generate_unique_uid(),
-                )
-                platform.platform.agents["platform.driver"] = new_agent
-        
-        agent = platform.platform.agents["platform.driver"]
-        
-        # Add registry if new one provided
-        registry_name = self._registry_config_name
-        if self._new_registry_name and self._new_registry_content:
-            registry_name = self._new_registry_name
-            if not registry_name.endswith(".csv"):
-                registry_name += ".csv"
+        async with self:
+            if not self.can_add_driver:
+                return
             
-            # Create registry config entry
-            registry_entry = ConfigStoreEntryModelView(
-                path=registry_name,
-                data_type="CSV",
-                value=self._new_registry_content,
+            # Get or create platform.driver agent
+            if not self.current_uid or self.current_uid not in self.platforms:
+                return
+            
+            platform = self.platforms[self.current_uid]
+            
+            # Ensure platform.driver exists in saved config (it may be running live without being saved)
+            if "platform.driver" not in platform.platform.agents:
+                from ..backend.models import AgentCatalog
+                catalog = AgentCatalog()
+                if "platform.driver" in catalog.agents:
+                    catalog_agent = catalog.agents["platform.driver"]
+                    new_agent = AgentModelView(
+                        identity="platform.driver",
+                        source=catalog_agent.source,
+                        config=json.dumps(catalog_agent.default_config, indent=2),
+                        config_store=[],
+                        is_new=True,
+                        config_store_allowed=catalog_agent.config_store_allowed,
+                        routing_id=generate_unique_uid(),
+                    )
+                    platform.platform.agents["platform.driver"] = new_agent
+            
+            agent = platform.platform.agents["platform.driver"]
+            
+            # Add registry if new one provided
+            registry_name = self._registry_config_name
+            if self._new_registry_name and self._new_registry_content:
+                registry_name = self._new_registry_name
+                if not registry_name.endswith(".csv"):
+                    registry_name += ".csv"
+                
+                # Create registry config entry
+                registry_entry = ConfigStoreEntryModelView(
+                    path=registry_name,
+                    data_type="CSV",
+                    value=self._new_registry_content,
+                    component_id=generate_unique_uid(),
+                    uncommitted=True,
+                    valid=True,
+                )
+                registry_entry.safe_entry = {
+                    "path": registry_name,
+                    "data_type": "CSV",
+                    "value": self._new_registry_content,
+                    "component_id": registry_entry.component_id,
+                    "csv_variants": ""
+                }
+                agent.config_store.append(registry_entry)
+            
+            # Generate device config JSON
+            device_config = {
+                "driver_config": {},
+                "driver_type": self._driver_type,
+                "registry_config": f"config://{registry_name}",
+                "interval": self._interval,
+                "timezone": self._timezone,
+                "publish_breadth_first_all": False,
+                "publish_depth_first": False,
+                "publish_breadth_first": False,
+            }
+            
+            # Parse advanced driver_config if provided
+            if self._driver_config_json.strip() and self._driver_config_json.strip() != "{}":
+                try:
+                    device_config["driver_config"] = json.loads(self._driver_config_json)
+                except json.JSONDecodeError:
+                    pass
+            
+            if self._heart_beat_point:
+                device_config["heart_beat_point"] = self._heart_beat_point
+            
+            # Create device config entry
+            device_path = self.driver_path
+            device_entry = ConfigStoreEntryModelView(
+                path=device_path,
+                data_type="JSON",
+                value=json.dumps(device_config, indent=2),
                 component_id=generate_unique_uid(),
                 uncommitted=True,
                 valid=True,
             )
-            registry_entry.safe_entry = {
-                "path": registry_name,
-                "data_type": "CSV",
-                "value": self._new_registry_content,
-                "component_id": registry_entry.component_id,
+            device_entry.safe_entry = {
+                "path": device_path,
+                "data_type": "JSON",
+                "value": json.dumps(device_config, indent=2),
+                "component_id": device_entry.component_id,
                 "csv_variants": ""
             }
-            agent.config_store.append(registry_entry)
+            agent.config_store.append(device_entry)
+            
+            # Capture values for API call
+            current_uid = self.current_uid
         
-        # Generate device config JSON
-        device_config = {
-            "driver_config": {},
-            "driver_type": self._driver_type,
-            "registry_config": f"config://{registry_name}",
-            "interval": self._interval,
-            "timezone": self._timezone,
-            "publish_breadth_first_all": False,
-            "publish_depth_first": False,
-            "publish_breadth_first": False,
-        }
-        
-        # Parse advanced driver_config if provided
-        if self._driver_config_json.strip() and self._driver_config_json.strip() != "{}":
-            try:
-                device_config["driver_config"] = json.loads(self._driver_config_json)
-            except json.JSONDecodeError:
-                pass
-        
-        if self._heart_beat_point:
-            device_config["heart_beat_point"] = self._heart_beat_point
-        
-        # Create device config entry
-        device_path = self.driver_path
-        device_entry = ConfigStoreEntryModelView(
-            path=device_path,
-            data_type="JSON",
-            value=json.dumps(device_config, indent=2),
-            component_id=generate_unique_uid(),
-            uncommitted=True,
-            valid=True,
-        )
-        device_entry.safe_entry = {
-            "path": device_path,
-            "data_type": "JSON",
-            "value": json.dumps(device_config, indent=2),
-            "component_id": device_entry.component_id,
-            "csv_variants": ""
-        }
-        agent.config_store.append(device_entry)
-        
-        # Save platform
+        # Save platform (network call outside async with self)
         try:
-            await _save_platform_config(platform, self.current_uid)
+            async with self:
+                platform_snapshot = self.platforms[current_uid]
+            await _save_platform_config(platform_snapshot, current_uid)
         except Exception as e:
             logger.error(f"Failed to save platform: {e}")
         
         # Close dialog
-        self._show_add_driver_dialog = False
-        
-        # Refresh platform status
-        yield
+        async with self:
+            self._show_add_driver_dialog = False
 
-    @rx.event
+    @rx.event(background=True)
     async def handle_edit_driver(self):
         """Update existing driver configuration"""
-        if not self.can_add_driver or not self._editing_driver_config_id:
-            return
+        async with self:
+            if not self.can_add_driver or not self._editing_driver_config_id:
+                return
+            
+            if not self.current_uid or self.current_uid not in self.platforms:
+                return
+            
+            platform = self.platforms[self.current_uid]
+            agent = platform.platform.agents.get("platform.driver")
+            if not agent:
+                return
+            
+            # Find and update the device config entry
+            for config in agent.config_store:
+                if config.component_id == self._editing_driver_config_id:
+                    # Generate updated device config
+                    device_config = {
+                        "driver_config": {},
+                        "driver_type": self._driver_type,
+                        "registry_config": f"config://{self._registry_config_name}",
+                        "interval": self._interval,
+                        "timezone": self._timezone,
+                        "campus": self._campus,
+                        "building": self._building,
+                        "unit": self._unit,
+                    }
+                    
+                    if self._driver_config_json.strip() and self._driver_config_json.strip() != "{}":
+                        try:
+                            device_config["driver_config"] = json.loads(self._driver_config_json)
+                        except json.JSONDecodeError:
+                            pass
+                    
+                    if self._heart_beat_point:
+                        device_config["heart_beat_point"] = self._heart_beat_point
+                    
+                    # Update path if location changed
+                    new_path = self.driver_path
+                    config.path = new_path
+                    config.value = json.dumps(device_config, indent=2)
+                    config.uncommitted = True
+                    
+                    break
+            
+            # Capture values for API call
+            current_uid = self.current_uid
         
-        if not self.current_uid or self.current_uid not in self.platforms:
-            return
-        
-        platform = self.platforms[self.current_uid]
-        agent = platform.platform.agents.get("platform.driver")
-        if not agent:
-            return
-        
-        # Find and update the device config entry
-        for config in agent.config_store:
-            if config.component_id == self._editing_driver_config_id:
-                # Generate updated device config
-                device_config = {
-                    "driver_config": {},
-                    "driver_type": self._driver_type,
-                    "registry_config": f"config://{self._registry_config_name}",
-                    "interval": self._interval,
-                    "timezone": self._timezone,
-                    "campus": self._campus,
-                    "building": self._building,
-                    "unit": self._unit,
-                }
-                
-                if self._driver_config_json.strip() and self._driver_config_json.strip() != "{}":
-                    try:
-                        device_config["driver_config"] = json.loads(self._driver_config_json)
-                    except json.JSONDecodeError:
-                        pass
-                
-                if self._heart_beat_point:
-                    device_config["heart_beat_point"] = self._heart_beat_point
-                
-                # Update path if location changed
-                new_path = self.driver_path
-                config.path = new_path
-                config.value = json.dumps(device_config, indent=2)
-                config.uncommitted = True
-                
-                break
-        
-        # Save platform
+        # Save platform (network call outside async with self)
         try:
-            await _save_platform_config(platform, self.current_uid)
+            async with self:
+                platform_snapshot = self.platforms[current_uid]
+            await _save_platform_config(platform_snapshot, current_uid)
         except Exception as e:
             logger.error(f"Failed to save platform: {e}")
         
-        self._show_edit_driver_dialog = False
-        yield
+        async with self:
+            self._show_edit_driver_dialog = False
 
-    @rx.event
+    @rx.event(background=True)
     async def handle_delete_driver(self):
         """Delete driver configuration"""
-        if not self._editing_driver_config_id:
-            return
+        async with self:
+            if not self._editing_driver_config_id:
+                return
+            
+            if not self.current_uid or self.current_uid not in self.platforms:
+                return
+            
+            platform = self.platforms[self.current_uid]
+            agent = platform.platform.agents.get("platform.driver")
+            if not agent:
+                return
+            
+            # Remove the device config entry
+            agent.config_store = [
+                config for config in agent.config_store 
+                if config.component_id != self._editing_driver_config_id
+            ]
+            
+            # Capture values for API call
+            current_uid = self.current_uid
         
-        if not self.current_uid or self.current_uid not in self.platforms:
-            return
-        
-        platform = self.platforms[self.current_uid]
-        agent = platform.platform.agents.get("platform.driver")
-        if not agent:
-            return
-        
-        # Remove the device config entry
-        agent.config_store = [
-            config for config in agent.config_store 
-            if config.component_id != self._editing_driver_config_id
-        ]
-        
-        # Save platform
+        # Save platform (network call outside async with self)
         try:
-            await _save_platform_config(platform, self.current_uid)
+            async with self:
+                platform_snapshot = self.platforms[current_uid]
+            await _save_platform_config(platform_snapshot, current_uid)
         except Exception as e:
             logger.error(f"Failed to save platform: {e}")
         
-        self._show_delete_driver_dialog = False
-        yield
+        async with self:
+            self._show_delete_driver_dialog = False
 
-    @rx.event
+    @rx.event(background=True)
     async def deploy_driver_configs(self):
         """Deploy platform.driver config store to running VOLTTRON instance"""
-        if not self.current_uid or self.current_uid not in self.platforms:
-            return
-        
-        platform = self.platforms[self.current_uid]
-        if "platform.driver" not in platform.platform.agents:
-            logger.warning("No platform.driver agent found to deploy configs")
-            return
-        
-        self._deploying_configs = True
-        yield
+        async with self:
+            if not self.current_uid or self.current_uid not in self.platforms:
+                return
+            
+            platform = self.platforms[self.current_uid]
+            if "platform.driver" not in platform.platform.agents:
+                logger.warning("No platform.driver agent found to deploy configs")
+                return
+            
+            current_uid = self.current_uid
+            self._deploying_configs = True
         
         try:
             from ..thin_endpoint_wrappers import deploy_agent_config_store
-            response = await deploy_agent_config_store(self.current_uid, "platform.driver")
+            response = await deploy_agent_config_store(current_uid, "platform.driver")
             
             # Parse response
             if response.status_code == 200:
@@ -926,5 +1174,5 @@ class DriverManagementState(PlatformDeploymentState):
         except Exception as e:
             logger.error(f"Error deploying configs: {e}")
         finally:
-            self._deploying_configs = False
-            yield
+            async with self:
+                self._deploying_configs = False

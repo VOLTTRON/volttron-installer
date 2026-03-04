@@ -1806,6 +1806,14 @@ class PlatformPageState(DriverManagementState):
     @rx.event
     async def determine_host_reachability(self, working_platform: Instance):
         """On blur of host field, check if the host is reachable"""
+        # Skip pinging for local connections — localhost is always reachable
+        if working_platform.host.ansible_connection == "local":
+            self._host_resolvable = True
+            self._host_pinging = False
+            self._host_resolved = True
+            yield
+            return
+
         # we have these yield statements scattered because we need make sure when a state var
         # is updated, the app can see it in real time as the function executes. if we dont have it
         # our UI handling the real time spinner will not work as the UI wont be able to read the changed
@@ -1875,20 +1883,29 @@ class PlatformPageState(DriverManagementState):
 
         # manually check the host and all of its stuff...
         host_dict = working_platform.host.to_dict()
+        is_local = host_dict.get("ansible_connection") == "local"
+
+        # Basic field checks apply to all connection types
         if (
             host_dict["id"] == "" or \
             host_dict["ansible_user"] == "" or \
             host_dict["ansible_port"].isdigit() == False or \
-            host_dict["ansible_host"] == "" or \
-            self.is_host_resolvable == False or \
-            self.host_pinging or \
-            self.host_resolved == False
+            host_dict["ansible_host"] == ""
         ):
-            logger.debug("Host is not valid...")
+            logger.debug("Host basic fields are not valid...")
             logger.debug(f"Host ID is empty: {host_dict['id'] == ''}")
             logger.debug(f"Ansible user is empty: {host_dict['ansible_user'] == ''}")
             logger.debug(f"Ansible port is not numeric: {host_dict['ansible_port'].isdigit() == False}")
             logger.debug(f"Ansible host is empty: {host_dict['ansible_host'] == ''}")
+            savable = False
+
+        # Host reachability checks only apply to non-local (SSH) connections
+        if not is_local and (
+            self.is_host_resolvable == False or \
+            self.host_pinging or \
+            self.host_resolved == False
+        ):
+            logger.debug("Host reachability is not valid...")
             logger.debug(f"Host is not resolvable: {self.is_host_resolvable == False}")
             logger.debug(f"Host is currently pinging: {self.host_pinging}")
             logger.debug(f"Host is not resolved: {self.host_resolved == False}")

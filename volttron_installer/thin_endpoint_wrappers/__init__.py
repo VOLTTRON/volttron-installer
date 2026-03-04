@@ -564,3 +564,30 @@ async def delete_agent(platform_id: str, agent_id: str):
 
 async def delete_tool_proxy(tool_name: str, path: str, **kwargs) -> httpx.Response:
     await delete_request(f"{API_BASE_URL}/{TOOL_PROXY_PREFIX}/{tool_name}/{path}", "DELETE", **kwargs)
+
+async def get_vctl_config_get(platform_id: str, agent_identity: str, config_key: str):
+    """Run vctl config get <agent_identity> <config_key> on the VOLTTRON platform."""
+    return await get_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/platforms/{platform_id}/vctl_config_get",
+        params={"agent_identity": agent_identity, "config_key": config_key},
+        timeout=15.0,
+    )
+
+
+async def delete_vctl_config_key(platform_id: str, agent_identity: str, config_key: str):
+    """Run vctl config delete <agent_identity> <config_key> on the VOLTTRON platform."""
+    return await delete_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/platforms/{platform_id}/vctl_config_delete",
+        params={"agent_identity": agent_identity, "config_key": config_key},
+        timeout=15.0,
+    )
+
+
+async def store_vctl_config_key(platform_id: str, agent_identity: str, config_key: str, content: str):
+    """Run vctl config store <agent_identity> <config_key> with raw content."""
+    return await post_request(
+        f"{API_BASE_URL}{ANSIBLE_PREFIX}/platforms/{platform_id}/vctl_config_store",
+        data={"content": content},
+        params={"agent_identity": agent_identity, "config_key": config_key},
+        timeout=20.0,
+    )

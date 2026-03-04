@@ -209,9 +209,13 @@ async def update_platform(id: str, platform: CreatePlatformRequest):
     """Updates an existing platform"""
     try:
         platform_service = await get_platform_service()
+        # Preserve the existing deployed flag so saves don't reset it to False.
+        existing = await platform_service.get_platform(id)
+        existing_deployed = existing.deployed if existing is not None else False
         platform_definition = PlatformDefinition(host_id=platform.host_id,
                                                  config=platform.config,
-                                                 agents=platform.agents)
+                                                 agents=platform.agents,
+                                                 deployed=platform.deployed if platform.deployed else existing_deployed)
         await platform_service.update_platform(id, platform_definition)
         return SuccessResponse()
     except Exception as e:
@@ -2023,6 +2027,170 @@ source "$VENV_PATH/bin/activate"
         raise
     except Exception as e:
         logger.error(f"Error running vctl config list: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@ansible_router.get("/platforms/{platform_id}/vctl_config_get")
+async def vctl_config_get(
+    platform_id: str,
+    agent_identity: str,
+    config_key: str,
+    ansible: AnsibleService = Depends(get_ansible_service)
+):
+    """Run vctl config get <agent_identity> <config_key> on the VOLTTRON platform."""
+    try:
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+
+        if platform_id not in all_hosts:
+            raise HTTPException(status_code=404, detail=f"Host {platform_id} not found")
+
+        host = all_hosts[platform_id]
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+
+        cmd = f'''
+VENV_PATH="{venv_path}"
+VOLTTRON_HOME="{volttron_home}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+export VOLTTRON_HOME
+
+if [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+    exit 1
+fi
+
+source "$VENV_PATH/bin/activate"
+"$VENV_PATH/bin/vctl" config get {shlex.quote(agent_identity)} {shlex.quote(config_key)}
+'''
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=15)
+
+        if return_code != 0:
+            raise HTTPException(status_code=500, detail=stderr or stdout)
+
+        return {"content": stdout.strip()}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running vctl config get: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@ansible_router.delete("/platforms/{platform_id}/vctl_config_delete")
+async def vctl_config_delete(
+    platform_id: str,
+    agent_identity: str,
+    config_key: str,
+    ansible: AnsibleService = Depends(get_ansible_service)
+):
+    """Run vctl config delete <agent_identity> <config_key> on the VOLTTRON platform."""
+    try:
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+
+        if platform_id not in all_hosts:
+            raise HTTPException(status_code=404, detail=f"Host {platform_id} not found")
+
+        host = all_hosts[platform_id]
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+
+        cmd = f'''
+VENV_PATH="{venv_path}"
+VOLTTRON_HOME="{volttron_home}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+export VOLTTRON_HOME
+
+if [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+    exit 1
+fi
+
+source "$VENV_PATH/bin/activate"
+"$VENV_PATH/bin/vctl" config delete {shlex.quote(agent_identity)} {shlex.quote(config_key)}
+'''
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=15)
+
+        if return_code != 0:
+            raise HTTPException(status_code=500, detail=stderr or stdout)
+
+        return {"status": "deleted", "config_key": config_key}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running vctl config delete: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@ansible_router.post("/platforms/{platform_id}/vctl_config_store")
+async def vctl_config_store(
+    platform_id: str,
+    agent_identity: str,
+    config_key: str,
+    request: Request,
+    ansible: AnsibleService = Depends(get_ansible_service)
+):
+    """Run vctl config store <agent_identity> <config_key> with raw text content."""
+    try:
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+
+        if platform_id not in all_hosts:
+            raise HTTPException(status_code=404, detail=f"Host {platform_id} not found")
+
+        host = all_hosts[platform_id]
+        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+
+        body = await request.json()
+        content = body.get("content", "")
+
+        # Determine config type flag.
+        # vctl config get always returns data as JSON (even for CSV configs), so when the
+        # round-tripped content is valid JSON we must use --json, not --csv.
+        # Only fall back to --csv if the content is plaintext CSV (no leading [ or {).
+        import json as _json
+        try:
+            _json.loads(content.strip())
+            config_flag = "--json"
+        except (ValueError, _json.JSONDecodeError):
+            config_flag = "--csv" if config_key.endswith(".csv") else "--json"
+
+        cmd = f'''
+VENV_PATH="{venv_path}"
+VOLTTRON_HOME="{volttron_home}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+export VOLTTRON_HOME
+
+if [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+    exit 1
+fi
+
+source "$VENV_PATH/bin/activate"
+cat <<'__VCTL_EOF__' | "$VENV_PATH/bin/vctl" config store {shlex.quote(agent_identity)} {shlex.quote(config_key)} {config_flag}
+{content}
+__VCTL_EOF__
+'''
+
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=20)
+
+        if return_code != 0:
+            raise HTTPException(status_code=500, detail=stderr or stdout)
+
+        return {"status": "stored", "config_key": config_key}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running vctl config store: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
