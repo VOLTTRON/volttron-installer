@@ -1835,6 +1835,60 @@ class PlatformPageState(DriverManagementState):
         if uid_copy != desired_name and uid_copy in self.platforms:
             yield PlatformPageState.delete_temp_uid(uid_copy)
 
+        # Preflight check for remote deployments: verify SSH access BEFORE running deploy.
+        # This avoids deep ansible failures when keys/password auth are not configured.
+        if working_platform.host.ansible_connection != "local":
+            connection_ok = False
+            connection_error = ""
+            check_ids = []
+            if desired_name:
+                check_ids.append(desired_name)
+            if uid_copy and uid_copy != desired_name:
+                check_ids.append(uid_copy)
+
+            for platform_id in check_ids:
+                try:
+                    result = await check_platform_connection(platform_id)
+                    if result.get("connected", False):
+                        connection_ok = True
+                        break
+                    connection_error = result.get("error", "SSH connection failed")
+                except Exception as conn_exc:
+                    connection_error = str(conn_exc)
+
+            if not connection_ok:
+                error_lower = (connection_error or "").lower()
+                if "permission denied" in error_lower or "publickey" in error_lower:
+                    ssh_user = working_platform.host.ansible_user
+                    ssh_host = working_platform.host.ansible_host
+                    ssh_port = working_platform.host.ansible_port
+                    friendly = (
+                        "Cannot deploy yet: SSH authentication is not set up for this host. "
+                        f"Set up key-based SSH access (recommended) with `ssh-copy-id -p {ssh_port} {ssh_user}@{ssh_host}`, "
+                        "or verify the username/password and host SSH settings, then try again."
+                    )
+                elif "host key verification failed" in error_lower or "authenticity" in error_lower:
+                    friendly = (
+                        "Cannot deploy yet: SSH host key is not trusted. "
+                        "SSH to the host once manually and accept the key, then retry deployment."
+                    )
+                else:
+                    friendly = f"Cannot deploy yet: SSH preflight failed ({connection_error})."
+
+                # Platform remains saved, but deployment is blocked until connectivity is fixed.
+                working_platform.deployed = False
+                working_platform.platform.in_file = True
+                working_platform.new_instance = False
+                working_platform.platform.safe_platform = working_platform.platform.to_dict()
+                try:
+                    await mark_platform_deployed(desired_name, False)
+                except Exception:
+                    pass
+
+                yield NavigationState.route_to_platform(desired_name)
+                yield rx.toast.error(friendly)
+                return
+
         yield rx.toast.success("Configuration saved, starting deployment...")
 
         # Mark platform as deployed in memory and enable tabs BEFORE navigating
