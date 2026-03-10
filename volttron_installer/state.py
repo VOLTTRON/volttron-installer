@@ -1281,7 +1281,7 @@ class PlatformPageState(DriverManagementState):
             in_file=False,
         )
         new_platform.safe_platform = new_platform.to_dict()
-        self.platforms[new_uid] = Instance(
+        self.platforms[default_instance_name] = Instance(
                 host=new_host,
                 platform=new_platform,
                 safe_host_entry=new_host.to_dict()
@@ -1289,7 +1289,8 @@ class PlatformPageState(DriverManagementState):
         # Close the dialog if it's open
         self._show_create_platform_dialog = False
         self._connect_existing_mode = False
-        yield NavigationState.route_to_platform(new_uid)
+        # Route using the same key used in state to avoid UID/key drift.
+        yield NavigationState.route_to_platform(default_instance_name)
 
     # Create platform dialog handlers
     @rx.event
@@ -1834,6 +1835,14 @@ class PlatformPageState(DriverManagementState):
         # Always clean up the temp random-UID entry so it never leaks
         if uid_copy != desired_name and uid_copy in self.platforms:
             yield PlatformPageState.delete_temp_uid(uid_copy)
+
+        # Legacy cleanup: older flows created temp keys like "AbC123x" while
+        # instance_name was "volttron-AbC123x". Remove that orphan key if present.
+        legacy_uid = ""
+        if desired_name.startswith("volttron-"):
+            legacy_uid = desired_name.removeprefix("volttron-")
+        if legacy_uid and legacy_uid in self.platforms and legacy_uid != desired_name:
+            yield PlatformPageState.delete_temp_uid(legacy_uid)
 
         # Preflight check for remote deployments: verify SSH access BEFORE running deploy.
         # This avoids deep ansible failures when keys/password auth are not configured.

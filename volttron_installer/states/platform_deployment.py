@@ -169,7 +169,42 @@ class PlatformDeploymentState(PlatformAgentState):
             output = response_data.get("output", "")
             tasks = response_data.get("tasks", [])
 
+            # Final sync pass: deployment can finish between poll intervals,
+            # leaving the last step shown as "running" in the UI.
+            final_progress_payload = {}
+            try:
+                final_progress_payload = await get_deploy_progress(
+                    working_platform.platform.config.instance_name
+                )
+            except Exception as final_progress_error:
+                logger.debug(f"[DEPLOY] Final progress fetch failed: {final_progress_error}")
+
+            final_steps = list(final_progress_payload.get("steps", []) or self._deployment_steps)
+            task_status_by_name = {
+                t.get("name", ""): str(t.get("status", "")).lower() for t in tasks
+            }
+
+            # If deployment succeeded, any remaining "running" step is stale UI state.
+            normalized_steps = []
+            for step in final_steps:
+                normalized = dict(step)
+                status = str(normalized.get("status", "")).lower()
+                if status == "running":
+                    task_status = task_status_by_name.get(str(normalized.get("name", "")), "")
+                    if task_status in {"ok", "success", "passed"} or task_status == "":
+                        normalized["status"] = "success"
+                normalized_steps.append(normalized)
+
             async with self:
+                self._deployment_steps = normalized_steps
+                self._deployment_progress = final_progress_payload.get("progress", 100)
+                self._current_task = final_progress_payload.get(
+                    "current_task", f"Deployment completed successfully ({len(tasks)} tasks executed)"
+                )
+                final_logs = final_progress_payload.get("logs", [])
+                if final_logs:
+                    self._deployment_logs = final_logs[-200:]
+
                 for line in output.split('\n'):
                     if line.strip():
                         self._deployment_logs.append(line)

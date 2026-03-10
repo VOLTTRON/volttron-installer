@@ -10,10 +10,16 @@ def _installed_driver_card(driver: dict) -> rx.Component:
     """Card for a single installed driver library."""
     return rx.card(
         rx.hstack(
-            rx.icon("package-check", size=20, color="green"),
+            rx.center(
+                rx.icon("package-check", size=18, color="var(--green-9)"),
+                width="30px",
+                height="30px",
+                border_radius="8px",
+                background="var(--green-3)",
+            ),
             rx.vstack(
                 rx.text(driver["name"], weight="bold", size="3"),
-                rx.text(driver["version"], size="1", color="gray"),
+                rx.text(f"Version {driver['version']}", size="1", color="gray"),
                 spacing="1",
                 align_items="start",
                 flex="1",
@@ -31,6 +37,32 @@ def _installed_driver_card(driver: dict) -> rx.Component:
         ),
         width="100%",
         variant="surface",
+        _hover={"background": "var(--gray-2)"},
+    )
+
+
+def _summary_stat(label: str, value: rx.Var | str, icon: str) -> rx.Component:
+    return rx.card(
+        rx.hstack(
+            rx.center(
+                rx.icon(icon, size=18, color="var(--accent-10)"),
+                width="34px",
+                height="34px",
+                border_radius="9px",
+                background="var(--accent-3)",
+            ),
+            rx.vstack(
+                rx.text(label, size="1", color="gray", weight="medium"),
+                rx.text(value, size="5", weight="bold"),
+                spacing="0",
+                align_items="start",
+            ),
+            spacing="3",
+            align="center",
+            width="100%",
+        ),
+        width="100%",
+        variant="surface",
     )
 
 
@@ -38,7 +70,17 @@ def installed_driver_libs_section() -> rx.Component:
     """Section showing installed driver libraries."""
     return rx.vstack(
         rx.hstack(
-            rx.text("Installed Driver Libraries", size="4", weight="bold"),
+            rx.vstack(
+                rx.text("Installed Driver Libraries", size="4", weight="bold"),
+                rx.text(
+                    "Libraries available in this platform's virtual environment.",
+                    size="1",
+                    color="gray",
+                ),
+                spacing="1",
+                align_items="start",
+            ),
+            rx.spacer(),
             rx.button(
                 rx.icon("refresh-cw", size=14),
                 "Refresh",
@@ -48,8 +90,9 @@ def installed_driver_libs_section() -> rx.Component:
                 color_scheme="gray",
                 loading=State.loading_installed_drivers,
             ),
-            spacing="2",
+            spacing="3",
             align="center",
+            width="100%",
         ),
         rx.cond(
             State.loading_installed_drivers,
@@ -65,18 +108,26 @@ def installed_driver_libs_section() -> rx.Component:
             ),
             rx.cond(
                 State.installed_driver_libs.length() > 0,
-                rx.vstack(
+                rx.box(
+                    rx.vstack(
                     rx.foreach(
                         State.installed_driver_libs,
                         _installed_driver_card,
                     ),
-                    spacing="2",
+                        spacing="2",
+                        width="100%",
+                    ),
+                    max_height="320px",
+                    overflow_y="auto",
                     width="100%",
                 ),
-                rx.text(
-                    "No driver libraries installed yet. Use 'Install Driver Library' to add one.",
-                    size="2",
-                    color="gray",
+                rx.callout(
+                    rx.text(
+                        "No driver libraries installed yet. Use Install Driver Library to add your first driver package.",
+                        size="2",
+                    ),
+                    icon="info",
+                    color_scheme="gray",
                 ),
             ),
         ),
@@ -121,37 +172,60 @@ def _tree_row(row: dict) -> rx.Component:
         ),
         # ── Config key row ────────────────────────────────────────────────
         rx.hstack(
-            rx.icon("file-text", size=14, color="gray"),
-            rx.text(
-                row["key"],
-                size="2",
-                font_family="monospace",
+            rx.hstack(
+                rx.icon("file-text", size=14, color="gray"),
+                rx.text(
+                    row["key"],
+                    size="2",
+                    font_family="monospace",
+                    flex="1",
+                    no_of_lines=1,
+                ),
+                spacing="2",
+                align="center",
                 flex="1",
             ),
             rx.hstack(
                 rx.button(
                     rx.icon("pencil", size=14),
-                    size="2",
-                    variant="ghost",
+                    rx.text(
+                        "Edit",
+                        class_name="cfg-action-label",
+                        style={"@media (max-width: 1280px)": {"display": "none"}},
+                    ),
+                    size="1",
+                    variant="soft",
                     color_scheme="gray",
                     loading=State.live_key_loading & (State.live_editing_key == row["key"]),
                     on_click=State.open_edit_live_config_key(row["agent"], row["key"]),
-                    title="Edit",
+                    min_width="52px",
+                    title="Edit key",
                 ),
                 rx.button(
                     rx.icon("trash-2", size=14),
-                    size="2",
-                    variant="ghost",
+                    rx.text(
+                        "Delete",
+                        class_name="cfg-action-label",
+                        style={"@media (max-width: 1280px)": {"display": "none"}},
+                    ),
+                    size="1",
+                    variant="soft",
                     color_scheme="red",
                     on_click=State.open_delete_live_config_dialog(row["agent"], row["key"]),
-                    title="Delete",
+                    min_width="52px",
+                    title="Delete key",
                 ),
-                spacing="1",
+                spacing="2",
+                align="center",
+                flex_shrink="0",
             ),
             spacing="2",
             align="center",
             padding_left="2rem",
-            padding_y="3px",
+            padding_y="8px",
+            padding_right="0.5rem",
+            border_radius="6px",
+            _hover={"background": "var(--gray-2)"},
             width="100%",
         ),
     )
@@ -161,7 +235,22 @@ def platform_driver_config_section() -> rx.Component:
     """Section showing live vctl config store as a dynamic, flicker-free tree."""
     return rx.vstack(
         rx.hstack(
-            rx.text("Config Store (live)", size="4", weight="bold"),
+            rx.vstack(
+                rx.text("Live Config Store", size="4", weight="bold"),
+                rx.text(
+                    "Driver config keys currently loaded in the running platform (edit or delete from here).",
+                    size="1",
+                    color="gray",
+                ),
+                rx.text(
+                    "Tip: On smaller screens, action labels collapse to icons to keep rows readable.",
+                    size="1",
+                    color="gray",
+                ),
+                spacing="1",
+                align_items="start",
+            ),
+            rx.spacer(),
             rx.cond(
                 State.vctl_agents_loading,
                 rx.hstack(
@@ -179,22 +268,33 @@ def platform_driver_config_section() -> rx.Component:
                     color_scheme="gray",
                 ),
             ),
-            spacing="3",
+            spacing="2",
             align="center",
+            width="100%",
         ),
         rx.cond(
             State.vctl_config_agents.length() > 0,
             rx.box(
                 rx.foreach(State.config_tree_rows, _tree_row),
                 width="100%",
+                min_height="320px",
+                max_height="420px",
+                overflow_y="auto",
+                border="1px solid var(--gray-5)",
+                border_radius="10px",
+                padding="0.5rem",
+                background="var(--gray-1)",
             ),
             rx.cond(
                 State.vctl_agents_loading,
                 rx.fragment(),
-                rx.text(
-                    "No agents found in config store — click Refresh to scan.",
-                    size="2",
-                    color="gray",
+                rx.callout(
+                    rx.text(
+                        "No agents found in config store yet. Click Refresh to scan active config entries.",
+                        size="2",
+                    ),
+                    icon="search",
+                    color_scheme="gray",
                 ),
             ),
         ),
@@ -204,31 +304,75 @@ def platform_driver_config_section() -> rx.Component:
 
 
 def drivers_tab_content() -> rx.Component:
-    """Main drivers tab content with driver list and management controls"""
+    """Main drivers tab content with clearer IA and better space usage."""
     return rx.vstack(
-        # Header with add button
+        # Header + primary actions
         rx.hstack(
-            rx.heading("Platform Drivers", size="6"),
-            rx.button(
-                rx.icon("package-plus"),
-                "Install Driver Library",
-                on_click=State.open_install_driver_lib_dialog,
-                size="2",
-                variant="soft",
-                color_scheme="purple",
+            rx.vstack(
+                rx.heading("Drivers Workspace", size="6"),
+                rx.text(
+                    "Manage driver libraries and live config keys from one place.",
+                    size="2",
+                    color="gray",
+                ),
+                spacing="1",
+                align_items="start",
             ),
+            rx.spacer(),
+            rx.hstack(
+                rx.button(
+                    rx.icon("refresh-cw", size=14),
+                    "Refresh All",
+                    on_click=[State.fetch_installed_driver_libs, State.fetch_vctl_config_list],
+                    size="2",
+                    variant="soft",
+                    color_scheme="gray",
+                ),
+                rx.button(
+                    rx.icon("package-plus"),
+                    "Install Driver Library",
+                    on_click=State.open_install_driver_lib_dialog,
+                    size="2",
+                    variant="solid",
+                    color_scheme="purple",
+                ),
+                spacing="2",
+                align="center",
+            ),
+            align="end",
             justify="between",
             width="100%",
-            align="center",
+            spacing="4",
         ),
 
-        # Installed driver libraries section
-        installed_driver_libs_section(),
+        # Snapshot stats
+        rx.grid(
+            _summary_stat("Installed Libraries", State.installed_driver_libs.length(), "package-check"),
+            _summary_stat("Config Agents", State.vctl_config_agents.length(), "layers"),
+            _summary_stat("Config Entries", State.config_tree_rows.length(), "file-text"),
+            columns="3",
+            spacing="3",
+            width="100%",
+        ),
 
-        rx.divider(),
-
-        # Live config store section
-        platform_driver_config_section(),
+        # Main workspace
+        rx.grid(
+            rx.card(
+                installed_driver_libs_section(),
+                width="100%",
+                height="100%",
+                padding="1rem",
+            ),
+            rx.card(
+                platform_driver_config_section(),
+                width="100%",
+                height="100%",
+                padding="1rem",
+            ),
+            columns="2",
+            spacing="3",
+            width="100%",
+        ),
 
         # Dialogs
         add_driver_dialog(),
@@ -241,7 +385,7 @@ def drivers_tab_content() -> rx.Component:
 
         spacing="4",
         width="100%",
-        padding="1rem",
+        padding="1.25rem",
     )
 
 

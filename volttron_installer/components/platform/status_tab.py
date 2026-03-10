@@ -211,7 +211,7 @@ def _connection_detail_badges() -> rx.Component:
 def _instance_information_card() -> rx.Component:
     return rx.card(
         rx.vstack(
-            rx.heading("Instance Information", size="5"),
+            rx.heading("Platform Details", size="5"),
             rx.divider(),
             rx.grid(
                 rx.vstack(
@@ -273,7 +273,16 @@ def _agents_card() -> rx.Component:
     return rx.card(
         rx.vstack(
             rx.hstack(
-                rx.heading("Agents", size="5"),
+                rx.vstack(
+                    rx.heading("Agents", size="5"),
+                    rx.text(
+                        "Inspect runtime state and manage installed agents.",
+                        size="2",
+                        color="gray",
+                    ),
+                    spacing="1",
+                    align="start",
+                ),
                 rx.button(
                     rx.icon("plus", size=16),
                     "Add Agent",
@@ -282,6 +291,7 @@ def _agents_card() -> rx.Component:
                     variant="soft",
                 ),
                 justify="between",
+                align="start",
                 width="100%",
                 wrap="wrap",
                 spacing="3",
@@ -289,84 +299,94 @@ def _agents_card() -> rx.Component:
             rx.divider(),
             rx.cond(
                 State.platform_agents_list,
-                rx.table.root(
-                    rx.table.header(
-                        rx.table.row(
-                            rx.table.column_header_cell("Agent"),
-                            rx.table.column_header_cell("Identity"),
-                            rx.table.column_header_cell("State"),
-                            rx.table.column_header_cell("Health"),
-                            rx.table.column_header_cell("Actions"),
-                        ),
-                    ),
-                    rx.table.body(
-                        rx.foreach(
-                            State.platform_agents_list,
-                            lambda agent: rx.table.row(
-                                rx.table.cell(rx.text(agent.get("name", ""), size="3")),
-                                rx.table.cell(rx.text(agent.get("identity", ""), size="3", weight="medium")),
-                                rx.table.cell(
+                rx.vstack(
+                    rx.foreach(
+                        State.platform_agents_list,
+                        lambda agent: rx.card(
+                            rx.hstack(
+                                rx.vstack(
+                                    rx.text(agent.get("name", ""), size="4", weight="medium"),
+                                    rx.text(agent.get("identity", ""), size="2", color="gray"),
+                                    spacing="1",
+                                    align="start",
+                                    min_width="220px",
+                                ),
+                                rx.hstack(
                                     rx.badge(
                                         agent.get("state", "unknown"),
                                         color_scheme=rx.cond(agent.get("state") == "running", "green", "gray"),
                                         size="2",
                                     ),
-                                ),
-                                rx.table.cell(rx.text(agent.get("health", ""), size="3")),
-                                rx.table.cell(
-                                    rx.hstack(
-                                        rx.cond(
-                                            agent.get("state") != "running",
-                                            rx.icon_button(
-                                                rx.icon("play", size=18),
-                                                on_click=lambda: State.handle_start_agent(agent.get("uuid")),
-                                                loading=State.starting_agent_uuid == agent.get("uuid"),
-                                                size="3",
-                                                variant="soft",
-                                                color_scheme="green",
-                                            ),
-                                        ),
-                                        rx.cond(
-                                            agent.get("state") == "running",
-                                            rx.icon_button(
-                                                rx.icon("square", size=18),
-                                                on_click=lambda: State.handle_stop_agent(agent.get("uuid")),
-                                                loading=State.stopping_agent_uuid == agent.get("uuid"),
-                                                size="3",
-                                                variant="soft",
-                                                color_scheme="orange",
-                                            ),
-                                        ),
-                                        rx.icon_button(
-                                            rx.icon("settings", size=18),
-                                            on_click=NavigationState.route_to_agent_config(
-                                                State.current_uid,
-                                                agent.get("id"),
-                                            ),
-                                            size="3",
-                                            variant="ghost",
-                                            color_scheme="gray",
-                                        ),
-                                        rx.icon_button(
-                                            rx.icon("trash-2", size=18),
-                                            on_click=lambda _, agent_uuid=agent.get("uuid"), agent_name=agent.get("name"): State.open_remove_agent_dialog(agent_uuid, agent_name),
-                                            loading=State.removing_agent_uuid == agent.get("uuid"),
-                                            size="3",
-                                            variant="ghost",
-                                            color_scheme="red",
-                                            disabled=State.removing_agent_uuid != "",
-                                        ),
-                                        spacing="2",
-                                        align="center",
-                                        justify="end",
-                                        wrap="wrap",
+                                    rx.badge(
+                                        rx.cond(agent.get("health", "") != "", agent.get("health", ""), "No health data"),
+                                        color_scheme=rx.cond(agent.get("health", "") == "GOOD", "green", "gray"),
+                                        variant="soft",
+                                        size="2",
                                     ),
+                                    spacing="2",
+                                    wrap="wrap",
                                 ),
+                                rx.hstack(
+                                    rx.cond(
+                                        agent.get("state") != "running",
+                                        rx.button(
+                                            rx.icon("play", size=16),
+                                            "Start",
+                                            on_click=lambda: State.handle_start_agent(agent.get("uuid")),
+                                            loading=State.starting_agent_uuid == agent.get("uuid"),
+                                            size="2",
+                                            variant="soft",
+                                            color_scheme="green",
+                                        ),
+                                        rx.button(
+                                            rx.icon("square", size=16),
+                                            "Stop",
+                                            on_click=lambda: State.handle_stop_agent(agent.get("uuid")),
+                                            loading=State.stopping_agent_uuid == agent.get("uuid"),
+                                            size="2",
+                                            variant="soft",
+                                            color_scheme="orange",
+                                        ),
+                                    ),
+                                    rx.button(
+                                        rx.icon("settings", size=16),
+                                        "Configure",
+                                        on_click=NavigationState.route_to_agent_config(
+                                            State.current_uid,
+                                            agent.get("id"),
+                                        ),
+                                        size="2",
+                                        variant="ghost",
+                                        color_scheme="gray",
+                                    ),
+                                    rx.button(
+                                        rx.icon("trash-2", size=16),
+                                        "Remove",
+                                        on_click=lambda _, agent_uuid=agent.get("uuid"), agent_name=agent.get("name"): State.open_remove_agent_dialog(agent_uuid, agent_name),
+                                        loading=State.removing_agent_uuid == agent.get("uuid"),
+                                        size="2",
+                                        variant="ghost",
+                                        color_scheme="red",
+                                        disabled=State.removing_agent_uuid != "",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                    justify="end",
+                                    wrap="wrap",
+                                ),
+                                justify="between",
+                                align="center",
+                                width="100%",
+                                wrap="wrap",
+                                spacing="3",
                             ),
+                            width="100%",
+                            variant="surface",
                         ),
                     ),
+                    spacing="2",
                     width="100%",
-                    size="3",
+                    align="stretch",
                 ),
                 rx.text("No agents installed. Click 'Add Agent' to install one.", size="4", color="gray"),
             ),
@@ -380,6 +400,7 @@ def _agents_card() -> rx.Component:
 def _deployed_content() -> rx.Component:
     return rx.box(
         rx.vstack(
+            # Header bar: title + primary runtime actions
             rx.hstack(
                 rx.vstack(
                     rx.heading("Overview", size="7"),
@@ -433,14 +454,86 @@ def _deployed_content() -> rx.Component:
                 width="100%",
                 spacing="4",
             ),
-            rx.hstack(_connection_status_badge(), _runtime_status_badge(), spacing="3", wrap="wrap"),
-            _connection_detail_badges(),
-            _instance_information_card(),
-            _agents_card(),
-            rx.cond(
-                State.last_status_check != "",
-                rx.text(f"Last updated: {State.last_status_check}", size="2", color="gray"),
+
+            # Health strip: quick operational status at a glance
+            rx.grid(
+                rx.card(
+                    rx.vstack(
+                        rx.text("Runtime", size="2", color="gray", weight="medium"),
+                        _runtime_status_badge(),
+                        spacing="2",
+                        align="start",
+                        width="100%",
+                    ),
+                    width="100%",
+                ),
+                rx.card(
+                    rx.vstack(
+                        rx.text("Connection", size="2", color="gray", weight="medium"),
+                        _connection_status_badge(),
+                        spacing="2",
+                        align="start",
+                        width="100%",
+                    ),
+                    width="100%",
+                ),
+                rx.card(
+                    rx.vstack(
+                        rx.text("Host Configured", size="2", color="gray", weight="medium"),
+                        rx.cond(
+                            State.platform_status.get("host_configured", False),
+                            rx.hstack(rx.icon("circle-check", size=16, color="var(--green-9)"), rx.text("Yes", size="3"), spacing="2"),
+                            rx.hstack(rx.icon("circle-x", size=16, color="var(--red-9)"), rx.text("No", size="3"), spacing="2"),
+                        ),
+                        spacing="2",
+                        align="start",
+                        width="100%",
+                    ),
+                    width="100%",
+                ),
+                rx.card(
+                    rx.vstack(
+                        rx.text("Last Updated", size="2", color="gray", weight="medium"),
+                        rx.text(
+                            rx.cond(State.last_status_check != "", State.last_status_check, "Not checked yet"),
+                            size="3",
+                        ),
+                        spacing="2",
+                        align="start",
+                        width="100%",
+                    ),
+                    width="100%",
+                ),
+                columns=rx.breakpoints(initial="1", sm="2", xl="4"),
+                spacing="3",
+                width="100%",
             ),
+
+            _agents_card(),
+
+            # Secondary technical details
+            rx.accordion.root(
+                rx.accordion.item(
+                    header=rx.hstack(
+                        rx.icon("terminal", size=15, color="var(--gray-10)"),
+                        rx.text("Connection & Paths", size="3", weight="medium"),
+                        spacing="2",
+                        align="center",
+                    ),
+                    value="details",
+                    content=rx.vstack(
+                        _connection_detail_badges(),
+                        _instance_information_card(),
+                        spacing="3",
+                        width="100%",
+                    ),
+                ),
+                type="single",
+                collapsible=True,
+                variant="soft",
+                width="100%",
+            ),
+
             rx.cond(
                 State.status_error != "",
                 rx.callout(
@@ -452,6 +545,10 @@ def _deployed_content() -> rx.Component:
                     color_scheme="red",
                     width="100%",
                 ),
+            ),
+            rx.cond(
+                State.last_status_check != "",
+                rx.text(f"Last runtime check: {State.last_status_check}", size="2", color="gray"),
             ),
             rx.moment(
                 interval=15000,

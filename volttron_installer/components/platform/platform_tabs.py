@@ -101,7 +101,32 @@ def _content_area() -> rx.Component:
             ("overview", rx.box(data_tab_content(), on_mount=State.load_platform_status_background, width="100%")),
             ("setup", rx.box(configuration_tab_content(), padding="1.5rem", width="100%")),
             ("drivers", rx.box(drivers_tab_content(), on_mount=State.on_drivers_tab_mount, width="100%")),
-            ("logs", rx.box(logs_tab_content(), padding="1.5rem", width="100%")),
+            (
+                "logs",
+                rx.box(
+                    logs_tab_content(),
+                    on_mount=[
+                        State.fetch_platform_logs(100),
+                        rx.call_script(
+                            """
+(() => {
+  const root = document.getElementById('platform-logs-panel');
+  if (!root) return;
+  let tries = 0;
+  const timer = setInterval(() => {
+    const viewport = root.querySelector('[data-radix-scroll-area-viewport]');
+    if (viewport) viewport.scrollTop = viewport.scrollHeight;
+    tries += 1;
+    if (tries >= 30) clearInterval(timer);
+  }, 100);
+})();
+                            """
+                        ),
+                    ],
+                    padding="1.5rem",
+                    width="100%",
+                ),
+            ),
             rx.box(data_tab_content(), width="100%"),
         ),
         flex="1",

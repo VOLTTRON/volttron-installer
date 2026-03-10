@@ -50,7 +50,24 @@ def logs_tab_content() -> rx.Component:
                 rx.button(
                     rx.icon("refresh-cw", size=18),
                     "Refresh Logs",
-                    on_click=State.fetch_platform_logs(100),
+                                        on_click=[
+                                                State.fetch_platform_logs(100),
+                                                rx.call_script(
+                                                        """
+(() => {
+    const root = document.getElementById('platform-logs-panel');
+    if (!root) return;
+    let tries = 0;
+    const timer = setInterval(() => {
+        const viewport = root.querySelector('[data-radix-scroll-area-viewport]');
+        if (viewport) viewport.scrollTop = viewport.scrollHeight;
+        tries += 1;
+        if (tries >= 30) clearInterval(timer);
+    }, 100);
+})();
+                                                        """
+                                                ),
+                                        ],
                     loading=State.logs_loading,
                     disabled=State.tailing,
                     size="2",
@@ -113,6 +130,7 @@ def logs_tab_content() -> rx.Component:
                 scrollbars="both",
                 style={"height": "calc(100vh - 250px)", "width": "100%"},
             ),
+            id="platform-logs-panel",
             width="100%",
         ),
         spacing="3",
