@@ -7,6 +7,10 @@ from ..thin_endpoint_wrappers import get_platform_status, mark_platform_deployed
 
 from .platform_logs import PlatformLogState
 
+
+START_STOP_TIMEOUT_SECONDS = 30
+START_STOP_POLL_INTERVAL_SECONDS = 2
+
 class PlatformStatusState(PlatformLogState):
     # Platform status tracking
     _platform_status: dict = {}  # Stores PlatformDeploymentStatus data
@@ -271,23 +275,44 @@ class PlatformStatusState(PlatformLogState):
             response = await start_platform(working_platform.platform.config.instance_name)
             response_data = response.json() if hasattr(response, 'json') else response
 
+            # If backend says it's already running, we can finish immediately.
+            if response_data.get("already_running", False):
+                async with self:
+                    self._starting_platform = False
+                    self._platform_status["state"] = "running"
+                yield rx.toast.info("VOLTTRON is already running!")
+                yield PlatformStatusState.refresh_platform_status
+                return
+
+            # Poll status for up to 30s so startup has time to complete.
+            deadline = asyncio.get_event_loop().time() + START_STOP_TIMEOUT_SECONDS
+            started = False
+            last_state = "unknown"
+            while asyncio.get_event_loop().time() < deadline:
+                try:
+                    status_response = await get_platform_status(working_platform.platform.config.instance_name)
+                    status_dict = status_response.dict() if hasattr(status_response, "dict") else status_response
+                    last_state = status_dict.get("state", "unknown")
+                    if last_state == "running":
+                        started = True
+                        break
+                except Exception as poll_err:
+                    logger.debug(f"[START_POLL] status check failed during startup: {poll_err}")
+                await asyncio.sleep(START_STOP_POLL_INTERVAL_SECONDS)
+
             async with self:
                 self._starting_platform = False
-                # Immediately update UI state (optimistic update)
-                self._platform_status["state"] = "running"
+                if started:
+                    self._platform_status["state"] = "running"
 
-            # Check if platform was already running
-            if response_data.get("already_running", False):
-                yield rx.toast.info("VOLTTRON is already running!")
-            else:
+            if started:
                 yield rx.toast.success("Platform started successfully!")
+            else:
+                yield rx.toast.error(
+                    f"Start command sent, but platform did not report running within "
+                    f"{START_STOP_TIMEOUT_SECONDS} seconds (last state: {last_state})."
+                )
 
-            # Wait for VOLTTRON to fully initialize before confirming status
-            # The start endpoint returns immediately after launching the background process,
-            # but vctl needs a few seconds to be able to connect to the platform
-            await asyncio.sleep(5)
-
-            # Background refresh to confirm (don't block UI)
             yield PlatformStatusState.refresh_platform_status
 
         except ApiError as e:
@@ -323,14 +348,38 @@ class PlatformStatusState(PlatformLogState):
         try:
             await stop_platform(working_platform.platform.config.instance_name)
 
+            # Poll status for up to 30s so shutdown has time to complete.
+            deadline = asyncio.get_event_loop().time() + START_STOP_TIMEOUT_SECONDS
+            stopped = False
+            last_state = "unknown"
+            while asyncio.get_event_loop().time() < deadline:
+                try:
+                    status_response = await get_platform_status(working_platform.platform.config.instance_name)
+                    status_dict = status_response.dict() if hasattr(status_response, "dict") else status_response
+                    last_state = status_dict.get("state", "unknown")
+                    if last_state != "running":
+                        stopped = True
+                        break
+                except Exception as poll_err:
+                    # After stopping, endpoint checks can fail transiently; treat as likely stopped.
+                    logger.debug(f"[STOP_POLL] status check failed during shutdown: {poll_err}")
+                    stopped = True
+                    break
+                await asyncio.sleep(START_STOP_POLL_INTERVAL_SECONDS)
+
             async with self:
                 self._stopping_platform = False
-                # Immediately update UI state (optimistic update)
-                self._platform_status["state"] = "deployed"
+                if stopped:
+                    self._platform_status["state"] = "deployed"
 
-            yield rx.toast.success("Platform stopped successfully!")
+            if stopped:
+                yield rx.toast.success("Platform stopped successfully!")
+            else:
+                yield rx.toast.error(
+                    f"Stop command sent, but platform still appears running after "
+                    f"{START_STOP_TIMEOUT_SECONDS} seconds (last state: {last_state})."
+                )
 
-            # Background refresh to confirm (don't block UI)
             yield PlatformStatusState.refresh_platform_status
 
         except ApiError as e:

@@ -9,6 +9,7 @@ Each driver consists of:
 
 import reflex as rx
 import json
+import re
 from typing import Optional
 from loguru import logger
 
@@ -81,6 +82,10 @@ class DriverManagementState(PlatformDeploymentState):
     _configure_device_json: str = "{}"  # raw JSON text for step 1
     _configure_csv_name: str = ""       # key name for the registry CSV entry
     _configure_csv_content: str = ""    # raw CSV text for step 2
+    _configure_driver_type: str = ""    # driver_type for current wizard
+    _configure_required_agents: list[str] = []
+    _configure_driver_config_fields: list[dict[str, str | bool]] = []
+    _configure_driver_config_values: dict[str, str | bool] = {}
     
     # Driver form fields
     _driver_type: str = "fake"
@@ -98,6 +103,10 @@ class DriverManagementState(PlatformDeploymentState):
     # Driver library install fields
     _selected_driver_lib: str = ""  # pip package name of selected catalog driver
     _custom_driver_lib: str = ""  # custom pip package name entered by user
+    _install_driver_lib_mode: str = "catalog"  # "catalog", "local", or "manual"
+    _selected_local_driver_lib: str = ""  # local path selected from local workspace
+    _local_driver_libs: list[dict[str, str]] = []  # [{name, path, description}]
+    _loading_local_driver_libs: bool = False
     _installing_driver_lib: bool = False
     _driver_lib_install_result: str = ""
     
@@ -157,11 +166,59 @@ class DriverManagementState(PlatformDeploymentState):
         return [d.model_dump() for d in catalog.drivers]
 
     @rx.var
+    def driver_type_options(self) -> list[str]:
+        """Unique driver_type values from the driver library catalog."""
+        from ..backend.models import DriverLibraryCatalog
+        catalog = DriverLibraryCatalog()
+        seen: set[str] = set()
+        options: list[str] = []
+        for entry in catalog.drivers:
+            dtype = entry.driver_type.strip()
+            if dtype and dtype not in seen:
+                seen.add(dtype)
+                options.append(dtype)
+        if "fake" not in seen:
+            options.insert(0, "fake")
+        return options
+
+    @rx.var
     def driver_lib_to_install(self) -> str:
         """The pip package that will be installed — either catalog selection or custom."""
+        if self._install_driver_lib_mode == "catalog":
+            return self._selected_driver_lib
+        if self._install_driver_lib_mode == "local":
+            return self._selected_local_driver_lib.strip()
         if self._custom_driver_lib.strip():
             return self._custom_driver_lib.strip()
-        return self._selected_driver_lib
+        return ""
+
+    @rx.var
+    def install_driver_lib_mode(self) -> str:
+        return self._install_driver_lib_mode
+
+    @rx.var
+    def selected_local_driver_lib(self) -> str:
+        return self._selected_local_driver_lib
+
+    @rx.var
+    def local_driver_libs(self) -> list[dict[str, str]]:
+        return self._local_driver_libs
+
+    @rx.var
+    def loading_local_driver_libs(self) -> bool:
+        return self._loading_local_driver_libs
+
+    @rx.var
+    def has_local_driver_libs(self) -> bool:
+        return len(self._local_driver_libs) > 0
+
+    @rx.var
+    def can_install_driver_lib(self) -> bool:
+        if self._install_driver_lib_mode == "catalog":
+            return self._selected_driver_lib.strip() != ""
+        if self._install_driver_lib_mode == "local":
+            return self._selected_local_driver_lib.strip() != ""
+        return self._custom_driver_lib.strip() != ""
 
     @rx.var
     def platform_driver_agent(self) -> Optional[AgentModelView]:
@@ -414,6 +471,140 @@ class DriverManagementState(PlatformDeploymentState):
         return self._configure_csv_content
 
     @rx.var
+    def configure_driver_type(self) -> str:
+        return self._configure_driver_type
+
+    @rx.var
+    def configure_required_agents(self) -> list[str]:
+        return self._configure_required_agents
+
+    @rx.var
+    def configure_driver_config_fields(self) -> list[dict[str, str | bool]]:
+        return self._configure_driver_config_fields
+
+    @rx.var
+    def configure_driver_config_values(self) -> dict[str, str | bool]:
+        return self._configure_driver_config_values
+
+    @rx.var
+    def configure_has_field_form(self) -> bool:
+        return len(self._configure_driver_config_fields) > 0
+
+    @rx.var
+    def configure_driver_fields_with_values(self) -> list[dict[str, str | bool]]:
+        """Structured field metadata plus current value for Reflex foreach rendering."""
+        rows: list[dict[str, str | bool]] = []
+        for field in self._configure_driver_config_fields:
+            key = str(field.get("key", "")).strip()
+            if not key:
+                continue
+            field_type = str(field.get("type", "text"))
+            value = self._configure_driver_config_values.get(key, False if field_type == "checkbox" else "")
+            row = dict(field)
+            if field_type == "checkbox":
+                row["value"] = bool(value)
+            else:
+                row["value"] = "" if value == "" else str(value)
+            rows.append(row)
+        return rows
+
+    def _coerce_driver_field_value(self, field_type: str, value: str | bool):
+        """Coerce form values into the proper JSON type for driver_config."""
+        if field_type == "checkbox":
+            return bool(value)
+
+        if isinstance(value, bool):
+            # Text/number inputs should not receive bool, but if they do, stringify.
+            value = "true" if value else "false"
+
+        raw = str(value).strip()
+        if raw == "":
+            return ""
+
+        if field_type == "number":
+            try:
+                return int(raw)
+            except ValueError:
+                return raw
+
+        if field_type == "float":
+            try:
+                return float(raw)
+            except ValueError:
+                return raw
+
+        return raw
+
+    def _normalize_driver_install_target(self, source: str) -> str:
+        """Normalize package/source strings into pip-installable targets.
+
+        Supports:
+        - PyPI package names
+        - Local paths
+        - GitHub URLs without git+ prefix (auto-converted)
+        - owner/repo shorthand (auto-converted to GitHub git URL)
+        """
+        target = source.strip()
+        if not target:
+            return target
+
+        if target.startswith("git+"):
+            return target
+
+        # owner/repo shorthand -> git+https://github.com/owner/repo.git
+        if re.match(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", target):
+            return f"git+https://github.com/{target}.git"
+
+        # github.com/owner/repo (no scheme) -> git+https://...
+        if target.startswith("github.com/"):
+            target = f"https://{target}"
+
+        if target.startswith("http://") or target.startswith("https://"):
+            is_archive = bool(re.search(r"(\.whl|\.zip|\.tar\.gz|\.tgz)$", target)) or "/archive/" in target
+            if "github.com" in target and not is_archive:
+                git_target = target.rstrip("/")
+                if not git_target.endswith(".git"):
+                    git_target = f"{git_target}.git"
+                return f"git+{git_target}"
+
+        return target
+
+    def _rebuild_configure_device_json(self):
+        """Rebuild the wizard's device JSON from top-level and form field values."""
+        try:
+            current = json.loads(self._configure_device_json)
+        except json.JSONDecodeError:
+            current = {}
+
+        driver_config: dict[str, object] = {}
+        for field in self._configure_driver_config_fields:
+            key = str(field.get("key", "")).strip()
+            if not key:
+                continue
+            field_type = str(field.get("type", "text"))
+            value = self._configure_driver_config_values.get(key, "")
+            coerced = self._coerce_driver_field_value(field_type, value)
+            if coerced == "":
+                continue
+            driver_config[key] = coerced
+
+        current["driver_config"] = driver_config
+        current["driver_type"] = self._configure_driver_type
+        current["registry_config"] = f"config://{self._configure_csv_name.strip()}"
+        if "interval" not in current:
+            current["interval"] = 5
+        if "timezone" not in current:
+            current["timezone"] = "US/Pacific"
+        if "publish_breadth_first_all" not in current:
+            current["publish_breadth_first_all"] = False
+        if "publish_depth_first" not in current:
+            current["publish_depth_first"] = False
+        if "publish_breadth_first" not in current:
+            current["publish_breadth_first"] = False
+
+        self._configure_device_json = json.dumps(current, indent=2)
+
+    @rx.var
     def show_live_edit_dialog(self) -> bool:
         return self._show_live_edit_dialog
 
@@ -554,8 +745,40 @@ class DriverManagementState(PlatformDeploymentState):
             self._configure_driver_name = entry.name
             csv_name = f"{driver_type}.csv"
             csv_content = entry.default_registry_csv
+            try:
+                driver_cfg_template = json.loads(entry.default_device_config or "{}")
+                if not isinstance(driver_cfg_template, dict):
+                    driver_cfg_template = {}
+            except json.JSONDecodeError:
+                driver_cfg_template = {}
+
+            fields = entry.driver_config_fields or [
+                {
+                    "key": k,
+                    "label": k.replace("_", " ").title(),
+                    "type": "text",
+                    "required": False,
+                    "description": "",
+                    "placeholder": str(v),
+                }
+                for k, v in driver_cfg_template.items()
+            ]
+            values: dict[str, str | bool] = {}
+            for field in fields:
+                key = str(field.get("key", "")).strip()
+                if not key:
+                    continue
+                field_type = str(field.get("type", "text"))
+                default_value = driver_cfg_template.get(key, "")
+                if field_type == "checkbox":
+                    values[key] = bool(default_value)
+                elif default_value == "":
+                    values[key] = ""
+                else:
+                    values[key] = str(default_value)
+
             default_device_config = {
-                "driver_config": {},
+                "driver_config": driver_cfg_template,
                 "registry_config": f"config://{csv_name}",
                 "interval": 5,
                 "timezone": "US/Pacific",
@@ -565,11 +788,14 @@ class DriverManagementState(PlatformDeploymentState):
                 "publish_depth_first": False,
                 "publish_breadth_first": False,
             }
+            self._configure_required_agents = entry.required_agents
         else:
             driver_type = normalised.replace("volttron-lib-", "").replace("-driver", "")
             self._configure_driver_name = pip_package_name
             csv_name = f"{driver_type}.csv"
             csv_content = "Point Name,Volttron Point Name,Units,Writable,Type\n"
+            fields = []
+            values = {}
             default_device_config = {
                 "driver_config": {},
                 "registry_config": f"config://{csv_name}",
@@ -581,7 +807,11 @@ class DriverManagementState(PlatformDeploymentState):
                 "publish_depth_first": False,
                 "publish_breadth_first": False,
             }
+            self._configure_required_agents = []
 
+        self._configure_driver_type = driver_type
+        self._configure_driver_config_fields = fields
+        self._configure_driver_config_values = values
         self._configure_device_name = f"devices/campus/building/{driver_type}"
         self._configure_device_json = json.dumps(default_device_config, indent=2)
         self._configure_csv_name = csv_name
@@ -599,8 +829,23 @@ class DriverManagementState(PlatformDeploymentState):
         self._configure_device_json = value
 
     @rx.event
+    def set_configure_driver_field(self, key: str, value: str):
+        if not key:
+            return
+        self._configure_driver_config_values[key] = value
+        self._rebuild_configure_device_json()
+
+    @rx.event
+    def toggle_configure_driver_field(self, key: str, checked: bool):
+        if not key:
+            return
+        self._configure_driver_config_values[key] = checked
+        self._rebuild_configure_device_json()
+
+    @rx.event
     def set_configure_csv_name(self, value: str):
         self._configure_csv_name = value
+        self._rebuild_configure_device_json()
 
     @rx.event
     def set_configure_csv_content(self, value: str):
@@ -620,6 +865,10 @@ class DriverManagementState(PlatformDeploymentState):
     def close_configure_driver_dialog(self):
         self._show_configure_driver_dialog = False
         self._configure_step = 1
+        self._configure_driver_type = ""
+        self._configure_required_agents = []
+        self._configure_driver_config_fields = []
+        self._configure_driver_config_values = {}
 
     @rx.event(background=True)
     async def handle_configure_driver_save(self):
@@ -760,17 +1009,26 @@ class DriverManagementState(PlatformDeploymentState):
     def open_install_driver_lib_dialog(self):
         """Open dialog to install a driver library."""
         self._show_install_driver_lib_dialog = True
+        self._install_driver_lib_mode = "catalog"
         self._selected_driver_lib = ""
+        self._selected_local_driver_lib = ""
         self._custom_driver_lib = ""
         self._driver_lib_install_result = ""
+        return DriverManagementState.load_local_driver_libraries
 
     @rx.event
     def close_install_driver_lib_dialog(self):
         self._show_install_driver_lib_dialog = False
 
     @rx.event
+    def set_install_driver_lib_mode(self, value: str):
+        self._install_driver_lib_mode = value
+
+    @rx.event
     def set_selected_driver_lib(self, value: str):
         self._selected_driver_lib = value
+        self._install_driver_lib_mode = "catalog"
+        self._selected_local_driver_lib = ""
         # Clear custom when selecting from catalog
         if value:
             self._custom_driver_lib = ""
@@ -778,9 +1036,61 @@ class DriverManagementState(PlatformDeploymentState):
     @rx.event
     def set_custom_driver_lib(self, value: str):
         self._custom_driver_lib = value
+        self._install_driver_lib_mode = "manual"
+        self._selected_driver_lib = ""
+        self._selected_local_driver_lib = ""
         # Clear catalog selection when typing custom
         if value.strip():
             self._selected_driver_lib = ""
+
+    @rx.event
+    def select_local_driver_lib(self, path: str):
+        self._install_driver_lib_mode = "local"
+        self._selected_local_driver_lib = path
+        self._selected_driver_lib = ""
+        self._custom_driver_lib = ""
+
+    @rx.event(background=True)
+    async def load_local_driver_libraries(self):
+        """Load local driver libraries from the local workspace scan results."""
+        async with self:
+            self._loading_local_driver_libs = True
+
+        libs: list[dict[str, str]] = []
+        try:
+            from ..thin_endpoint_wrappers import get_local_agents
+
+            agents = await get_local_agents()
+            for agent in agents:
+                raw_identity = str(getattr(agent, "identity", "") or "")
+                source_path = str(getattr(agent, "local_path", "") or getattr(agent, "source", "") or "")
+                if not source_path:
+                    continue
+
+                normalized_identity = raw_identity.lower()
+                source_lower = source_path.lower()
+                if "driver" not in normalized_identity and "driver" not in source_lower:
+                    continue
+
+                description = ""
+                default_config = getattr(agent, "default_config", {})
+                if isinstance(default_config, dict):
+                    description = str(default_config.get("_description", "") or "")
+
+                libs.append(
+                    {
+                        "name": raw_identity,
+                        "path": source_path,
+                        "description": description,
+                    }
+                )
+        except Exception as e:
+            logger.warning(f"Failed to load local driver libraries: {e}")
+            libs = []
+
+        async with self:
+            self._local_driver_libs = libs
+            self._loading_local_driver_libs = False
 
     @rx.event
     async def handle_install_driver_lib(self):
@@ -788,6 +1098,10 @@ class DriverManagementState(PlatformDeploymentState):
         package = self.driver_lib_to_install
         if not package:
             return
+
+        install_target = self._normalize_driver_install_target(package)
+        if package == "volttron-lib-homeassistant-driver":
+            install_target = "git+https://github.com/eclipse-volttron/volttron-lib-homeassistant-driver.git"
 
         self._installing_driver_lib = True
         self._driver_lib_install_result = ""
@@ -802,7 +1116,7 @@ class DriverManagementState(PlatformDeploymentState):
                 yield
                 return
 
-            response = await install_driver_library(platform_id, package)
+            response = await install_driver_library(platform_id, install_target)
             if response.status_code == 200:
                 result = response.json()
                 self._driver_lib_install_result = f"✅ {result.get('message', 'Installed successfully')}"

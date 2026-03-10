@@ -1,5 +1,4 @@
 import reflex as rx
-from ..model_views import AgentModelView
 
 INDEX = "/"
 
@@ -33,7 +32,7 @@ class NavigationState(rx.State):
 
     # Agent configuration navigation
     @rx.event
-    async def route_to_agent_config(self, platform_uid: str, agent_uid: str, agent: AgentModelView):
+    async def route_to_agent_config(self, platform_uid: str, agent_uid: str):
         """Route to agent config page and initialize its state."""
         # from ..pages.agent_config_page import AgentConfigState
 

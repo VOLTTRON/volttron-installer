@@ -1,6 +1,5 @@
 import reflex as rx
 from ...pages.platform_page import State as PlatformState
-from ...models import InstanceStatus
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -8,72 +7,63 @@ if TYPE_CHECKING:
 
 
 def platform_row(platform_entry: "Instance") -> rx.Component:
-    """Single row in the platforms table - Docker Desktop style"""
-    
-    # Determine status display based on status field
-    is_loading = platform_entry.status == InstanceStatus.LOADING.value
-    is_deployed = platform_entry.status == InstanceStatus.DEPLOYED.value
-    is_error = platform_entry.status == InstanceStatus.ERROR.value
-    
+    """Single row in the platforms table"""
+
+    is_deployed = platform_entry.deployed
+    is_local = platform_entry.host.ansible_connection == "local"
+
+    connection_label = rx.cond(is_local, "Local", platform_entry.host.ansible_host)
+    connection_icon = rx.cond(is_local, "monitor", "server")
+
     return rx.table.row(
-        # Status dot + Name (clickable link)
+        # Dot + Name
         rx.table.cell(
             rx.link(
                 rx.hstack(
-                    rx.cond(
-                        is_loading,
-                        rx.spinner(size="1", color="gray"),
-                        rx.box(
-                            width="8px",
-                            height="8px",
-                            border_radius="50%",
-                            background=rx.cond(
-                                is_error,
-                                "var(--red-9)",
-                                rx.cond(
-                                    is_deployed,
-                                    "var(--green-9)",
-                                    "var(--gray-8)"
-                                )
-                            ),
-                        ),
+                    rx.box(
+                        width="8px",
+                        height="8px",
+                        border_radius="50%",
+                        flex_shrink="0",
+                        background=rx.cond(is_deployed, "var(--green-9)", "var(--gray-6)"),
                     ),
-                    rx.text(
-                        platform_entry.platform.config.instance_name,
-                        weight="medium"
-                    ),
+                    rx.text(platform_entry.platform.config.instance_name, weight="medium", size="2"),
                     spacing="2",
-                    align="center"
+                    align="center",
                 ),
                 href=f"/platform/{platform_entry.platform.config.instance_name}",
+                color="inherit",
+                text_decoration="none",
             )
         ),
-        # Host IP
+        # Host / connection type
         rx.table.cell(
-            rx.text(platform_entry.host.ansible_host, size="2", color="gray")
+            rx.hstack(
+                rx.icon(connection_icon, size=13, color="var(--gray-9)"),
+                rx.text(connection_label, size="2", color="var(--gray-10)"),
+                spacing="1",
+                align="center",
+            )
         ),
-        # SSH User
+        # User (hidden for local)
         rx.table.cell(
-            rx.text(platform_entry.host.ansible_user, size="2", color="gray")
+            rx.cond(
+                is_local,
+                rx.text("—", size="2", color="var(--gray-7)"),
+                rx.text(platform_entry.host.ansible_user, size="2", color="var(--gray-10)"),
+            )
         ),
         # Agent count
         rx.table.cell(
-            rx.text(platform_entry.platform.agents.length(), size="2", color="gray")
+            rx.text(platform_entry.platform.agents.length(), size="2", color="var(--gray-10)")
         ),
-        # Status badge
+        # Status badge — simple, no spinner
         rx.table.cell(
-            rx.cond(
-                is_loading,
-                rx.badge("Loading...", color_scheme="gray", size="1"),
-                rx.cond(
-                    is_error,
-                    rx.badge("Error", color_scheme="red", size="1"),
-                    rx.badge(
-                        rx.cond(is_deployed, "Deployed", "Not Deployed"),
-                        color_scheme=rx.cond(is_deployed, "green", "gray"),
-                        size="1"
-                    )
-                )
+            rx.badge(
+                rx.cond(is_deployed, "Deployed", "Not Deployed"),
+                color_scheme=rx.cond(is_deployed, "green", "gray"),
+                variant="soft",
+                size="1",
             )
         ),
         # Actions menu
@@ -83,7 +73,7 @@ def platform_row(platform_entry: "Instance") -> rx.Component:
                     rx.icon_button(
                         rx.icon("more-vertical", size=16),
                         variant="ghost",
-                        size="1"
+                        size="1",
                     )
                 ),
                 rx.menu.content(
@@ -91,19 +81,19 @@ def platform_row(platform_entry: "Instance") -> rx.Component:
                         "Copy",
                         on_click=PlatformState.copy_platform(
                             platform_entry.platform.config.instance_name
-                        )
+                        ),
                     ),
                     rx.menu.item(
                         "Delete",
                         color="red",
                         on_click=PlatformState.delete_platform_instant(
                             platform_entry.platform.config.instance_name
-                        )
-                    )
-                )
+                        ),
+                    ),
+                ),
             )
         ),
-        _hover={"background": "var(--gray-3)"},
+        _hover={"background": "var(--gray-2)"},
     )
 
 

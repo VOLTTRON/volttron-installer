@@ -273,105 +273,233 @@ def instances() -> rx.Component:
             instances_tab()
         )
 
-def home_page() -> rx.Component:
-    """Home page content - Docker Desktop style"""
-    return rx.vstack(
-        rx.text("Home", size="7", weight="bold"),
-        # Main content area with two columns
+def _instance_card(instance) -> rx.Component:
+    """Compact card for a single instance on the home dashboard."""
+    is_deployed = instance.deployed
+    return rx.card(
         rx.hstack(
-            # Left column - Featured section
+            rx.box(
+                width="8px",
+                height="8px",
+                border_radius="50%",
+                flex_shrink="0",
+                background=rx.cond(is_deployed, "var(--green-9)", "var(--gray-6)"),
+                margin_top="3px",
+            ),
             rx.vstack(
-                rx.heading("Featured", size="5", weight="bold", margin_bottom="1rem"),
-                # Run your first instance card
-                rx.card(
-                    rx.vstack(
-                        rx.hstack(
-                            rx.icon("circle-play", size=24, color=rx.color("accent")),
-                            rx.heading("Run Your First Instance", size="4", weight="bold"),
-                            spacing="2",
-                            align="center",
+                rx.link(
+                    rx.text(instance.platform.config.instance_name, weight="medium", size="2"),
+                    href=rx.cond(
+                        is_deployed,
+                        f"/platform/{instance.platform.config.instance_name}",
+                        f"/platform/{instance.platform.config.instance_name}",
+                    ),
+                    color="inherit",
+                    text_decoration="none",
+                ),
+                rx.hstack(
+                    rx.badge(
+                        rx.cond(is_deployed, "Deployed", "Not Deployed"),
+                        color_scheme=rx.cond(is_deployed, "green", "gray"),
+                        variant="soft",
+                        size="1",
+                    ),
+                    rx.text(
+                        rx.cond(
+                            instance.host.ansible_connection == "local",
+                            "Local",
+                            instance.host.ansible_host,
                         ),
-                        rx.text(
-                            "Get started with VOLTTRON by creating and deploying your first instance.",
-                            size="2",
-                            color="gray",
-                        ),
-                        rx.button(
-                            rx.icon("plus", size=16),
-                            "Create Instance",
-                            on_click=PlatformPageState.show_create_platform_options,
-                            size="2",
-                            variant="solid",
-                        ),
-                        spacing="3",
-                        align_items="start",
+                        size="1",
+                        color="var(--gray-9)",
+                    ),
+                    spacing="2",
+                    align="center",
+                ),
+                spacing="1",
+                align_items="start",
+            ),
+            rx.spacer(),
+            rx.link(
+                rx.icon("arrow-right", size=14, color="var(--gray-9)"),
+                href=f"/platform/{instance.platform.config.instance_name}",
+            ),
+            spacing="3",
+            align="start",
+            width="100%",
+        ),
+        width="100%",
+        _hover={"background": "var(--gray-2)"},
+    )
+
+
+def _home_empty_state() -> rx.Component:
+    """Shown when no instances exist yet."""
+    return rx.vstack(
+        rx.vstack(
+            rx.icon("server", size=48, color="var(--gray-7)"),
+            rx.heading("Set up your first instance", size="5", weight="bold"),
+            rx.text(
+                "Deploy a new VOLTTRON platform or connect to an existing one to get started.",
+                size="2",
+                color="var(--gray-10)",
+                text_align="center",
+                max_width="380px",
+            ),
+            rx.hstack(
+                rx.button(
+                    rx.icon("rocket", size=15),
+                    "Deploy New Instance",
+                    on_click=PlatformPageState.generate_new_platform,
+                    size="2",
+                ),
+                rx.button(
+                    rx.icon("link", size=15),
+                    "Connect Existing",
+                    variant="soft",
+                    color_scheme="gray",
+                    on_click=PlatformPageState.switch_to_connect_existing,
+                    size="2",
+                ),
+                spacing="3",
+            ),
+            spacing="4",
+            align="center",
+        ),
+        align="center",
+        justify="center",
+        width="100%",
+        padding_y="6rem",
+    )
+
+
+def _home_dashboard() -> rx.Component:
+    """Shown when at least one instance exists."""
+    return rx.vstack(
+        # Stats row
+        rx.hstack(
+            rx.card(
+                rx.vstack(
+                    rx.text("Total Instances", size="1", color="var(--gray-9)", weight="medium"),
+                    rx.text(PlatformPageState.total_instance_count, size="7", weight="bold"),
+                    spacing="1",
+                    align_items="start",
+                ),
+                width="180px",
+            ),
+            rx.card(
+                rx.vstack(
+                    rx.text("Deployed", size="1", color="var(--gray-9)", weight="medium"),
+                    rx.hstack(
+                        rx.text(PlatformPageState.deployed_instance_count, size="7", weight="bold", color="var(--green-10)"),
+                        spacing="2",
+                        align="end",
+                    ),
+                    spacing="1",
+                    align_items="start",
+                ),
+                width="180px",
+            ),
+            spacing="4",
+        ),
+        # Two-column layout: instances list + links
+        rx.hstack(
+            # Instances list
+            rx.vstack(
+                rx.hstack(
+                    rx.heading("Instances", size="4", weight="bold"),
+                    rx.spacer(),
+                    rx.button(
+                        rx.icon("plus", size=14),
+                        "Add",
+                        size="1",
+                        variant="soft",
+                        on_click=PlatformPageState.show_create_platform_options,
                     ),
                     width="100%",
+                    align="center",
                 ),
-                width="55%",
-                align_items="start",
-                align="start",
-            ),
-            # Right column - Get Started and Useful Links
-            rx.vstack(
-                # Get Started section
-                rx.vstack(
-                    rx.heading("Get Started", size="5", weight="bold", margin_bottom="0.75rem"),
-                    rx.link(
-                        rx.text("Run a VOLTTRON Instance", size="2", color=rx.color("accent")),
-                        href="/instances",
+                rx.foreach(
+                    PlatformPageState.in_file_platforms,
+                    _instance_card,
+                ),
+                rx.link(
+                    rx.hstack(
+                        rx.text("View all instances", size="2", color="var(--accent-9)"),
+                        rx.icon("arrow-right", size=13, color="var(--accent-9)"),
+                        spacing="1",
+                        align="center",
                     ),
+                    href="/instances",
+                ),
+                spacing="3",
+                align_items="start",
+                width="100%",
+            ),
+            # Links sidebar
+            rx.vstack(
+                rx.vstack(
+                    rx.heading("Quick Links", size="4", weight="bold"),
                     rx.link(
-                        rx.text("VOLTTRON Documentation", size="2", color=rx.color("accent")),
+                        rx.text("VOLTTRON Documentation", size="2", color="var(--accent-9)"),
                         href="https://volttron.readthedocs.io/en/main/",
                         is_external=True,
                     ),
                     rx.link(
-                        rx.text("VOLTTRON Core (Modular)", size="2", color=rx.color("accent")),
+                        rx.text("Eclipse VOLTTRON (GitHub)", size="2", color="var(--accent-9)"),
+                        href="https://github.com/eclipse-volttron",
+                        is_external=True,
+                    ),
+                    rx.link(
+                        rx.text("VOLTTRON Core (Modular)", size="2", color="var(--accent-9)"),
                         href="https://github.com/eclipse-volttron/volttron-core",
                         is_external=True,
                     ),
-                    spacing="2",
-                    align_items="start",
-                    width="100%",
-                ),
-                # Useful Links section
-                rx.vstack(
-                    rx.heading("Useful Links", size="5", weight="bold", margin_bottom="0.75rem", margin_top="2rem"),
                     rx.link(
-                        rx.text("VOLTTRON Installer (GitHub)", size="2", color=rx.color("accent")),
-                        href="https://github.com/VOLTTRON/volttron-installer",
-                        is_external=True,
-                    ),
-                    rx.link(
-                        rx.text("VOLTTRON Monolithic", size="2", color=rx.color("accent")),
+                        rx.text("VOLTTRON Monolithic", size="2", color="var(--accent-9)"),
                         href="https://github.com/VOLTTRON/volttron",
                         is_external=True,
                     ),
                     rx.link(
-                        rx.text("Eclipse VOLTTRON", size="2", color=rx.color("accent")),
-                        href="https://github.com/eclipse-volttron",
+                        rx.text("VOLTTRON Installer (GitHub)", size="2", color="var(--accent-9)"),
+                        href="https://github.com/VOLTTRON/volttron-installer",
                         is_external=True,
                     ),
                     spacing="2",
                     align_items="start",
                     width="100%",
                 ),
-                width="25%",
+                width="220px",
+                min_width="220px",
+                flex_shrink="0",
                 align_items="start",
             ),
-            spacing="6",
+            spacing="8",
             align_items="start",
-            justify="between",
             width="100%",
         ),
-        # Create Platform Dialog
+        spacing="5",
+        align_items="start",
+        width="100%",
+    )
+
+
+def home_page() -> rx.Component:
+    """Home page content — adapts based on whether instances exist."""
+    return rx.vstack(
+        rx.text("Home", size="7", weight="bold"),
+        rx.cond(
+            PlatformPageState.has_any_instance,
+            _home_dashboard(),
+            _home_empty_state(),
+        ),
+        # Dialog always rendered so events can open it
         create_platform_dialog(),
         padding="2rem",
         overflow_y="auto",
         height="100%",
         width="100%",
-        spacing="3",
+        spacing="4",
         align_items="start",
     )
 

@@ -18,7 +18,7 @@ class PlatformBaseState(rx.State):
     local_agents_loading: bool = False
     
     # State Vars
-    @rx.var(cache=True)
+    @rx.var
     def current_uid(self) -> str:
         return self.router.page.params.get("uid", "")
 
@@ -48,6 +48,22 @@ class PlatformBaseState(rx.State):
     @rx.var(cache=True)
     def in_file_platforms(self) -> list[Instance]:
         return [instance for instance in self.platforms.values() if instance.platform.in_file]
+
+    @rx.var
+    def has_any_instance(self) -> bool:
+        return len(self.in_file_platforms) > 0
+
+    @rx.var
+    def deployed_instances(self) -> list[Instance]:
+        return [i for i in self.in_file_platforms if i.deployed]
+
+    @rx.var
+    def total_instance_count(self) -> int:
+        return len(self.in_file_platforms)
+
+    @rx.var
+    def deployed_instance_count(self) -> int:
+        return len([i for i in self.in_file_platforms if i.deployed])
     
     @rx.var
     def platform_title(self) -> str:

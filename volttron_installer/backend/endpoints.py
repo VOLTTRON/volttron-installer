@@ -2,6 +2,9 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Any, Optional
 from ..utils import get_api_url
 import os, asyncio, shlex, re
+import json
+import urllib.request
+from urllib.parse import urlparse, parse_qs
 from loguru import logger
 
 from volttron_installer.backend.tool_manager import ToolManager
@@ -93,6 +96,87 @@ def _finalize_deploy_progress(platform_id: str, status: str) -> None:
     DEPLOY_PROGRESS[platform_id]["status"] = status
     if status == "success":
         DEPLOY_PROGRESS[platform_id]["progress"] = 100
+
+
+def _extract_github_repo(source: str) -> tuple[str, str] | None:
+    """Extract (owner, repo) from a GitHub URL-like install source."""
+    value = source.strip()
+    if value.startswith("git+"):
+        value = value[len("git+"):]
+    if value.startswith("github.com/"):
+        value = "https://" + value
+    if not (value.startswith("http://") or value.startswith("https://")):
+        return None
+
+    parsed = urlparse(value)
+    if parsed.netloc.lower() != "github.com":
+        return None
+
+    path = parsed.path.lstrip("/")
+    if "@" in path:
+        path = path.split("@", 1)[0]
+    parts = [p for p in path.split("/") if p]
+    if len(parts) < 2:
+        return None
+    owner = parts[0]
+    repo = parts[1]
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    if not owner or not repo:
+        return None
+    return owner, repo
+
+
+def _extract_subdirectory_from_source(source: str) -> str:
+    """Return pip VCS #subdirectory value when present, otherwise ''."""
+    if "#" not in source:
+        return ""
+    fragment = source.split("#", 1)[1]
+    query = parse_qs(fragment, keep_blank_values=True)
+    subdirs = query.get("subdirectory", [])
+    if not subdirs:
+        return ""
+    return subdirs[0].strip("/")
+
+
+def _github_repo_has_python_project(owner: str, repo: str, subdirectory: str = "") -> tuple[bool, str]:
+    """Check if a GitHub repo contains pyproject.toml or setup.py.
+
+    Returns:
+        (is_valid, reason)
+    """
+    api = f"https://api.github.com/repos/{owner}/{repo}/git/trees/main?recursive=1"
+    req = urllib.request.Request(api, headers={"Accept": "application/vnd.github+json", "User-Agent": "volttron-installer"})
+    try:
+        with urllib.request.urlopen(req, timeout=12) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        # Don't hard-block installs on API/network failures; pip may still work.
+        logger.warning(f"[INSTALL_DRIVER_LIB] GitHub preflight skipped for {owner}/{repo}: {exc}")
+        return True, "preflight-skipped"
+
+    tree = payload.get("tree", [])
+    if not tree:
+        return False, "Repository appears empty (no files found in main branch)."
+
+    candidate_paths = {"pyproject.toml", "setup.py"}
+    if subdirectory:
+        candidate_paths = {f"{subdirectory}/{p}" for p in candidate_paths}
+
+    seen_paths = {item.get("path", "") for item in tree}
+    if any(path in seen_paths for path in candidate_paths):
+        return True, "ok"
+
+    if subdirectory:
+        return False, (
+            f"No pyproject.toml or setup.py found in subdirectory '{subdirectory}'. "
+            "Use a correct #subdirectory value or a repo root that contains a Python package."
+        )
+
+    return False, (
+        "No pyproject.toml or setup.py found at repository root. "
+        "This repo does not appear to be an installable Python project."
+    )
 
 @ansible_router.get("/hosts", response_model=list[HostEntry])
 async def get_hosts() -> list[HostEntry]:
@@ -581,7 +665,8 @@ async def _deploy_modular_via_ssh(
     config: PlatformConfig,
     ansible: AnsibleService,
     python_cmd: str = "python3",
-    platform_id: str | None = None
+    platform_id: str | None = None,
+    agents: dict = None  # dict[str, AgentDefinition]
 ) -> dict:
     """
     Deploy modular VOLTTRON using direct SSH commands instead of Ansible playbooks.
@@ -728,7 +813,71 @@ messagebus = {config.message_bus}
             _set_deploy_step(platform_id, "Write config", "failed", progress=96)
         raise HTTPException(status_code=500, detail=f"Failed to write config: {stderr or stdout}")
     if platform_id:
-        _set_deploy_step(platform_id, "Write config", "success", progress=100)
+        _set_deploy_step(platform_id, "Write config", "success", progress=98)
+
+    # ── Agent installation ───────────────────────────────────────────────────
+    # Start the platform, install each pre-configured agent, then shut down.
+    installable_agents = {k: v for k, v in (agents or {}).items() if v.source}
+    if installable_agents:
+        logger.info(f"[DEPLOY] Installing {len(installable_agents)} pre-deployment agents")
+
+        # Start VOLTTRON in the background
+        start_cmd = f"""VENV_PATH="{venv_path}"
+VOLTTRON_HOME="{volttron_home}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+export VOLTTRON_HOME
+source "$VENV_PATH/bin/activate"
+volttron -vv --log "$VOLTTRON_HOME/volttron.log" &
+sleep 15
+"""
+        if platform_id:
+            _set_deploy_step(platform_id, "Start VOLTTRON for agent install", "running", progress=98)
+            _append_deploy_log(platform_id, "[Agent install] Starting VOLTTRON platform")
+        ret, stdout, stderr = await ansible.run_ssh_command(host, start_cmd, timeout=60)
+        steps.append({"step": "Start VOLTTRON for agent install", "success": True, "output": stdout, "error": stderr})
+        if platform_id:
+            _set_deploy_step(platform_id, "Start VOLTTRON for agent install", "success", progress=98)
+
+        for agent_id, agent in installable_agents.items():
+            source = shlex.quote(agent.source)
+            identity = shlex.quote(agent.identity or agent_id)
+            step_label = f"Install agent {agent.identity or agent_id}"
+            logger.info(f"[DEPLOY] Installing agent {identity} from {source}")
+            if platform_id:
+                _set_deploy_step(platform_id, step_label, "running", progress=99)
+                _append_deploy_log(platform_id, f"[Agent install] Installing {agent.identity or agent_id}")
+            install_cmd = f"""VENV_PATH="{venv_path}"
+VOLTTRON_HOME="{volttron_home}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+export VOLTTRON_HOME
+source "$VENV_PATH/bin/activate"
+pip install --quiet {source}
+"$VENV_PATH/bin/vctl" install {source} --vip-identity {identity} --start
+"""
+            ret, stdout, stderr = await ansible.run_ssh_command(host, install_cmd, timeout=300)
+            steps.append({"step": step_label, "success": ret == 0, "output": stdout, "error": stderr})
+            if ret != 0:
+                logger.warning(f"[DEPLOY] Failed to install agent {agent.identity}: {stderr or stdout}")
+                if platform_id:
+                    _append_deploy_log(platform_id, f"[Agent install] WARNING: failed to install {agent.identity or agent_id}: {(stderr or stdout)[:200]}")
+                    _set_deploy_step(platform_id, step_label, "failed", progress=99)
+            else:
+                if platform_id:
+                    _set_deploy_step(platform_id, step_label, "success", progress=99)
+
+        # Shut VOLTTRON back down so user controls when it runs
+        stop_cmd = f"""VENV_PATH="{venv_path}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+source "$VENV_PATH/bin/activate"
+"$VENV_PATH/bin/vctl" shutdown --platform 2>/dev/null || pkill -f 'volttron -vv' 2>/dev/null || true
+sleep 3
+"""
+        if platform_id:
+            _append_deploy_log(platform_id, "[Agent install] Shutting down VOLTTRON")
+        await ansible.run_ssh_command(host, stop_cmd, timeout=30)
+    # ── End agent installation ───────────────────────────────────────────────
 
     logger.info(f"[DEPLOY] Modular VOLTTRON deployed successfully")
     if platform_id:
@@ -777,7 +926,8 @@ async def deploy_platform(platform_id: str, password:str,
                 platform.config,
                 ansible,
                 python_cmd=python_cmd,
-                platform_id=platform_id
+                platform_id=platform_id,
+                agents=platform.agents,
             )
 
             # Mark platform as deployed
@@ -1678,6 +1828,21 @@ async def install_driver_library(
     """
     logger.info(f"[INSTALL_DRIVER_LIB] Installing {pip_package} on platform {platform_id}")
     try:
+        github_repo = _extract_github_repo(pip_package)
+        if github_repo is not None:
+            owner, repo = github_repo
+            subdirectory = _extract_subdirectory_from_source(pip_package)
+            is_valid, reason = _github_repo_has_python_project(owner, repo, subdirectory)
+            if not is_valid:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Source '{pip_package}' is not installable: {reason} "
+                        "If your package lives in a nested folder, use: "
+                        "git+https://github.com/<owner>/<repo>.git#subdirectory=<path>."
+                    ),
+                )
+
         platform_service = await get_platform_service()
         platform = await platform_service.get_platform(platform_id)
 

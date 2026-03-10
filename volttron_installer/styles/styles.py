@@ -124,10 +124,13 @@ styles: dict = {
     ".platform_content_view": {
         "display" : "flex",
         "flex-direction" : "column",
-        "padding" : "1rem",
-        "row-gap" : "2rem",
+        "padding" : "1.25rem",
+        "row-gap" : "1.25rem",
         # "background-color" : "white",
-        "align-items" : "center",
+        "align-items" : "stretch",
+        "width": "100%",
+        "max-width": "72rem",
+        "margin": "0 auto",
         # "color": "white"
     },
 

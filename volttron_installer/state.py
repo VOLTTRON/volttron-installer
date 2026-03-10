@@ -273,6 +273,8 @@ async def __instances_from_api__() -> dict[str, Instance]:
             ignore_host_keys=working_host_entry.ignore_host_keys,
         )
 
+        from .models import InstanceStatus as _IS
+        initial_status = _IS.DEPLOYED.value if p.deployed else _IS.NOT_DEPLOYED.value
         instance = {
             p.config.instance_name: Instance(
                 host=host,
@@ -317,6 +319,7 @@ async def __instances_from_api__() -> dict[str, Instance]:
                 ),
                 new_instance=False,
                 deployed=p.deployed,
+                status=initial_status,
                 safe_host_entry=host.to_dict(),
             )
         }
@@ -356,6 +359,13 @@ class PlatformPageState(DriverManagementState):
     # Platform status track & Connection status tracking moved to PlatformStatusState
     # Log viewing moved to PlatformLogState
     
+    # Left-sidebar nav selection
+    platform_nav: str = "overview"
+
+    @rx.event
+    def set_platform_nav(self, section: str):
+        self.platform_nav = section
+
     # Delete platform dialog
     _show_delete_dialog: bool = False
     _delete_remote_files: bool = False
@@ -377,6 +387,12 @@ class PlatformPageState(DriverManagementState):
     async def on_platform_page_load(self):
         """Ensure platform data is hydrated and status is refreshed on page load."""
         await self.hydrate_state()
+        async with self:
+            wp = self.platforms.get(self.current_uid)
+            if wp is None or not wp.platform.in_file:
+                self.platform_nav = "setup"
+            else:
+                self.platform_nav = "overview"
         yield PlatformStatusState.load_platform_status_background
 
     # Install agent dialog variables moved to PlatformAgentState
@@ -943,10 +959,6 @@ class PlatformPageState(DriverManagementState):
             agent_list = await __agents_off_catalog__()
             platforms_from_api = await __instances_from_api__()
 
-            # Set all instances to loading status initially
-            for instance in platforms_from_api.values():
-                instance.status = "loading"
-
             # Append blank agent to the local list before assigning to state
             # (mutating self.list_of_agents directly after an await fails in background tasks)
             agent_list.append(blank_agent)
@@ -1254,9 +1266,20 @@ class PlatformPageState(DriverManagementState):
     @rx.event
     async def generate_new_platform(self):
         """Create a new platform from scratch (deploy new)"""
+        # Clean up any previously abandoned unsaved/temp platforms so they don't accumulate
+        stale_uids = [uid for uid, inst in self.platforms.items()
+                      if inst.new_instance and not inst.platform.in_file]
+        if stale_uids:
+            self.platforms = {k: v for k, v in self.platforms.items() if k not in stale_uids}
+
         new_uid = self.generate_unique_uid()
+        # Use a unique default instance name so it never collides with existing platforms
+        default_instance_name = f"volttron-{new_uid}"
         new_host = HostEntryModelView(id="", ansible_user="", ansible_host="")
-        new_platform = PlatformModelView(config=PlatformConfigModelView(), in_file=False)
+        new_platform = PlatformModelView(
+            config=PlatformConfigModelView(instance_name=default_instance_name),
+            in_file=False,
+        )
         new_platform.safe_platform = new_platform.to_dict()
         self.platforms[new_uid] = Instance(
                 host=new_host,
@@ -1266,7 +1289,6 @@ class PlatformPageState(DriverManagementState):
         # Close the dialog if it's open
         self._show_create_platform_dialog = False
         self._connect_existing_mode = False
-        self.current_uid = new_uid
         yield NavigationState.route_to_platform(new_uid)
 
     # Create platform dialog handlers
@@ -1476,20 +1498,35 @@ class PlatformPageState(DriverManagementState):
 
     @rx.event
     def update_password_field(self, value: str):
-        if self.current_uid not in self.platforms:
+        uid = self.current_uid
+        if uid not in self.platforms:
+            uid = next(
+                (k for k, v in self.platforms.items()
+                 if v.platform.config.instance_name == self.current_uid),
+                "",
+            )
+        if uid == "" or uid not in self.platforms:
             return
-        working_platform_instance = self.platforms[self.current_uid]
+        working_platform_instance = self.platforms[uid]
         working_platform_instance.password = value
 
     @rx.event
     def use_local_details(self):
-        if self.current_uid not in self.platforms:
+        uid = self.current_uid
+        if uid not in self.platforms:
+            uid = next(
+                (k for k, v in self.platforms.items()
+                 if v.platform.config.instance_name == self.current_uid),
+                "",
+            )
+        if uid == "" or uid not in self.platforms:
+            yield rx.toast.error("Active platform not found. Please reopen the instance from Instances.")
             return
         import getpass
         current_user = getpass.getuser()
 
         # Get the current platform instance
-        working_platform = self.platforms[self.current_uid]
+        working_platform = self.platforms[uid]
         
         # Update Host Entry details for localhost
         working_platform.host.ansible_host = "localhost"
@@ -1507,15 +1544,25 @@ class PlatformPageState(DriverManagementState):
         
         # Check for uncaught changes
         working_platform.uncaught = working_platform.has_uncaught_changes()
+
+        # Reassign dict to guarantee Reflex notices nested model mutations.
+        self.platforms = dict(self.platforms)
         
         yield rx.toast.info("Configured for local connection (no SSH or password needed)")
 
     @rx.event
     def update_detail(self, field: str, value):
-        if self.current_uid not in self.platforms:
+        uid = self.current_uid
+        if uid not in self.platforms:
+            uid = next(
+                (k for k, v in self.platforms.items()
+                 if v.platform.config.instance_name == self.current_uid),
+                "",
+            )
+        if uid == "" or uid not in self.platforms:
             return
         logger.info(f"[HOST UPDATE] Updating {field} to: '{value}'")
-        working_platform_instance = self.platforms[self.current_uid]
+        working_platform_instance = self.platforms[uid]
         if field == "id":
             self._host_resolved = False
             setattr(working_platform_instance.host, "ansible_host", value)
@@ -1715,12 +1762,10 @@ class PlatformPageState(DriverManagementState):
 
         logger.debug(f"this is the uid copy: {uid_copy}")
         all_platforms: list[PlatformDefinition] = await get_all_platforms()
+        api_instance_names = [p.config.instance_name for p in all_platforms]
 
         working_platform.safe_host_entry = working_platform.host.to_dict()
         working_platform.uncaught = False
-        
-        # TODO save the federation field once we have it all up and running
-        # federation = working_platform.enable_federation
 
         # Create base platform request with deployed=True since we're about to deploy
         base_platform_request = CreatePlatformRequest(
@@ -1747,60 +1792,59 @@ class PlatformPageState(DriverManagementState):
                     }
                 ) for identity, agent in working_platform.platform.to_dict()["agents"].items()
             },
-            deployed=True  # Mark as deployed since we're initiating deployment
+            deployed=True
         )
 
-        logger.debug(f"this is the uid copy: {uid_copy}")
-        
-        # Check if this platform already exists
-        platform_exists = working_platform.platform.config.instance_name in [p.config.instance_name for p in all_platforms]
-        
-        if platform_exists:
-            logger.debug("Platform already exists, updating...")
-            await update_platform(
-                working_platform.platform.config.instance_name,
-                base_platform_request
-            )
+        desired_name = working_platform.platform.config.instance_name
+
+        # Determine whether we are editing an existing saved platform (uid_copy is a known
+        # instance name in the API) or creating a brand-new one (uid_copy is a temp random id).
+        is_existing_platform = uid_copy in api_instance_names
+
+        if is_existing_platform:
+            # ── Editing an already-saved platform ────────────────────────────
+            logger.debug(f"Updating existing platform {uid_copy!r} (desired name: {desired_name!r})")
+            await update_platform(uid_copy, base_platform_request)
+            # If the instance was renamed the old key still lives in api; keep memory key aligned
+            if uid_copy != desired_name:
+                self.platforms[desired_name] = self.platforms.pop(uid_copy, working_platform)
         else:
-            # Create new platform
+            # ── Creating a new platform ──────────────────────────────────────
+            # Guard: if the desired instance name is taken by a *different* platform, refuse.
+            if desired_name in api_instance_names:
+                yield rx.toast.error(
+                    f"An instance named '{desired_name}' already exists. "
+                    "Please choose a different name before saving."
+                )
+                return
+
             host_request = working_platform.host.to_dict()
             host_request["ansible_port"] = int(host_request["ansible_port"])
-            # Use 'instance_name' to avoid Ansible reserved keyword 'name' conflict
-            host_request["instance_name"] = working_platform.platform.config.instance_name
+            host_request["instance_name"] = desired_name
             logger.info(f"[SAVE] Host request volttron_home: '{host_request.get('volttron_home')}'")
             logger.info(f"[SAVE] Host request volttron_venv: '{host_request.get('volttron_venv')}'")
             request = CreateOrUpdateHostEntryRequest(**host_request)
-
             await add_host(request)
             await create_platform(base_platform_request)
-            
-            # Update platforms dict and clean up temp UID
-            self.platforms[working_platform.platform.config.instance_name] = working_platform
-            logger.debug(f"this is the list of params: {list(self.platforms.keys())}")
-            logger.debug(f"this is the uid about to deletee: {uid_copy}")
-            
-            # Update current_uid to the instance name
-            self.current_uid = working_platform.platform.config.instance_name
-        
+
+            # Register the platform under its proper instance-name key
+            self.platforms[desired_name] = working_platform
+            logger.debug(f"Platform created, platforms now: {list(self.platforms.keys())}")
+
+        # Always clean up the temp random-UID entry so it never leaks
+        if uid_copy != desired_name and uid_copy in self.platforms:
+            yield PlatformPageState.delete_temp_uid(uid_copy)
+
         yield rx.toast.success("Configuration saved, starting deployment...")
-        
+
         # Mark platform as deployed in memory and enable tabs BEFORE navigating
-        # This ensures the status tab is enabled when the page loads
         working_platform.deployed = True
         working_platform.platform.in_file = True
         working_platform.new_instance = False
-        
-        # Update safe_platform to reflect the new instance name in the UI
         working_platform.platform.safe_platform = working_platform.platform.to_dict()
-        
+
         # Navigate to the instance and trigger deployment
-        yield NavigationState.route_to_platform(working_platform.platform.config.instance_name)
-        
-        # Delete temp UID if this was a new platform
-        if not platform_exists:
-            yield PlatformPageState.delete_temp_uid(uid_copy)
-        
-        # Trigger deployment immediately
+        yield NavigationState.route_to_platform(desired_name)
         yield PlatformDeploymentState.handle_deploy()
 
     @rx.event
@@ -2162,17 +2206,121 @@ class AgentConfigState(rx.State):
     # ======== End of agent validation vars========
 
     # Events
+    async def _load_live_agent_config_store(self, platform_uid: str, agent_identity: str) -> tuple[str, list[ConfigStoreEntryModelView]]:
+        """Fetch config store entries from live vctl data for a given agent.
+
+        Returns (resolved_identity, entries). If no identity resolves, returns ("", []).
+        """
+        identity_candidates: list[str] = []
+        for candidate in [
+            agent_identity,
+            agent_identity.replace("-", "."),
+            agent_identity.replace(".", "-"),
+        ]:
+            candidate = candidate.strip()
+            if candidate and candidate not in identity_candidates:
+                identity_candidates.append(candidate)
+
+        for candidate in identity_candidates:
+            try:
+                response = await get_vctl_config_list(platform_uid, candidate)
+                data = response.json() if hasattr(response, "json") else response
+                keys = data.get("entries", [])
+
+                entries: list[ConfigStoreEntryModelView] = []
+                for key in keys:
+                    get_response = await get_vctl_config_get(platform_uid, candidate, key)
+                    get_data = get_response.json() if hasattr(get_response, "json") else get_response
+                    content = str(get_data.get("content", ""))
+                    data_type = "JSON" if check_json(content) else "CSV"
+
+                    config_entry = ConfigStoreEntryModelView(
+                        path=key,
+                        data_type=data_type,
+                        value=content,
+                        uncommitted=False,
+                        component_id=generate_unique_uid(),
+                        safe_entry={
+                            "path": key,
+                            "data_type": data_type,
+                            "value": content,
+                        },
+                    )
+
+                    if data_type == "CSV":
+                        try:
+                            config_entry.csv_variants["Custom"] = csv_string_to_usable_dict(content)
+                        except Exception:
+                            pass
+
+                    entries.append(config_entry)
+
+                return candidate, entries
+            except Exception:
+                continue
+
+        return "", []
+
     @rx.event
     async def hydrate_working_agent(self):
         """Initialize working agent from platform state"""
         platform_state: PlatformPageState = await self.get_state(PlatformPageState)
-        working_platform: Instance = platform_state.platforms[self.agent_details["uid"]]
-        
-        # Find agent by routing_id
+        uid = self.agent_details["uid"]
+        agent_uid = self.agent_details["agent_uid"]
+
+        if uid not in platform_state.platforms:
+            return
+
+        working_platform: Instance = platform_state.platforms[uid]
+        normalized_target = agent_uid.replace("-", ".")
+
+        # Primary match against persisted platform agents.
         for agent in working_platform.platform.agents.values():
-            if agent.routing_id == self.agent_details["agent_uid"]:
+            if (
+                agent.routing_id == agent_uid
+                or agent.identity == agent_uid
+                or agent.routing_id == normalized_target
+                or agent.identity == normalized_target
+            ):
                 self.working_agent = agent
-                break
+                resolved_identity, live_entries = await self._load_live_agent_config_store(uid, agent.identity)
+                if resolved_identity:
+                    self.working_agent.config_store = live_entries
+                else:
+                    yield rx.toast.warning(
+                        "Unable to read live config store via vctl. Start the platform and refresh status, then try again."
+                    )
+                return
+
+        # Fallback for agents discovered from live runtime status but not yet persisted.
+        live_agents = platform_state._platform_status.get("agents", {})
+        for live_key, live_data in live_agents.items():
+            live_identity = str(live_data.get("identity", "") or live_key)
+            live_uuid = str(live_data.get("uuid", "") or "")
+            if agent_uid in (str(live_key), live_identity, live_uuid):
+                self.working_agent = AgentModelView(
+                    identity=live_identity,
+                    source=live_identity,
+                    config="{}",
+                    config_store=[],
+                    routing_id=live_identity,
+                    is_new=False,
+                    config_store_allowed=True,
+                    safe_agent={
+                        "identity": live_identity,
+                        "source": live_identity,
+                        "config": "{}",
+                        "config_store": {},
+                    },
+                )
+                resolved_identity, live_entries = await self._load_live_agent_config_store(uid, live_identity)
+                if resolved_identity:
+                    self.working_agent.config_store = live_entries
+                else:
+                    yield rx.toast.warning(
+                        "Unable to read live config store via vctl. Start the platform and refresh status, then try again."
+                    )
+                return
 
     @rx.event
     def change_agent_config_tab(self, value):
