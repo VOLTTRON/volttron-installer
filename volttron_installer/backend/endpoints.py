@@ -90,6 +90,161 @@ def _set_deploy_step(platform_id: str, step_name: str, status: str, progress: in
         DEPLOY_PROGRESS[platform_id]["progress"] = progress
 
 
+def _normalize_host_identity(host: HostEntry) -> str:
+    if host.ansible_connection == "local":
+        return "local"
+    return (host.ansible_host or host.id or "").strip().lower()
+
+
+def _sanitize_instance_suffix(instance_name: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9_-]+", "-", (instance_name or "").strip())
+    return sanitized.strip("-") or "instance"
+
+
+def _normalize_path(path: str) -> str:
+    return (path or "").strip().rstrip("/")
+
+
+def _extract_vip_port(vip_address: str) -> int | None:
+    match = re.match(r"^tcp://[^:]+:(\d+)$", vip_address or "")
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def _compute_effective_instance_paths(host: HostEntry, config: PlatformConfig) -> tuple[str, str]:
+    suffix = _sanitize_instance_suffix(config.instance_name)
+    venv_override = getattr(config, "volttron_venv_override", "") or ""
+    home_override = getattr(config, "volttron_home_override", "") or ""
+
+    if venv_override.strip():
+        venv_path = venv_override.strip()
+    else:
+        base_venv = host.volttron_venv or "~/volttron.venv"
+        if base_venv.strip() == "~/volttron.venv":
+            venv_path = f"~/.volttron/venvs/{suffix}"
+        else:
+            venv_path = f"{base_venv}.{suffix}"
+
+    if home_override.strip():
+        volttron_home = home_override.strip()
+    else:
+        base_home = host.volttron_home or "~/.volttron"
+        if base_home.strip() == "~/.volttron":
+            volttron_home = f"~/.volttron/instances/{suffix}"
+        else:
+            volttron_home = f"{base_home}.{suffix}"
+
+    return venv_path, volttron_home
+
+
+async def _resolve_platform_host(
+    inventory_service: InventoryService,
+    platform: PlatformDefinition,
+    lookup_key: str,
+) -> HostEntry | None:
+    all_hosts = await inventory_service.get_hosts()
+    host = all_hosts.get(platform.config.instance_name)
+    if host is not None:
+        return host
+
+    host = all_hosts.get(lookup_key)
+    if host is not None:
+        return host
+
+    return await inventory_service.get_host(platform.host_id)
+
+
+async def _validate_no_same_host_conflicts(
+    candidate_platform: PlatformDefinition,
+    candidate_host: HostEntry,
+    inventory_service: InventoryService,
+    platform_service: PlatformService,
+    ignore_instance_name: str | None = None,
+) -> None:
+    all_platforms = await platform_service.get_all_platforms()
+    all_hosts = await inventory_service.get_hosts()
+
+    candidate_host_identity = _normalize_host_identity(candidate_host)
+    candidate_venv, candidate_home = _compute_effective_instance_paths(candidate_host, candidate_platform.config)
+    candidate_venv_norm = _normalize_path(candidate_venv)
+    candidate_home_norm = _normalize_path(candidate_home)
+    candidate_vip_port = _extract_vip_port(candidate_platform.config.vip_address)
+
+    for existing_platform in all_platforms:
+        existing_instance_name = existing_platform.config.instance_name
+        if ignore_instance_name and existing_instance_name == ignore_instance_name:
+            continue
+
+        existing_host = all_hosts.get(existing_instance_name)
+        if existing_host is None:
+            existing_host = await inventory_service.get_host(existing_platform.host_id)
+        if existing_host is None:
+            continue
+
+        if _normalize_host_identity(existing_host) != candidate_host_identity:
+            continue
+
+        existing_venv, existing_home = _compute_effective_instance_paths(existing_host, existing_platform.config)
+        existing_venv_norm = _normalize_path(existing_venv)
+        existing_home_norm = _normalize_path(existing_home)
+        existing_vip_port = _extract_vip_port(existing_platform.config.vip_address)
+
+        if existing_venv_norm == candidate_venv_norm:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Venv path collision on host '{candidate_host.ansible_host}': "
+                    f"'{candidate_venv}' is already used by instance '{existing_instance_name}'."
+                ),
+            )
+
+        if existing_home_norm == candidate_home_norm:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"VOLTTRON_HOME collision on host '{candidate_host.ansible_host}': "
+                    f"'{candidate_home}' is already used by instance '{existing_instance_name}'."
+                ),
+            )
+
+        if (
+            candidate_vip_port is not None
+            and existing_vip_port is not None
+            and existing_vip_port == candidate_vip_port
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"VIP port collision on host '{candidate_host.ansible_host}': "
+                    f"port {candidate_vip_port} is already used by instance '{existing_instance_name}'."
+                ),
+            )
+
+
+async def _resolve_platform_host_and_paths(
+    platform_id: str,
+    inventory_service: InventoryService,
+    platform_service: PlatformService,
+) -> tuple[PlatformDefinition, HostEntry, str, str]:
+    platform = await platform_service.get_platform(platform_id)
+    if platform is None:
+        raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+
+    host = await _resolve_platform_host(inventory_service, platform, platform_id)
+    if host is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Host entry for {platform.config.instance_name} not found in inventory",
+        )
+
+    venv_path, volttron_home = _compute_effective_instance_paths(host, platform.config)
+    return platform, host, venv_path, volttron_home
+
+
 def _finalize_deploy_progress(platform_id: str, status: str) -> None:
     if platform_id not in DEPLOY_PROGRESS:
         _init_deploy_progress(platform_id)
@@ -280,10 +435,20 @@ async def create_platform(platform: CreatePlatformRequest,
         platform_definition = PlatformDefinition(host_id=platform.host_id,
                                                  config=platform.config,
                                                  agents=platform.agents)
+        await _validate_no_same_host_conflicts(
+            candidate_platform=platform_definition,
+            candidate_host=host,
+            inventory_service=inventory_service,
+            platform_service=platform_service,
+        )
         await platform_service.create_platform(platform_definition)
         ans = await get_ansible_service() 
         #await ans.run_playbook("run_platforms",  platform.host_id)
         return SuccessResponse(object=platform_definition)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
@@ -293,6 +458,7 @@ async def update_platform(id: str, platform: CreatePlatformRequest):
     """Updates an existing platform"""
     try:
         platform_service = await get_platform_service()
+        inventory_service = await get_inventory_service()
         # Preserve the existing deployed flag so saves don't reset it to False.
         existing = await platform_service.get_platform(id)
         existing_deployed = existing.deployed if existing is not None else False
@@ -300,8 +466,25 @@ async def update_platform(id: str, platform: CreatePlatformRequest):
                                                  config=platform.config,
                                                  agents=platform.agents,
                                                  deployed=platform.deployed if platform.deployed else existing_deployed)
+
+        candidate_host = await _resolve_platform_host(inventory_service, platform_definition, id)
+        if candidate_host is None:
+            raise HTTPException(status_code=404, detail="Host not found")
+
+        await _validate_no_same_host_conflicts(
+            candidate_platform=platform_definition,
+            candidate_host=candidate_host,
+            inventory_service=inventory_service,
+            platform_service=platform_service,
+            ignore_instance_name=id,
+        )
+
         await platform_service.update_platform(id, platform_definition)
         return SuccessResponse()
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -611,12 +794,11 @@ async def install_python310(platform_id: str,
     if platform is None:
         raise HTTPException(status_code=404, detail="Platform not found")
 
-    all_hosts = await inventory_service.get_hosts()
-    if platform.config.instance_name not in all_hosts:
+    host = await _resolve_platform_host(inventory_service, platform, platform_id)
+    if host is None:
         raise HTTPException(status_code=404, detail=f"Host {platform.config.instance_name} not found in inventory")
 
-    host = all_hosts[platform.config.instance_name]
-    venv_path = host.volttron_venv or "~/volttron.venv"
+    venv_path, _ = _compute_effective_instance_paths(host, platform.config)
 
     script = f'''
 VENV_PATH="{venv_path}"
@@ -665,6 +847,8 @@ async def _deploy_modular_via_ssh(
     config: PlatformConfig,
     ansible: AnsibleService,
     python_cmd: str = "python3",
+    venv_path: str = "~/volttron.venv",
+    volttron_home: str = "~/.volttron",
     platform_id: str | None = None,
     agents: dict = None  # dict[str, AgentDefinition]
 ) -> dict:
@@ -679,9 +863,6 @@ async def _deploy_modular_via_ssh(
 
     TODO: Consider moving this to Ansible playbook later if needed for more complex deployments.
     """
-    venv_path = host.volttron_venv or "~/volttron.venv"
-    volttron_home = host.volttron_home or "~/.volttron"
-
     # Determine volttron-core package specification
     # Supports: empty (latest), version number, or git URL
     if config.volttron_version:
@@ -705,7 +886,14 @@ async def _deploy_modular_via_ssh(
         _init_deploy_progress(platform_id, total_steps=total_steps)
 
     # Step 1: Kill any existing VOLTTRON processes
-    cmd = f"pkill -9 -f 'volttron -vv' 2>/dev/null || true"
+    cmd = f'''VENV_PATH="{venv_path}"
+VOLTTRON_HOME="{volttron_home}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
+source "$VENV_PATH/bin/activate" 2>/dev/null || true
+export VOLTTRON_HOME
+"$VENV_PATH/bin/vctl" shutdown --platform 2>/dev/null || pkill -f "volttron -vv --log $VOLTTRON_HOME/volttron.log" 2>/dev/null || true
+'''
     logger.info(f"[DEPLOY] Step 1: Killing existing VOLTTRON processes")
     if platform_id:
         _set_deploy_step(platform_id, "Kill existing processes", "running", progress=5)
@@ -717,7 +905,10 @@ async def _deploy_modular_via_ssh(
     # Don't fail if no processes to kill
 
     # Step 2: Create virtual environment
-    cmd = f"{python_cmd} -m venv {venv_path}"
+    cmd = f'''VENV_PATH="{venv_path}"
+VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+mkdir -p "$(dirname "$VENV_PATH")"
+{python_cmd} -m venv "$VENV_PATH"'''
     logger.info(f"[DEPLOY] Step 2: Creating venv - {cmd}")
     if platform_id:
         _set_deploy_step(platform_id, "Create venv", "running", progress=20)
@@ -870,8 +1061,11 @@ pip install --quiet {source}
         # Shut VOLTTRON back down so user controls when it runs
         stop_cmd = f"""VENV_PATH="{venv_path}"
 VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
+VOLTTRON_HOME="{volttron_home}"
+VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
 source "$VENV_PATH/bin/activate"
-"$VENV_PATH/bin/vctl" shutdown --platform 2>/dev/null || pkill -f 'volttron -vv' 2>/dev/null || true
+export VOLTTRON_HOME
+"$VENV_PATH/bin/vctl" shutdown --platform 2>/dev/null || pkill -f "volttron -vv --log $VOLTTRON_HOME/volttron.log" 2>/dev/null || true
 sleep 3
 """
         if platform_id:
@@ -901,12 +1095,19 @@ async def deploy_platform(platform_id: str, password:str,
         if platform is None:
             raise HTTPException(status_code=404, detail="Platform not found")
 
-        # Get host entry from inventory
-        all_hosts = await inventory_service.get_hosts()
-        if platform.config.instance_name not in all_hosts:
+        host = await _resolve_platform_host(inventory_service, platform, platform_id)
+        if host is None:
             raise HTTPException(status_code=404, detail=f"Host {platform.config.instance_name} not found in inventory")
 
-        host = all_hosts[platform.config.instance_name]
+        await _validate_no_same_host_conflicts(
+            candidate_platform=platform,
+            candidate_host=host,
+            inventory_service=inventory_service,
+            platform_service=platform_service,
+            ignore_instance_name=platform_id,
+        )
+
+        effective_venv_path, effective_volttron_home = _compute_effective_instance_paths(host, platform.config)
         ignore_host_keys = host.ignore_host_keys
         target_host = platform.config.instance_name
 
@@ -926,6 +1127,8 @@ async def deploy_platform(platform_id: str, password:str,
                 platform.config,
                 ansible,
                 python_cmd=python_cmd,
+                venv_path=effective_venv_path,
+                volttron_home=effective_volttron_home,
                 platform_id=platform_id,
                 agents=platform.agents,
             )
@@ -974,7 +1177,7 @@ async def deploy_platform(platform_id: str, password:str,
                 )
 
             # Clean up config file - remove duplicate snake_case fields and installer-only fields
-            volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+            _, volttron_home = _compute_effective_instance_paths(host, platform.config)
             cleanup_cmd = f"sed -i '/^instance_name =/d; /^messagebus =/d; /^message_bus =/d; /^options =/d; /^vip_address =/d; /^volttron_type =/d' {volttron_home}/config"
             await ansible.run_volttron_ad_hoc(
                 command=cleanup_cmd,
@@ -1145,21 +1348,16 @@ async def start_platform(platform_id: str, ansible: AnsibleService = Depends(get
         if platform is None:
             raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
         
-        # Get host entry from inventory
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-        
-        if platform.config.instance_name not in all_hosts:
+        host = await _resolve_platform_host(inventory_service, platform, platform_id)
+        if host is None:
             raise HTTPException(
                 status_code=404,
                 detail=f"Host entry for {platform.config.instance_name} not found in inventory"
             )
-        
-        host = all_hosts[platform.config.instance_name]
 
         # Build paths
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        venv_path, volttron_home = _compute_effective_instance_paths(host, platform.config)
 
         # First check if VOLTTRON is already running using vctl status (authoritative check)
         check_cmd = f"export VOLTTRON_HOME={volttron_home} && source {venv_path}/bin/activate && vctl status > /dev/null 2>&1 && echo RUNNING || echo STOPPED"
@@ -1235,21 +1433,16 @@ async def stop_platform(platform_id: str, ansible: AnsibleService = Depends(get_
         if platform is None:
             raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
         
-        # Get host entry from inventory
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-        
-        if platform.config.instance_name not in all_hosts:
+        host = await _resolve_platform_host(inventory_service, platform, platform_id)
+        if host is None:
             raise HTTPException(
                 status_code=404,
                 detail=f"Host entry for {platform.config.instance_name} not found in inventory"
             )
-        
-        host = all_hosts[platform.config.instance_name]
 
         # Build paths
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        venv_path, volttron_home = _compute_effective_instance_paths(host, platform.config)
 
         # Use direct SSH for speed and reliability
         cmd = f'''
@@ -1303,27 +1496,13 @@ async def delete_remote_volttron_files(platform_id: str, ansible: AnsibleService
     3. Optionally delete the virtual environment
     """
     try:
-        # Get platform definition and host entry
         platform_service = await get_platform_service()
-        platform = await platform_service.get_platform(platform_id)
-
-        if platform is None:
-            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
-
-        # Get host entry from inventory
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-
-        if platform.config.instance_name not in all_hosts:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
-            )
-
-        host = all_hosts[platform.config.instance_name]
-
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        _, host, venv_path, volttron_home = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
 
         # Step 1: Stop VOLTTRON if running (using pkill to ensure it stops)
         stop_cmd = "pkill -f 'volttron -' 2>/dev/null || true"
@@ -1371,28 +1550,15 @@ async def start_agent(platform_id: str, agent_id: str, ansible: AnsibleService =
     """Starts a specific agent on a VOLTTRON platform using vctl"""
     logger.info(f"[START_AGENT] Called with platform_id={platform_id}, agent_id={agent_id}")
     try:
-        # Get platform definition and host entry
         platform_service = await get_platform_service()
-        platform = await platform_service.get_platform(platform_id)
-        
-        if platform is None:
-            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
-        
-        # Get host entry from inventory
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-        
-        if platform.config.instance_name not in all_hosts:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
-            )
-        
-        host = all_hosts[platform.config.instance_name]
-        
+        _, host, venv_path, volttron_home = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
+
         # Build command to start the agent (direct SSH, no ansible ad-hoc)
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
         agent_id_arg = shlex.quote(agent_id)
 
         cmd = f'''
@@ -1435,23 +1601,13 @@ async def get_platform_logs(platform_id: str, lines: int = 100):
     """Fetch VOLTTRON log contents from remote platform"""
     try:
         platform_service = await get_platform_service()
-        platform = await platform_service.get_platform(platform_id)
-        
-        if not platform:
-            raise HTTPException(status_code=404, detail="Platform not found")
-        
         ansible = await get_ansible_service()
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-        
-        if platform.config.instance_name not in all_hosts:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
-            )
-        
-        host = all_hosts[platform.config.instance_name]
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        _, host, _, volttron_home = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
 
         cmd = f'''
 VOLTTRON_HOME="{volttron_home}"
@@ -1486,23 +1642,13 @@ async def delete_platform_logs(platform_id: str):
     """Delete VOLTTRON log file from remote platform"""
     try:
         platform_service = await get_platform_service()
-        platform = await platform_service.get_platform(platform_id)
-        
-        if not platform:
-            raise HTTPException(status_code=404, detail="Platform not found")
-        
         ansible = await get_ansible_service()
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-        
-        if platform.config.instance_name not in all_hosts:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
-            )
-        
-        host = all_hosts[platform.config.instance_name]
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        _, host, _, volttron_home = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
 
         cmd = f'''
     VOLTTRON_HOME="{volttron_home}"
@@ -1530,29 +1676,16 @@ async def stop_agent(platform_id: str, agent_id: str, ansible: AnsibleService = 
     """Stops a specific agent on a VOLTTRON platform using vctl"""
     logger.info(f"[STOP_AGENT] Called with platform_id={platform_id}, agent_id={agent_id}")
     try:
-        # Get platform definition and host entry
         platform_service = await get_platform_service()
-        platform = await platform_service.get_platform(platform_id)
-        
-        if platform is None:
-            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
-        
-        # Get host entry from inventory
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-        
-        if platform.config.instance_name not in all_hosts:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
-            )
-        
-        host = all_hosts[platform.config.instance_name]
-        
+        _, host, venv_path, volttron_home = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
+
         # Build command to stop the agent (direct SSH, no ansible ad-hoc)
         # agent_id is now the UUID passed from the UI
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
         agent_uuid_arg = shlex.quote(agent_id)
 
         cmd = f'''
@@ -1619,28 +1752,13 @@ async def install_agent(
     """
     logger.info(f"[INSTALL_AGENT] Called with platform_id={platform_id}, agent_identity={agent_identity}, agent_source={agent_source}, start_agent={start_agent}")
     try:
-        # Get platform definition and host entry
         platform_service = await get_platform_service()
-        platform = await platform_service.get_platform(platform_id)
-
-        if platform is None:
-            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
-
-        # Get host entry from inventory
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-
-        if platform.config.instance_name not in all_hosts:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
-            )
-
-        host = all_hosts[platform.config.instance_name]
-
-        # Build paths
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        platform, host, venv_path, volttron_home = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
 
         # Get the VOLTTRON type to determine installation method
         volttron_type = platform.config.volttron_type
@@ -1753,17 +1871,12 @@ async def get_installed_driver_libraries(
     logger.info(f"[INSTALLED_DRIVERS] Listing installed driver libraries for {platform_id}")
     try:
         platform_service = await get_platform_service()
-        platform = await platform_service.get_platform(platform_id)
-        if platform is None:
-            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
-
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-        if platform.config.instance_name not in all_hosts:
-            raise HTTPException(status_code=404, detail=f"Host entry for {platform.config.instance_name} not found")
-
-        host = all_hosts[platform.config.instance_name]
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        _, host, venv_path, _ = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
 
         cmd = f'''
 VENV_PATH="{venv_path}"
@@ -1844,22 +1957,12 @@ async def install_driver_library(
                 )
 
         platform_service = await get_platform_service()
-        platform = await platform_service.get_platform(platform_id)
-
-        if platform is None:
-            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
-
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-
-        if platform.config.instance_name not in all_hosts:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Host entry for {platform.config.instance_name} not found"
-            )
-
-        host = all_hosts[platform.config.instance_name]
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        _, host, venv_path, _ = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
         package_arg = shlex.quote(pip_package)
 
         cmd = f'''
@@ -1912,28 +2015,15 @@ async def remove_agent(
         agent_uuid: The UUID of the agent to remove
     """
     try:
-        # Get platform definition and host entry
         platform_service = await get_platform_service()
-        platform = await platform_service.get_platform(platform_id)
-
-        if platform is None:
-            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
-
-        # Get host entry from inventory
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-
-        if platform.config.instance_name not in all_hosts:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
-            )
-
-        host = all_hosts[platform.config.instance_name]
+        _, host, venv_path, volttron_home = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
 
         # Build command to remove the agent using UUID
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
         agent_uuid_arg = shlex.quote(agent_uuid)
 
         cmd = f'''
@@ -2003,10 +2093,8 @@ async def deploy_agent_config_store(
     logger.info(f"[DEPLOY_CONFIG_STORE] Called for platform={platform_id}, agent={agent_identity}")
     
     try:
-        # Get platform definition and host entry
         platform_service = await get_platform_service()
         platform = await platform_service.get_platform(platform_id)
-
         if platform is None:
             raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
 
@@ -2026,21 +2114,14 @@ async def deploy_agent_config_store(
                 "deployed_count": 0
             }
 
-        # Get host entry from inventory
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-
-        if platform.config.instance_name not in all_hosts:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Host entry for {platform.config.instance_name} not found in inventory"
-            )
-
-        host = all_hosts[platform.config.instance_name]
+        _, host, venv_path, volttron_home = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
 
         # Build paths
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
         agent_identity_arg = shlex.quote(agent_identity)
 
         deployed_configs = []
@@ -2152,15 +2233,13 @@ async def vctl_config_list(
     With agent_identity: returns list of config keys for that agent.
     """
     try:
+        platform_service = await get_platform_service()
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-
-        if platform_id not in all_hosts:
-            raise HTTPException(status_code=404, detail=f"Host {platform_id} not found")
-
-        host = all_hosts[platform_id]
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        _, host, venv_path, volttron_home = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
 
         identity_arg = f" {shlex.quote(agent_identity)}" if agent_identity else ""
 
@@ -2204,15 +2283,13 @@ async def vctl_config_get(
 ):
     """Run vctl config get <agent_identity> <config_key> on the VOLTTRON platform."""
     try:
+        platform_service = await get_platform_service()
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-
-        if platform_id not in all_hosts:
-            raise HTTPException(status_code=404, detail=f"Host {platform_id} not found")
-
-        host = all_hosts[platform_id]
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        _, host, venv_path, volttron_home = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
 
         cmd = f'''
 VENV_PATH="{venv_path}"
@@ -2253,15 +2330,13 @@ async def vctl_config_delete(
 ):
     """Run vctl config delete <agent_identity> <config_key> on the VOLTTRON platform."""
     try:
+        platform_service = await get_platform_service()
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-
-        if platform_id not in all_hosts:
-            raise HTTPException(status_code=404, detail=f"Host {platform_id} not found")
-
-        host = all_hosts[platform_id]
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        _, host, venv_path, volttron_home = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
 
         cmd = f'''
 VENV_PATH="{venv_path}"
@@ -2303,15 +2378,13 @@ async def vctl_config_store(
 ):
     """Run vctl config store <agent_identity> <config_key> with raw text content."""
     try:
+        platform_service = await get_platform_service()
         inventory_service = await get_inventory_service()
-        all_hosts = await inventory_service.get_hosts()
-
-        if platform_id not in all_hosts:
-            raise HTTPException(status_code=404, detail=f"Host {platform_id} not found")
-
-        host = all_hosts[platform_id]
-        venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-        volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+        _, host, venv_path, volttron_home = await _resolve_platform_host_and_paths(
+            platform_id,
+            inventory_service,
+            platform_service,
+        )
 
         body = await request.json()
         content = body.get("content", "")

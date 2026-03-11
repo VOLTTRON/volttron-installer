@@ -497,6 +497,93 @@ def _agents_section() -> rx.Component:
 
 # ─── Save / Cancel bar ───────────────────────────────────────────────────────
 
+def _password_modal() -> rx.Component:
+    """Pure-CSS modal overlay for SSH password entry.
+
+    Uses rx.cond instead of rx.dialog to avoid Radix onOpenChange dismissal.
+    """
+    return rx.cond(
+        State.show_password_dialog,
+        rx.box(
+            # ── backdrop ──
+            rx.box(
+                position="fixed",
+                top="0",
+                left="0",
+                width="100vw",
+                height="100vh",
+                background="rgba(0, 0, 0, 0.45)",
+                z_index="9998",
+            ),
+            # ── centred card ──
+            rx.card(
+                rx.flex(
+                    rx.heading("Enter SSH Password", size="4", weight="bold"),
+                    rx.text(
+                        "Enter the password for SSH connection to deploy the platform.",
+                        size="2",
+                        color="var(--gray-11)",
+                    ),
+                    rx.cond(
+                        State.deploy_password_error != "",
+                        rx.callout(
+                            State.deploy_password_error,
+                            color_scheme="red",
+                            icon="triangle_alert",
+                        ),
+                        rx.fragment(),
+                    ),
+                    rx.input(
+                        value=State.working_platform.password,
+                        on_change=State.update_password_field,
+                        type="password",
+                        placeholder="SSH password",
+                        disabled=State.checking_deploy_connection,
+                        auto_focus=True,
+                    ),
+                    rx.flex(
+                        rx.button(
+                            "Cancel",
+                            variant="soft",
+                            color_scheme="gray",
+                            on_click=State.close_password_deploy_dialog,
+                            disabled=State.checking_deploy_connection,
+                        ),
+                        rx.button(
+                            "Deploy",
+                            on_click=State.handle_save,
+                            color_scheme="green",
+                            loading=State.checking_deploy_connection,
+                            disabled=State.working_platform.password == "",
+                        ),
+                        spacing="3",
+                        mt="2",
+                        justify="end",
+                    ),
+                    direction="column",
+                    spacing="3",
+                ),
+                position="fixed",
+                top="50%",
+                left="50%",
+                transform="translate(-50%, -50%)",
+                z_index="9999",
+                width="420px",
+                max_width="90vw",
+                padding="24px",
+                box_shadow="0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+            ),
+            # wrapper – purely structural, no visual
+            position="fixed",
+            top="0",
+            left="0",
+            width="0",
+            height="0",
+        ),
+        rx.fragment(),
+    )
+
+
 def _action_bar() -> rx.Component:
     deploy_btn = rx.cond(
         State.platform_deployed,
@@ -504,50 +591,35 @@ def _action_bar() -> rx.Component:
         "Save & Deploy",
     )
     is_disabled = ~((State.instance_savable) & (State.instance_uncaught))
-    return rx.hstack(
-        rx.cond(
-            State.needs_password_for_deployment,
-            rx.dialog.root(
-                rx.dialog.trigger(
-                    rx.button(deploy_btn, size="3", variant="solid", color_scheme="green", disabled=is_disabled),
+    return rx.fragment(
+        _password_modal(),
+        rx.hstack(
+            rx.cond(
+                ~State.is_local_connection,
+                rx.button(
+                    deploy_btn,
+                    size="3",
+                    variant="solid",
+                    color_scheme="green",
+                    disabled=is_disabled,
+                    on_click=State.open_password_deploy_dialog,
                 ),
-                rx.dialog.content(
-                    rx.dialog.title("Enter SSH Password"),
-                    rx.dialog.description("Enter the password for SSH connection to deploy the platform.", size="2", mb="4"),
-                    rx.flex(
-                        rx.input(
-                            value=State.working_platform.password,
-                            on_change=State.update_password_field,
-                            type="password",
-                            placeholder="SSH password",
-                        ),
-                        rx.flex(
-                            rx.dialog.close(rx.button("Cancel", variant="soft", color_scheme="gray")),
-                            rx.dialog.close(rx.button("Deploy", on_click=State.handle_save, color_scheme="green")),
-                            spacing="3",
-                            mt="4",
-                            justify="end",
-                        ),
-                        direction="column",
-                        spacing="3",
-                    ),
-                ),
+                rx.button(deploy_btn, size="3", variant="solid", color_scheme="green",
+                          on_click=State.handle_save, disabled=is_disabled),
             ),
-            rx.button(deploy_btn, size="3", variant="solid", color_scheme="green",
-                      on_click=State.handle_save, disabled=is_disabled),
+            rx.button(
+                "Cancel",
+                size="3",
+                variant="soft",
+                color_scheme="gray",
+                on_click=State.handle_cancel,
+                disabled=~State.instance_uncaught,
+            ),
+            spacing="3",
+            padding_top="1rem",
+            justify="end",
+            width="100%",
         ),
-        rx.button(
-            "Cancel",
-            size="3",
-            variant="soft",
-            color_scheme="gray",
-            on_click=State.handle_cancel,
-            disabled=~State.instance_uncaught,
-        ),
-        spacing="3",
-        padding_top="1rem",
-        justify="end",
-        width="100%",
     )
 
 

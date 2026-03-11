@@ -69,6 +69,30 @@ class PlatformStatusState(PlatformLogState):
         return self._last_status_check
 
     @rx.var
+    def last_status_check_ago(self) -> str:
+        if not self._last_status_check:
+            return ""
+        try:
+            then = datetime.strptime(self._last_status_check, "%Y-%m-%d %H:%M:%S")
+            diff = datetime.now() - then
+            seconds = int(diff.total_seconds())
+            if seconds < 5:
+                return "just now"
+            if seconds < 60:
+                return f"{seconds} seconds ago"
+            minutes = seconds // 60
+            if minutes == 1:
+                return "1 minute ago"
+            if minutes < 60:
+                return f"{minutes} minutes ago"
+            hours = minutes // 60
+            if hours == 1:
+                return "1 hour ago"
+            return f"{hours} hours ago"
+        except Exception:
+            return ""
+
+    @rx.var
     def starting_platform(self) -> bool:
         return self._starting_platform
 

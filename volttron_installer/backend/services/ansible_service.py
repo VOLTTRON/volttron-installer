@@ -24,6 +24,43 @@ class AnsibleService:
             playbook_dir = Path.home() / '.ansible/collections/ansible_collections/volttron/deployment'
         self.playbook_dir = playbook_dir
 
+    @staticmethod
+    def _sanitize_instance_suffix(instance_name: str) -> str:
+        cleaned = "".join(ch if (ch.isalnum() or ch in "_-" ) else "-" for ch in (instance_name or ""))
+        cleaned = cleaned.strip("-")
+        return cleaned or "instance"
+
+    def _effective_instance_paths(self, host: HostEntry, instance_name: str) -> tuple[str, str]:
+        suffix = self._sanitize_instance_suffix(instance_name)
+        base_venv = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
+        base_home = host.volttron_home if host.volttron_home else "~/.volttron"
+
+        if base_venv.strip() == "~/volttron.venv":
+            effective_venv = f"~/.volttron/venvs/{suffix}"
+        else:
+            effective_venv = f"{base_venv}.{suffix}"
+
+        if base_home.strip() == "~/.volttron":
+            effective_home = f"~/.volttron/instances/{suffix}"
+        else:
+            effective_home = f"{base_home}.{suffix}"
+
+        return effective_venv, effective_home
+
+    async def _resolve_platform_host(self, platform_id: str, host_id: str, instance_name: str) -> HostEntry | None:
+        inventory_service = await get_inventory_service()
+        all_hosts = await inventory_service.get_hosts()
+
+        host = all_hosts.get(instance_name)
+        if host is not None:
+            return host
+
+        host = all_hosts.get(platform_id)
+        if host is not None:
+            return host
+
+        return await inventory_service.get_host(host_id)
+
     async def run_ssh_command(self, host: 'HostEntry', command: str, timeout: int = 30) -> tuple[int, str, str]:
         """Run a command via SSH directly (bypassing Ansible for speed).
         For local connections, runs command directly without SSH.
@@ -326,8 +363,7 @@ class AnsibleService:
         """
         try:
             # Check if VOLTTRON is running - first via PID file (instant), then fallback to vctl
-            venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-            volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+            venv_path, volttron_home = self._effective_instance_paths(host, instance_name)
 
             # PID file check is more reliable than vctl during startup/shutdown transitions
             # because vctl needs the platform to be fully initialized to connect
@@ -378,8 +414,7 @@ fi
                 return False, {}
 
             # Build the vctl status command
-            venv_path = host.volttron_venv if host.volttron_venv else "~/volttron.venv"
-            volttron_home = host.volttron_home if host.volttron_home else "~/.volttron"
+            venv_path, volttron_home = self._effective_instance_paths(host, instance_name)
 
             # Command to activate venv and run vctl --json status (POSIX-safe activation)
             cmd = f"export VOLTTRON_HOME={volttron_home} && . {venv_path}/bin/activate && vctl --json status"
@@ -502,13 +537,10 @@ fi
             logger.error(f"Platform {platform_id} not found")
             raise Exception(f"Platform {platform_id} not found")
 
-        # Get all hosts and access by instance name (which is the inventory key)
-        all_hosts = await inventory_service.get_hosts()
-        if platform.config.instance_name not in all_hosts:
+        host = await self._resolve_platform_host(platform_id, platform.host_id, platform.config.instance_name)
+        if host is None:
             logger.error(f"Host entry for {platform.config.instance_name} not found in inventory")
             raise Exception(f"Host entry for {platform.config.instance_name} not found in inventory")
-            
-        host = all_hosts[platform.config.instance_name]
 
         logger.debug(f"Host: {host}")
 

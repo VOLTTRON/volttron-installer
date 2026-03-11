@@ -10,6 +10,7 @@ python = "3.10.*"
 pip = "*"
 pytest = "*"
 sshpass = ">=1.6,<2"
+playwright = ">=1.58.2,<2"
 
 [activation]
 env = { PYTHONNOUSERSITE = "1" }

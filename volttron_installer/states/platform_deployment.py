@@ -264,6 +264,12 @@ class PlatformDeploymentState(PlatformAgentState):
                     logger.info(f"[DEPLOY] Python version issue detected, showing pyenv prompt")
                     self._show_pyenv_dialog = True
                     self._pyenv_error = "Python 3.10 is required but not found on the remote host."
+        finally:
+            async with self:
+                self._is_deploying = False
+                # Ensure preflight loading state is not left active in PlatformPageState.
+                if hasattr(self, "checking_deploy_connection"):
+                    self.checking_deploy_connection = False
 
     @rx.event(background=True)
     async def handle_install_pyenv(self):

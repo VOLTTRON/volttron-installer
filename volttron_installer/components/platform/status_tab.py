@@ -165,7 +165,7 @@ def _connection_detail_badges() -> rx.Component:
             rx.hstack(
                 rx.icon("folder", size=12),
                 rx.text("VOLTTRON_HOME:", size="2", weight="medium"),
-                rx.text(State.working_platform.host.volttron_home, size="2"),
+                rx.text(State.effective_volttron_home, size="2"),
                 rx.icon("copy", size=12),
                 spacing="1",
                 align="center",
@@ -176,7 +176,7 @@ def _connection_detail_badges() -> rx.Component:
             on_click=rx.call_script(
                 "navigator.clipboard.writeText('"
                 + "export VOLTTRON_HOME="
-                + State.working_platform.host.volttron_home
+                + State.effective_volttron_home
                 + "')"
             ),
             style={"cursor": "pointer"},
@@ -185,7 +185,7 @@ def _connection_detail_badges() -> rx.Component:
             rx.hstack(
                 rx.icon("box", size=12),
                 rx.text("venv:", size="2", weight="medium"),
-                rx.text(State.working_platform.host.volttron_venv, size="2"),
+                rx.text(State.effective_volttron_venv, size="2"),
                 rx.icon("copy", size=12),
                 spacing="1",
                 align="center",
@@ -196,7 +196,7 @@ def _connection_detail_badges() -> rx.Component:
             on_click=rx.call_script(
                 "navigator.clipboard.writeText('"
                 + "source "
-                + State.working_platform.host.volttron_venv
+                + State.effective_volttron_venv
                 + "/bin/activate"
                 + "')"
             ),
@@ -497,6 +497,11 @@ def _deployed_content() -> rx.Component:
                         rx.text(
                             rx.cond(State.last_status_check != "", State.last_status_check, "Not checked yet"),
                             size="3",
+                        ),
+                        rx.cond(
+                            State.last_status_check_ago != "",
+                            rx.text(State.last_status_check_ago, size="2", color="gray"),
+                            rx.fragment(),
                         ),
                         spacing="2",
                         align="start",

@@ -113,8 +113,43 @@ def platform_overview() -> rx.Component:
             ),
             rx.table.body(
                 rx.foreach(
-                    PlatformState.in_file_platforms,
-                    platform_row
+                    PlatformState.in_file_platform_groups,
+                    lambda device_group: rx.fragment(
+                        rx.table.row(
+                            rx.table.cell(
+                                rx.hstack(
+                                    rx.icon("server", size=14, color="var(--gray-9)"),
+                                    rx.text(device_group.device_label, size="2", weight="bold"),
+                                    rx.cond(
+                                        device_group.ansible_user != "",
+                                        rx.hstack(
+                                            rx.text("(", size="1", color="var(--gray-10)"),
+                                            rx.text(device_group.ansible_user, size="1", color="var(--gray-10)"),
+                                            rx.text(")", size="1", color="var(--gray-10)"),
+                                            spacing="0",
+                                            align="center",
+                                        ),
+                                        rx.fragment(),
+                                    ),
+                                    rx.badge(
+                                        device_group.instance_count,
+                                        variant="soft",
+                                        color_scheme="gray",
+                                        size="1",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                ),
+                                col_span=6,
+                                style={
+                                    "background": "var(--gray-2)",
+                                    "borderTop": "1px solid var(--gray-4)",
+                                    "borderBottom": "1px solid var(--gray-4)",
+                                },
+                            ),
+                        ),
+                        rx.foreach(device_group.instances, platform_row),
+                    ),
                 )
             ),
             width="100%",

@@ -383,6 +383,11 @@ class PlatformPageState(DriverManagementState):
     _connect_ssh_user: str = ""
     _connect_ssh_port: str = "22"
 
+    # Remote deploy password dialog state
+    show_password_dialog: bool = False
+    deploy_password_error: str = ""
+    checking_deploy_connection: bool = False
+
     @rx.event(background=True)
     async def on_platform_page_load(self):
         """Ensure platform data is hydrated and status is refreshed on page load."""
@@ -1097,6 +1102,11 @@ class PlatformPageState(DriverManagementState):
         if self.current_uid not in self.platforms:
             return
         working_platform: Instance = self.platforms[self.current_uid]
+
+        # Reset deploy password flow UI state.
+        self.checking_deploy_connection = False
+        self.deploy_password_error = ""
+        self.show_password_dialog = False
         
         # Revert back to our previous host entry
         working_platform.host = HostEntryModelView(**working_platform.safe_host_entry)
@@ -1500,6 +1510,7 @@ class PlatformPageState(DriverManagementState):
     @rx.event
     def update_password_field(self, value: str):
         uid = self.current_uid
+        logger.debug(f"[PWD_DIALOG] update_password_field called, uid={uid!r}, _show_password_dialog={self.show_password_dialog}")
         if uid not in self.platforms:
             uid = next(
                 (k for k, v in self.platforms.items()
@@ -1507,9 +1518,31 @@ class PlatformPageState(DriverManagementState):
                 "",
             )
         if uid == "" or uid not in self.platforms:
+            logger.debug(f"[PWD_DIALOG] update_password_field ABORT: uid={uid!r} not found")
             return
         working_platform_instance = self.platforms[uid]
         working_platform_instance.password = value
+        logger.debug(f"[PWD_DIALOG] password updated, _show_password_dialog still={self.show_password_dialog}")
+
+    @rx.event
+    def open_password_deploy_dialog(self):
+        logger.debug(f"[PWD_DIALOG] open_password_deploy_dialog called, current_uid={self.current_uid!r}, in_platforms={self.current_uid in self.platforms}")
+        if self.current_uid not in self.platforms:
+            logger.debug("[PWD_DIALOG] ABORT: current_uid not in platforms")
+            return
+        self.deploy_password_error = ""
+        self.show_password_dialog = True
+        logger.debug(f"[PWD_DIALOG] _show_password_dialog set to True")
+
+    @rx.event
+    def close_password_deploy_dialog(self):
+        logger.debug(f"[PWD_DIALOG] close_password_deploy_dialog called")
+        if self.current_uid in self.platforms:
+            self.platforms[self.current_uid].password = ""
+        self.checking_deploy_connection = False
+        self.deploy_password_error = ""
+        self.show_password_dialog = False
+        logger.debug(f"[PWD_DIALOG] _show_password_dialog set to False")
 
     @rx.event
     def use_local_details(self):
@@ -1760,6 +1793,17 @@ class PlatformPageState(DriverManagementState):
             return
         working_platform: Instance = self.platforms[self.current_uid]
         uid_copy = deepcopy(self.current_uid)
+        is_remote_connection = working_platform.host.ansible_connection != "local"
+
+        if is_remote_connection and working_platform.password == "":
+            self.deploy_password_error = "Please enter your SSH password to continue deployment."
+            self.show_password_dialog = True
+            return
+
+        if is_remote_connection:
+            self.checking_deploy_connection = True
+            self.deploy_password_error = ""
+            yield
 
         logger.debug(f"this is the uid copy: {uid_copy}")
         all_platforms: list[PlatformDefinition] = await get_all_platforms()
@@ -1802,35 +1846,72 @@ class PlatformPageState(DriverManagementState):
         # instance name in the API) or creating a brand-new one (uid_copy is a temp random id).
         is_existing_platform = uid_copy in api_instance_names
 
-        if is_existing_platform:
-            # ── Editing an already-saved platform ────────────────────────────
-            logger.debug(f"Updating existing platform {uid_copy!r} (desired name: {desired_name!r})")
-            await update_platform(uid_copy, base_platform_request)
-            # If the instance was renamed the old key still lives in api; keep memory key aligned
-            if uid_copy != desired_name:
-                self.platforms[desired_name] = self.platforms.pop(uid_copy, working_platform)
-        else:
-            # ── Creating a new platform ──────────────────────────────────────
-            # Guard: if the desired instance name is taken by a *different* platform, refuse.
-            if desired_name in api_instance_names:
+        try:
+            if is_existing_platform:
+                # ── Editing an already-saved platform ────────────────────────────
+                logger.debug(f"Updating existing platform {uid_copy!r} (desired name: {desired_name!r})")
+                await update_platform(uid_copy, base_platform_request)
+                # If the instance was renamed the old key still lives in api; keep memory key aligned
+                if uid_copy != desired_name:
+                    self.platforms[desired_name] = self.platforms.pop(uid_copy, working_platform)
+            else:
+                # ── Creating a new platform ──────────────────────────────────────
+                # Guard: if the desired instance name is taken by a *different* platform, refuse.
+                if desired_name in api_instance_names:
+                    yield rx.toast.error(
+                        f"An instance named '{desired_name}' already exists. "
+                        "Please choose a different name before saving."
+                    )
+                    return
+
+                host_request = working_platform.host.to_dict()
+                host_request["ansible_port"] = int(host_request["ansible_port"])
+                host_request["instance_name"] = desired_name
+                logger.info(f"[SAVE] Host request volttron_home: '{host_request.get('volttron_home')}'")
+                logger.info(f"[SAVE] Host request volttron_venv: '{host_request.get('volttron_venv')}'")
+                request = CreateOrUpdateHostEntryRequest(**host_request)
+                await add_host(request)
+                await create_platform(base_platform_request)
+
+                # Register the platform under its proper instance-name key
+                self.platforms[desired_name] = working_platform
+                logger.debug(f"Platform created, platforms now: {list(self.platforms.keys())}")
+        except ApiError as e:
+            self.checking_deploy_connection = False
+            self.deploy_password_error = ""
+            self.show_password_dialog = False
+
+            message = e.detail
+            try:
+                parsed = json.loads(e.detail)
+                if isinstance(parsed, dict) and parsed.get("detail"):
+                    message = parsed["detail"]
+            except Exception:
+                pass
+
+            # If VIP collides on same host, auto-suggest the next port and let user retry.
+            if e.status_code == 409 and "VIP port collision" in message:
+                current_vip = working_platform.platform.config.vip_address
+                host_match = re.match(r"^tcp://([^:]+):(\d+)$", current_vip)
+                vip_host = host_match.group(1) if host_match else "127.0.0.1"
+                used_ports = set()
+                for p in all_platforms:
+                    m = re.match(r"^tcp://[^:]+:(\d+)$", p.config.vip_address)
+                    if m:
+                        used_ports.add(int(m.group(1)))
+                next_port = 22916
+                while next_port in used_ports:
+                    next_port += 1
+                working_platform.platform.config.vip_address = f"tcp://{vip_host}:{next_port}"
+                working_platform.uncaught = True
                 yield rx.toast.error(
-                    f"An instance named '{desired_name}' already exists. "
-                    "Please choose a different name before saving."
+                    f"{message} Suggested VIP updated to tcp://{vip_host}:{next_port}. "
+                    "Click Save & Deploy again."
                 )
                 return
 
-            host_request = working_platform.host.to_dict()
-            host_request["ansible_port"] = int(host_request["ansible_port"])
-            host_request["instance_name"] = desired_name
-            logger.info(f"[SAVE] Host request volttron_home: '{host_request.get('volttron_home')}'")
-            logger.info(f"[SAVE] Host request volttron_venv: '{host_request.get('volttron_venv')}'")
-            request = CreateOrUpdateHostEntryRequest(**host_request)
-            await add_host(request)
-            await create_platform(base_platform_request)
-
-            # Register the platform under its proper instance-name key
-            self.platforms[desired_name] = working_platform
-            logger.debug(f"Platform created, platforms now: {list(self.platforms.keys())}")
+            yield rx.toast.error(f"Save failed: {message}")
+            return
 
         # Always clean up the temp random-UID entry so it never leaks
         if uid_copy != desired_name and uid_copy in self.platforms:
@@ -1889,14 +1970,22 @@ class PlatformPageState(DriverManagementState):
                 working_platform.platform.in_file = True
                 working_platform.new_instance = False
                 working_platform.platform.safe_platform = working_platform.platform.to_dict()
+                self.checking_deploy_connection = False
+                self.deploy_password_error = friendly
+                self.show_password_dialog = True
+                # Force a fresh re-entry after failed auth/preflight.
+                working_platform.password = ""
                 try:
                     await mark_platform_deployed(desired_name, False)
                 except Exception:
                     pass
 
-                yield NavigationState.route_to_platform(desired_name)
                 yield rx.toast.error(friendly)
                 return
+
+        self.checking_deploy_connection = False
+        self.deploy_password_error = ""
+        self.show_password_dialog = False
 
         yield rx.toast.success("Configuration saved, starting deployment...")
 

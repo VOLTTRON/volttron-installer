@@ -377,7 +377,7 @@ def _home_dashboard() -> rx.Component:
     """Shown when at least one instance exists."""
     return rx.vstack(
         # Stats row
-        rx.hstack(
+        rx.grid(
             rx.card(
                 rx.vstack(
                     rx.text("Total Instances", size="1", color="var(--gray-9)", weight="medium"),
@@ -385,11 +385,11 @@ def _home_dashboard() -> rx.Component:
                     spacing="1",
                     align_items="start",
                 ),
-                width="180px",
+                width="100%",
             ),
             rx.card(
                 rx.vstack(
-                    rx.text("Deployed", size="1", color="var(--gray-9)", weight="medium"),
+                    rx.text("Deployed Instances", size="1", color="var(--gray-9)", weight="medium"),
                     rx.hstack(
                         rx.text(PlatformPageState.deployed_instance_count, size="7", weight="bold", color="var(--green-10)"),
                         spacing="2",
@@ -398,34 +398,107 @@ def _home_dashboard() -> rx.Component:
                     spacing="1",
                     align_items="start",
                 ),
-                width="180px",
+                width="100%",
             ),
+            rx.card(
+                rx.vstack(
+                    rx.text("Devices", size="1", color="var(--gray-9)", weight="medium"),
+                    rx.text(PlatformPageState.total_device_count, size="7", weight="bold"),
+                    rx.text("Unique host targets", size="1", color="var(--gray-9)"),
+                    spacing="1",
+                    align_items="start",
+                ),
+                width="100%",
+            ),
+            columns=rx.breakpoints(initial="1", sm="3"),
             spacing="4",
+            width="100%",
         ),
-        # Two-column layout: instances list + links
+        # Two-column layout: featured + device summary + links
         rx.hstack(
-            # Instances list
+            # Featured instance and device summary
             rx.vstack(
-                rx.hstack(
-                    rx.heading("Instances", size="4", weight="bold"),
-                    rx.spacer(),
-                    rx.button(
-                        rx.icon("plus", size=14),
-                        "Add",
-                        size="1",
-                        variant="soft",
-                        on_click=PlatformPageState.show_create_platform_options,
+                rx.card(
+                    rx.vstack(
+                        rx.hstack(
+                            rx.heading("Latest Deployment Spotlight", size="4", weight="bold"),
+                            rx.spacer(),
+                            rx.button(
+                                rx.icon("plus", size=14),
+                                "Add Instance",
+                                size="1",
+                                variant="soft",
+                                on_click=PlatformPageState.show_create_platform_options,
+                            ),
+                            width="100%",
+                            align="center",
+                        ),
+                        _instance_card(PlatformPageState.home_featured_instance),
+                        rx.text(
+                            "Home focuses on fleet health. Use Instances for full instance management.",
+                            size="1",
+                            color="var(--gray-9)",
+                        ),
+                        spacing="3",
+                        width="100%",
+                        align_items="start",
                     ),
                     width="100%",
-                    align="center",
                 ),
-                rx.foreach(
-                    PlatformPageState.in_file_platforms,
-                    _instance_card,
+                rx.card(
+                    rx.vstack(
+                        rx.heading("Device Summary", size="4", weight="bold"),
+                        rx.foreach(
+                            PlatformPageState.in_file_platform_groups,
+                            lambda g: rx.hstack(
+                                rx.vstack(
+                                    rx.text(g.device_label, size="2", weight="medium"),
+                                    rx.text(
+                                        rx.cond(
+                                            g.ansible_user != "",
+                                            g.ansible_user,
+                                            "No user",
+                                        ),
+                                        size="1",
+                                        color="var(--gray-9)",
+                                    ),
+                                    spacing="1",
+                                    align_items="start",
+                                ),
+                                rx.spacer(),
+                                rx.vstack(
+                                    rx.badge(
+                                        g.instance_count.to_string() + " instances",
+                                        variant="soft",
+                                        color_scheme="gray",
+                                        size="1",
+                                    ),
+                                    rx.badge(
+                                        rx.cond(
+                                            g.deployed_count > 0,
+                                            "Has deployed",
+                                            "No deployed",
+                                        ),
+                                        variant="soft",
+                                        color_scheme=rx.cond(g.deployed_count > 0, "green", "gray"),
+                                        size="1",
+                                    ),
+                                    spacing="1",
+                                    align="end",
+                                ),
+                                width="100%",
+                                align="center",
+                            ),
+                        ),
+                        spacing="3",
+                        width="100%",
+                        align_items="start",
+                    ),
+                    width="100%",
                 ),
                 rx.link(
                     rx.hstack(
-                        rx.text("View all instances", size="2", color="var(--accent-9)"),
+                        rx.text("Open full Instances management", size="2", color="var(--accent-9)"),
                         rx.icon("arrow-right", size=13, color="var(--accent-9)"),
                         spacing="1",
                         align="center",
@@ -440,6 +513,11 @@ def _home_dashboard() -> rx.Component:
             rx.vstack(
                 rx.vstack(
                     rx.heading("Quick Links", size="4", weight="bold"),
+                    rx.text(
+                        "Reference and ecosystem links for day-to-day operations.",
+                        size="1",
+                        color="var(--gray-9)",
+                    ),
                     rx.link(
                         rx.text("VOLTTRON Documentation", size="2", color="var(--accent-9)"),
                         href="https://volttron.readthedocs.io/en/main/",
@@ -477,6 +555,7 @@ def _home_dashboard() -> rx.Component:
             spacing="8",
             align_items="start",
             width="100%",
+            direction=rx.breakpoints(initial="column", md="row"),
         ),
         spacing="5",
         align_items="start",
