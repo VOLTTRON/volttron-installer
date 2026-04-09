@@ -1,0 +1,48 @@
+- generic [ref=e2]:
+  - generic "Connection Error:"
+  - region "Notifications alt+T"
+  - generic [ref=e3]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img [ref=e7]
+        - heading "VOLTTRON Installer" [level=1] [ref=e8]
+      - generic [ref=e9]:
+        - link "Home" [ref=e10] [cursor=pointer]:
+          - /url: /
+          - generic [ref=e11]:
+            - img [ref=e12]
+            - paragraph [ref=e15]: Home
+        - link "Instances" [ref=e16] [cursor=pointer]:
+          - /url: /instances
+          - generic [ref=e17]:
+            - img [ref=e18]
+            - paragraph [ref=e23]: Instances
+        - generic [ref=e25]:
+          - heading "Tools" [level=3] [ref=e26]:
+            - button "Tools" [expanded] [ref=e27]:
+              - paragraph [ref=e28]: Tools
+              - img [ref=e29]
+          - region "Tools" [ref=e31]:
+            - link "BACnet Scan" [ref=e33] [cursor=pointer]:
+              - /url: /tools/bacnet_scan
+              - generic [ref=e34]:
+                - img [ref=e35]
+                - paragraph [ref=e38]: BACnet Scan
+      - generic [ref=e40]:
+        - button [ref=e41]:
+          - img [ref=e42]
+        - paragraph [ref=e48]:
+          - switch [ref=e49]
+    - generic [ref=e52]:
+      - paragraph [ref=e53]: Home
+      - generic [ref=e55]:
+        - img [ref=e56]
+        - heading "Set up your first instance" [level=1] [ref=e59]
+        - paragraph [ref=e60]: Deploy a new VOLTTRON platform or connect to an existing one to get started.
+        - generic [ref=e61]:
+          - button "Deploy New Instance" [ref=e62] [cursor=pointer]:
+            - img [ref=e63]
+            - text: Deploy New Instance
+          - button "Connect Existing" [ref=e68] [cursor=pointer]:
+            - img [ref=e69]
+            - text: Connect Existing

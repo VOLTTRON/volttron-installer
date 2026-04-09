@@ -3,7 +3,7 @@ from ...state import PlatformPageState as State
 from .status_tab import data_tab_content
 from .configuration_tab import configuration_tab_content
 from .logs_tab import logs_tab_content
-from ...pages.drivers_tab_content import drivers_tab_content
+from ...pages.drivers.drivers_tab_content import drivers_tab_content
 
 
 def _nav_item(label: str, icon: str, value: str, disabled: bool | rx.Var = False) -> rx.Component:

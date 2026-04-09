@@ -1,0 +1,141 @@
+- generic [ref=e2]:
+  - generic "Connection Error:"
+  - region "Notifications alt+T"
+  - generic [ref=e72]:
+    - generic [ref=e73]:
+      - link [ref=e74] [cursor=pointer]:
+        - /url: /instances
+        - img [ref=e78]
+      - paragraph [ref=e80]: New Platform
+    - img [ref=e85] [cursor=pointer]
+  - generic [ref=e89]:
+    - generic [ref=e90]:
+      - generic [ref=e91]:
+        - paragraph [ref=e92]: Platform
+        - paragraph [ref=e93]: volttron-XyMvofF
+      - generic [ref=e95]:
+        - generic [ref=e97]:
+          - img [ref=e98]
+          - paragraph [ref=e100]: Overview
+        - generic [ref=e102]:
+          - img [ref=e103]
+          - paragraph [ref=e106]: Drivers
+        - generic [ref=e108]:
+          - img [ref=e109]
+          - paragraph [ref=e112]: Logs
+      - generic [ref=e117] [cursor=pointer]:
+        - img [ref=e118]
+        - paragraph [ref=e121]: Setup
+    - generic [ref=e124]:
+      - generic [ref=e125]:
+        - generic [ref=e126]:
+          - img [ref=e127]
+          - paragraph [ref=e132]: Connection
+        - generic [ref=e133]:
+          - paragraph [ref=e134]: Install Locally?
+          - button "Use Local Connection" [ref=e135] [cursor=pointer]
+        - generic [ref=e137]:
+          - paragraph [ref=e139]: Host *
+          - generic [ref=e141]:
+            - textbox [ref=e143]
+            - img [ref=e144]
+        - generic [ref=e148]:
+          - generic [ref=e149]:
+            - paragraph [ref=e150]: Username *
+            - img [ref=e151]
+          - textbox [ref=e155]
+        - generic [ref=e158]:
+          - generic [ref=e159]:
+            - paragraph [ref=e160]: SSH Port *
+            - img [ref=e161]
+          - textbox [ref=e165]: "22"
+        - heading "Advanced Settings" [level=3] [ref=e169]:
+          - button "Advanced Settings" [ref=e170]:
+            - generic [ref=e171]:
+              - img [ref=e172]
+              - paragraph [ref=e175]: Advanced Settings
+            - img [ref=e176]
+      - generic [ref=e178]:
+        - generic [ref=e179]:
+          - img [ref=e180]
+          - paragraph [ref=e183]: Instance Configuration
+        - generic [ref=e185]:
+          - generic [ref=e186]:
+            - paragraph [ref=e187]: Instance Name *
+            - img [ref=e188]
+          - textbox [ref=e192]: volttron-XyMvofF
+        - generic [ref=e195]:
+          - generic [ref=e196]:
+            - paragraph [ref=e197]: Type
+            - img [ref=e198]
+          - generic [ref=e201]:
+            - generic [ref=e202]:
+              - button "Modular" [ref=e203] [cursor=pointer]
+              - button "Monolithic" [ref=e204] [cursor=pointer]
+            - paragraph [ref=e205]: Agents are pip packages installed independently — modern and easy to maintain.
+        - generic [ref=e208]:
+          - generic [ref=e209]:
+            - paragraph [ref=e210]: Version
+            - img [ref=e211]
+          - textbox "e.g. 2.0.0rc20 (leave blank for latest)" [ref=e215]:
+            - /placeholder: e.g. 2.0.0rc20  (leave blank for latest)
+        - generic [ref=e218]:
+          - generic [ref=e219]:
+            - paragraph [ref=e220]: VIP Address *
+            - img [ref=e221]
+          - textbox [ref=e225]: tcp://127.0.0.1:22916
+        - generic [ref=e227]:
+          - checkbox [ref=e230]
+          - generic [ref=e231]:
+            - paragraph [ref=e232]: Enable Web Interface
+            - paragraph [ref=e233]: Browser-based platform management and monitoring
+        - generic [ref=e235]:
+          - checkbox [ref=e238]
+          - generic [ref=e239]:
+            - paragraph [ref=e240]: Join a Federation
+            - paragraph [ref=e241]: Connect this platform to a multi-platform VOLTTRON federation
+      - generic [ref=e242]:
+        - generic [ref=e243]:
+          - img [ref=e244]
+          - paragraph [ref=e247]: Pre-Deployment Agents
+        - paragraph [ref=e248]: Add agents that will be installed when this platform is deployed. You can also add or remove agents later from the Overview tab.
+        - generic [ref=e249]:
+          - generic [ref=e250]:
+            - paragraph [ref=e251]: Available
+            - generic [ref=e252]:
+              - generic [ref=e253]:
+                - paragraph [ref=e254]: listener
+                - button [ref=e255]:
+                  - img [ref=e256]
+              - generic [ref=e257]:
+                - paragraph [ref=e258]: platform.driver
+                - button [ref=e259]:
+                  - img [ref=e260]
+              - generic [ref=e261]:
+                - paragraph [ref=e262]: platform.actuator
+                - button [ref=e263]:
+                  - img [ref=e264]
+              - generic [ref=e265]:
+                - paragraph [ref=e266]: platform.bacnet_proxy
+                - button [ref=e267]:
+                  - img [ref=e268]
+              - generic [ref=e269]:
+                - paragraph [ref=e270]: data.mover
+                - button [ref=e271]:
+                  - img [ref=e272]
+              - generic [ref=e273]:
+                - paragraph [ref=e274]: dnp3-outstation-agent
+                - button [ref=e275]:
+                  - img [ref=e276]
+              - generic [ref=e277]:
+                - paragraph [ref=e278]: forward.historian
+                - button [ref=e279]:
+                  - img [ref=e280]
+              - generic [ref=e281]:
+                - paragraph
+                - button [ref=e282]:
+                  - img [ref=e283]
+          - paragraph [ref=e286]: Selected
+      - generic [ref=e287]:
+        - button "Save & Deploy" [disabled] [ref=e288] [cursor=pointer]
+        - button "Cancel" [disabled] [ref=e289] [cursor=pointer]

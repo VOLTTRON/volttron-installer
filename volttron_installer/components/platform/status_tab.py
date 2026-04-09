@@ -272,6 +272,14 @@ def _instance_information_card() -> rx.Component:
 def _agents_card() -> rx.Component:
     return rx.card(
         rx.vstack(
+            rx.cond(
+                State.agent_action_message != "",
+                rx.callout(
+                    State.agent_action_message,
+                    icon="loader",
+                    color_scheme="blue",
+                ),
+            ),
             rx.hstack(
                 rx.vstack(
                     rx.heading("Agents", size="5"),
@@ -558,6 +566,11 @@ def _deployed_content() -> rx.Component:
             rx.moment(
                 interval=15000,
                 on_change=State.check_connection,
+                display="none",
+            ),
+            rx.moment(
+                interval=15000,
+                on_change=State.refresh_platform_status,
                 display="none",
             ),
             spacing="4",

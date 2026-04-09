@@ -1,14 +1,13 @@
 import reflex as rx
-import asyncio
 from loguru import logger
 from ..models import Instance
 from ..model_views import AgentModelView
 from ..thin_endpoint_wrappers import (
-    install_agent, remove_agent, start_agent, stop_agent, get_platform_status,
+    install_agent, remove_agent, start_agent, stop_agent,
     get_github_agents, get_local_agents, ApiError,
 )
 
-from .platform_status import PlatformStatusState
+from .platform_status import PlatformStatusState, _status_lock
 
 class PlatformAgentState(PlatformStatusState):
     # Install agent dialog
@@ -26,17 +25,22 @@ class PlatformAgentState(PlatformStatusState):
     _show_remove_agent_dialog: bool = False
     _agent_to_remove_uuid: str = ""
     _agent_to_remove_name: str = ""
+    _agent_action_message: str = ""  # Status message shown while agent actions are in flight
+
+    @rx.var
+    def show_install_agent_dialog(self) -> bool:
+        return self._show_install_agent_dialog
 
     @rx.var
     def install_agent_mode(self) -> str:
         return self._install_agent_mode
-    
+
     @rx.var
     def install_agent_identity(self) -> str:
         """Autofill agent identity based on source if not explicitly set"""
         if self._install_agent_identity:
             return self._install_agent_identity
-        
+
         # Try to infer from source for convenience
         src = self._install_agent_source
         if src:
@@ -45,15 +49,15 @@ class PlatformAgentState(PlatformStatusState):
             elif "volttron-" in src:
                 return src.replace("volttron-", "")
         return ""
-    
+
     @rx.var
     def install_agent_source(self) -> str:
         return self._install_agent_source
-    
+
     @rx.var
     def install_agent_start(self) -> bool:
         return self._install_agent_start
-    
+
     @rx.var
     def installing_agent(self) -> bool:
         return self._installing_agent
@@ -74,6 +78,10 @@ class PlatformAgentState(PlatformStatusState):
             return self._selected_local_agent != ""
         else:  # manual
             return self._install_agent_identity != "" and self._install_agent_source != ""
+
+    @rx.var
+    def agent_action_message(self) -> str:
+        return self._agent_action_message
 
     @rx.event
     def open_install_agent_dialog(self):
@@ -317,27 +325,22 @@ class PlatformAgentState(PlatformStatusState):
 
     @rx.event(background=True)
     async def confirm_remove_agent(self):
-        """Actually remove the agent after confirmation"""
-        
-        # Check if status check is in progress to prevent VOLTTRON corruption
+        """Remove the agent after confirmation"""
+        # Check if a status check is already in progress
+        if _status_lock.locked():
+            yield rx.toast.warning("System busy with status check, please wait...")
+            return
+
         async with self:
-            if self._status_check_in_progress:
-                yield rx.toast.warning("System busy with status check, please wait...")
-                return
-            
-            self._status_check_in_progress = True
-            agent_uuid = self._agent_to_remove_uuid
-            
             if not self.current_uid or self.current_uid not in self.platforms:
-                self._status_check_in_progress = False
                 yield rx.toast.error("Platform not found")
                 return
 
             working_platform: Instance = self.working_platform
+            agent_uuid = self._agent_to_remove_uuid
             self.removing_agent_uuid = agent_uuid
             self._show_remove_agent_dialog = False
-
-        yield
+            self._agent_action_message = f"Removing agent {self._agent_to_remove_name}..."
 
         try:
             await remove_agent(
@@ -349,7 +352,8 @@ class PlatformAgentState(PlatformStatusState):
                 self.removing_agent_uuid = ""
                 self._agent_to_remove_uuid = ""
                 self._agent_to_remove_name = ""
-                
+                self._agent_action_message = ""
+
                 # Optimistic update: remove from status dict if present
                 if self._platform_status and "agents" in self._platform_status:
                     agents = self._platform_status["agents"]
@@ -363,24 +367,23 @@ class PlatformAgentState(PlatformStatusState):
                         status["agents"] = {k: v for k, v in status["agents"].items() if k != key_to_remove}
                         self._platform_status = status
 
-            yield rx.toast.success(f"Agent removed successfully!")
+            yield rx.toast.success("Agent removed successfully!")
             yield PlatformStatusState.refresh_platform_status_debounced
 
         except ApiError as e:
             async with self:
                 self.removing_agent_uuid = ""
+                self._agent_action_message = ""
             yield rx.toast.error(f"Failed to remove agent: {e.detail}")
         except Exception as e:
             async with self:
                 self.removing_agent_uuid = ""
+                self._agent_action_message = ""
             yield rx.toast.error(f"Error removing agent: {str(e)}")
-        finally:
-            async with self:
-                self._status_check_in_progress = False
 
     @rx.event(background=True)
     async def handle_start_agent(self, agent_id: str):
-        """Start a specific agent"""
+        """Start a specific agent — fire and forget with debounced status refresh."""
         async with self:
             if not self.current_uid or self.current_uid not in self.platforms:
                 yield rx.toast.error("Platform not found")
@@ -388,75 +391,31 @@ class PlatformAgentState(PlatformStatusState):
 
             working_platform: Instance = self.working_platform
             platform_name = working_platform.platform.config.instance_name
-            logger.info(f"[START_AGENT_UI] Setting starting UUID to: {agent_id}")
             self.starting_agent_uuid = agent_id
-
-        yield rx.call_script("void(0)")  # Force UI update to show spinner
+            self._agent_action_message = f"Starting agent..."
 
         try:
             await start_agent(platform_name, agent_id)
-
-            # Poll for status update
-            for i in range(15):  # 15 seconds timeout
-                await asyncio.sleep(1)
-                
-                # Respect lock to prevent VOLTTRON corruption
-                if self._status_check_in_progress:
-                    continue
-
-                try:
-                    async with self:
-                        self._status_check_in_progress = True
-                    
-                    status_response = await get_platform_status(platform_name)
-                    status = status_response.dict() if hasattr(status_response, 'dict') else status_response
-                    
-                    # Update global status 
-                    async with self:
-                        self._platform_status = status
-                    
-                    # Check agent state
-                    agents = status.get("agents", {})
-                    # Find agent by UUID since agents dict is keyed by identity
-                    agent_info = {}
-                    for a_data in agents.values():
-                        if a_data.get("uuid") == agent_id:
-                            agent_info = a_data
-                            break
-                    
-                    if agent_info.get("state") == "running":
-                        async with self:
-                            self.starting_agent_uuid = "" 
-                        yield rx.call_script("void(0)")
-                        yield rx.toast.success(f"Agent started successfully!")
-                        return 
-                except Exception as poll_error:
-                    logger.debug(f"Error polling status: {poll_error}")
-                finally:
-                    async with self:
-                        self._status_check_in_progress = False
-
-            # Timeout
             async with self:
                 self.starting_agent_uuid = ""
-            yield rx.call_script("void(0)")
-            yield rx.toast.warning("Agent start command sent but status update timed out.")
-            yield self.refresh_platform_status_debounced()
+                self._agent_action_message = ""
+            yield rx.toast.success("Start command sent. Refreshing status...")
+            yield PlatformStatusState.refresh_platform_status_debounced
 
         except ApiError as e:
             async with self:
                 self.starting_agent_uuid = ""
-            yield rx.call_script("void(0)")  # Force UI update
+                self._agent_action_message = ""
             yield rx.toast.error(f"Failed to start agent: {e.detail}")
         except Exception as e:
             async with self:
                 self.starting_agent_uuid = ""
-            yield rx.call_script("void(0)")  # Force UI update
+                self._agent_action_message = ""
             yield rx.toast.error(f"Error starting agent: {str(e)}")
 
     @rx.event(background=True)
     async def handle_stop_agent(self, agent_id: str):
-        """Stop a specific agent"""
+        """Stop a specific agent — fire and forget with debounced status refresh."""
         async with self:
             if not self.current_uid or self.current_uid not in self.platforms:
                 yield rx.toast.error("Platform not found")
@@ -464,67 +423,24 @@ class PlatformAgentState(PlatformStatusState):
 
             working_platform: Instance = self.working_platform
             platform_name = working_platform.platform.config.instance_name
-            logger.info(f"[STOP_AGENT_UI] Setting stopping UUID to: {agent_id}")
             self.stopping_agent_uuid = agent_id
-
-        yield rx.call_script("void(0)")  # Force UI update to show spinner
+            self._agent_action_message = f"Stopping agent..."
 
         try:
             await stop_agent(platform_name, agent_id)
-
-            # Poll for status update
-            for i in range(15):  # 15 seconds timeout
-                await asyncio.sleep(1)
-                
-                # Respect lock to prevent VOLTTRON corruption
-                if self._status_check_in_progress:
-                    continue
-
-                try:
-                    async with self:
-                        self._status_check_in_progress = True
-                    status_response = await get_platform_status(platform_name)
-                    status = status_response.dict() if hasattr(status_response, 'dict') else status_response
-                    
-                    # Update global status 
-                    async with self:
-                        self._platform_status = status
-                    
-                    # Check agent state
-                    agents = status.get("agents", {})
-                    # Find agent by UUID since agents dict is keyed by identity
-                    agent_info = {}
-                    for a_data in agents.values():
-                        if a_data.get("uuid") == agent_id:
-                            agent_info = a_data
-                            break
-                    
-                    if agent_info.get("state") != "running":
-                        async with self:
-                            self.stopping_agent_uuid = ""
-                        yield rx.call_script("void(0)")
-                        yield rx.toast.success(f"Agent stopped successfully!")
-                        return
-                except Exception as poll_error:
-                    logger.debug(f"Error polling status: {poll_error}")
-                finally:
-                    async with self:
-                        self._status_check_in_progress = False
-
-            # Timeout
             async with self:
                 self.stopping_agent_uuid = ""
-            yield rx.call_script("void(0)")
-            yield rx.toast.warning("Agent stop command sent but status update timed out.")
-            yield self.refresh_platform_status_debounced()
+                self._agent_action_message = ""
+            yield rx.toast.success("Stop command sent. Refreshing status...")
+            yield PlatformStatusState.refresh_platform_status_debounced
 
         except ApiError as e:
             async with self:
                 self.stopping_agent_uuid = ""
-            yield rx.call_script("void(0)")  # Force UI update
+                self._agent_action_message = ""
             yield rx.toast.error(f"Failed to stop agent: {e.detail}")
         except Exception as e:
             async with self:
                 self.stopping_agent_uuid = ""
-            yield rx.call_script("void(0)")  # Force UI update
+                self._agent_action_message = ""
             yield rx.toast.error(f"Error stopping agent: {str(e)}")

@@ -1,0 +1,49 @@
+- generic [ref=e2]:
+  - generic "Connection Error:"
+  - region "Notifications alt+T"
+  - generic [ref=e290]:
+    - generic [ref=e292]:
+      - generic [ref=e293]:
+        - img [ref=e294]
+        - heading "VOLTTRON Installer" [level=1] [ref=e295]
+      - generic [ref=e296]:
+        - link "Home" [ref=e297] [cursor=pointer]:
+          - /url: /
+          - generic [ref=e298]:
+            - img [ref=e299]
+            - paragraph [ref=e302]: Home
+        - link "Instances" [ref=e303] [cursor=pointer]:
+          - /url: /instances
+          - generic [ref=e304]:
+            - img [ref=e305]
+            - paragraph [ref=e310]: Instances
+        - generic [ref=e312]:
+          - heading "Tools" [level=3] [ref=e313]:
+            - button "Tools" [expanded] [ref=e314]:
+              - paragraph [ref=e315]: Tools
+              - img [ref=e316]
+          - region "Tools" [ref=e318]:
+            - link "BACnet Scan" [ref=e320] [cursor=pointer]:
+              - /url: /tools/bacnet_scan
+              - generic [ref=e321]:
+                - img [ref=e322]
+                - paragraph [ref=e325]: BACnet Scan
+      - generic [ref=e327]:
+        - button [ref=e328]:
+          - img [ref=e329]
+        - paragraph [ref=e335]:
+          - switch [ref=e336]
+    - generic [ref=e339]:
+      - generic [ref=e340]:
+        - paragraph [ref=e341]: Instances
+        - img [ref=e345] [cursor=pointer]
+      - table [ref=e351]:
+        - rowgroup [ref=e352]:
+          - row "Name Host User Agents Status" [ref=e353]:
+            - columnheader "Name" [ref=e354]
+            - columnheader "Host" [ref=e355]
+            - columnheader "User" [ref=e356]
+            - columnheader "Agents" [ref=e357]
+            - columnheader "Status" [ref=e358]
+            - columnheader [ref=e359]
+        - rowgroup

@@ -267,9 +267,6 @@ class PlatformDeploymentState(PlatformAgentState):
         finally:
             async with self:
                 self._is_deploying = False
-                # Ensure preflight loading state is not left active in PlatformPageState.
-                if hasattr(self, "checking_deploy_connection"):
-                    self.checking_deploy_connection = False
 
     @rx.event(background=True)
     async def handle_install_pyenv(self):

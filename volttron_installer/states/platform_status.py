@@ -11,6 +11,12 @@ from .platform_logs import PlatformLogState
 START_STOP_TIMEOUT_SECONDS = 30
 START_STOP_POLL_INTERVAL_SECONDS = 2
 
+# Module-level lock for status check mutual exclusion.
+# This is safe because Reflex serializes state mutations per-session,
+# and concurrent status checks for the same platform should be deduplicated.
+_status_lock = asyncio.Lock()
+
+
 class PlatformStatusState(PlatformLogState):
     # Platform status tracking
     _platform_status: dict = {}  # Stores PlatformDeploymentStatus data
@@ -20,8 +26,7 @@ class PlatformStatusState(PlatformLogState):
     _last_status_check: str = ""
     _starting_platform: bool = False  # True while starting VOLTTRON
     _stopping_platform: bool = False  # True while stopping VOLTTRON
-    _status_check_in_progress: bool = False  # Lock to prevent concurrent status checks
-    
+
     # Connection status tracking
     _connection_status: str = "unknown"  # connected, disconnected, checking, unknown
     _connection_method: str = ""  # e.g., "SSH with key authentication"
@@ -32,7 +37,7 @@ class PlatformStatusState(PlatformLogState):
     @rx.var
     def platform_status(self) -> dict:
         return self._platform_status
-    
+
     @rx.var
     def status_loading(self) -> bool:
         # Show loading state if explicitly loading OR if deployed platform hasn't been checked yet
@@ -53,17 +58,17 @@ class PlatformStatusState(PlatformLogState):
         if self.platform_deployed and not self._last_status_check and not self._platform_status:
             return "checking"
         return self._platform_status.get("state", "unknown")
-    
+
     @rx.var
     def platform_agents(self) -> dict:
         return self._platform_status.get("agents", {})
-    
+
     @rx.var
     def platform_agents_list(self) -> list[dict]:
         """Convert agents dict to list for easier rendering"""
         agents = self._platform_status.get("agents", {})
         return [{"id": agent_id, **agent_data} for agent_id, agent_data in agents.items()]
-    
+
     @rx.var
     def last_status_check(self) -> str:
         return self._last_status_check
@@ -107,15 +112,15 @@ class PlatformStatusState(PlatformLogState):
         if self.platform_deployed and not self._last_connection_check and self._connection_status == "unknown":
             return "checking"
         return self._connection_status
-    
+
     @rx.var
     def connection_method(self) -> str:
         return self._connection_method
-    
+
     @rx.var
     def last_connection_check(self) -> str:
         return self._last_connection_check
-    
+
     @rx.var
     def connection_error(self) -> str:
         return self._connection_error
@@ -161,80 +166,82 @@ class PlatformStatusState(PlatformLogState):
         yield PlatformStatusState.refresh_platform_status
         yield PlatformStatusState.check_connection
 
-    @rx.event
+    @rx.event(background=True)
     async def refresh_platform_status(self):
-        """Fetch the current status of the platform from the backend"""
+        """Fetch the current status of the platform from the backend."""
         if not self.current_uid or self.current_uid not in self.platforms:
             return
 
-        # Check if another status check is already running - if so, skip this one
-        if self._status_check_in_progress:
-            logger.debug("Status check already in progress, skipping concurrent request")
+        # Use the lock to prevent concurrent status checks
+        if _status_lock.locked():
+            logger.debug("Status check already in progress, skipping")
             return
 
-        # Set the lock
-        self._status_check_in_progress = True
+        async with _status_lock:
+            working_platform: Instance = self.working_platform
 
-        working_platform: Instance = self.working_platform
+            # For brand-new platforms with no host configured, skip status check
+            host_id = working_platform.safe_host_entry.get("id", "") if working_platform.safe_host_entry else ""
+            if (working_platform.new_instance or not working_platform.platform.in_file) and not host_id:
+                async with self:
+                    self._platform_status = {
+                        "platform_id": working_platform.platform.config.instance_name,
+                        "state": "not deployed",
+                        "host_configured": False,
+                        "keys_verified": False,
+                        "agents": {}
+                    }
+                    self._status_loading = False
+                return
 
-        # For brand-new platforms with no host configured, skip status check
-        host_id = working_platform.safe_host_entry.get("id", "") if working_platform.safe_host_entry else ""
-        if (working_platform.new_instance or not working_platform.platform.in_file) and not host_id:
-            self._platform_status = {
-                "platform_id": working_platform.platform.config.instance_name,
-                "state": "not deployed",
-                "host_configured": False,
-                "keys_verified": False,
-                "agents": {}
-            }
-            self._status_loading = False
-            self._status_check_in_progress = False
-            return
+            # Set loading state and push to UI immediately
+            async with self:
+                self._status_loading = True
+                self._status_error = ""
+            yield  # Flush loading state to frontend before the potentially slow API call
 
-        # Set loading state FIRST so UI shows "Checking..." immediately
-        self._status_loading = True
-        self._status_error = ""
+            try:
+                status_response = await get_platform_status(working_platform.platform.config.instance_name)
+                async with self:
+                    self._platform_status = status_response.dict() if hasattr(status_response, 'dict') else status_response
+                    self._last_status_check = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    logger.debug(f"Platform status: {self._platform_status}")
 
-        try:
-            status_response = await get_platform_status(working_platform.platform.config.instance_name)
-            self._platform_status = status_response.dict() if hasattr(status_response, 'dict') else status_response
-            self._last_status_check = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            logger.debug(f"Platform status: {self._platform_status}")
-
-            # Auto-detect deployed status: if platform is running or deployed state detected,
-            # update the deployed flag (for platforms deployed before this fix)
-            detected_state = self._platform_status.get("state", "unknown")
-            if detected_state in ["running", "deployed"] and not working_platform.deployed:
-                logger.info(f"Auto-detecting deployed status for {working_platform.platform.config.instance_name}")
-                working_platform.deployed = True
-                # Persist the deployed flag to backend
-                try:
-                    await mark_platform_deployed(working_platform.platform.config.instance_name, True)
-                except Exception as mark_err:
-                    logger.warning(f"Could not persist deployed status: {mark_err}")
-        except Exception as e:
-            logger.error(f"Error fetching platform status: {e}")
-            self._status_error = str(e)
-            # If not marked as deployed and we get an error, show as not deployed
-            if not working_platform.deployed:
-                self._platform_status = {
-                    "platform_id": working_platform.platform.config.instance_name,
-                    "state": "not deployed",
-                    "host_configured": False,
-                    "keys_verified": False,
-                    "agents": {}
-                }
-            else:
-                self._platform_status = {
-                    "platform_id": working_platform.platform.config.instance_name,
-                    "state": "unknown",
-                    "host_configured": False,
-                    "keys_verified": False,
-                    "agents": {}
-                }
-        finally:
-            self._status_loading = False
-            self._status_check_in_progress = False  # Always release the lock
+                    # Auto-detect deployed status: if platform is running or deployed state detected,
+                    # update the deployed flag (for platforms deployed before this fix)
+                    detected_state = self._platform_status.get("state", "unknown")
+                    if detected_state in ["running", "deployed"] and not working_platform.deployed:
+                        logger.info(f"Auto-detecting deployed status for {working_platform.platform.config.instance_name}")
+                        working_platform.deployed = True
+                        # Persist the deployed flag to backend
+                        try:
+                            await mark_platform_deployed(working_platform.platform.config.instance_name, True)
+                        except Exception as mark_err:
+                            logger.warning(f"Could not persist deployed status: {mark_err}")
+            except Exception as e:
+                logger.error(f"Error fetching platform status: {e}")
+                async with self:
+                    self._status_error = str(e)
+                    # If not marked as deployed and we get an error, show as not deployed
+                    if not working_platform.deployed:
+                        self._platform_status = {
+                            "platform_id": working_platform.platform.config.instance_name,
+                            "state": "not deployed",
+                            "host_configured": False,
+                            "keys_verified": False,
+                            "agents": {}
+                        }
+                    else:
+                        self._platform_status = {
+                            "platform_id": working_platform.platform.config.instance_name,
+                            "state": "unknown",
+                            "host_configured": False,
+                            "keys_verified": False,
+                            "agents": {}
+                        }
+            finally:
+                async with self:
+                    self._status_loading = False
 
     @rx.event
     async def check_connection(self):
@@ -249,7 +256,7 @@ class PlatformStatusState(PlatformLogState):
             self._connection_status = "unknown"
             self._connection_method = "Platform not saved"
             return
-        
+
         # Skip check if platform isn't deployed and has no host configured
         host_id = working_platform.safe_host_entry.get("id", "") if working_platform.safe_host_entry else ""
         if not working_platform.deployed and not host_id:
@@ -261,7 +268,7 @@ class PlatformStatusState(PlatformLogState):
 
         try:
             result = await check_platform_connection(working_platform.platform.config.instance_name)
-            
+
             if result.get("connected", False):
                 self._connection_status = "connected"
                 self._connection_method = result.get("connection_method", "Unknown method")
@@ -269,7 +276,7 @@ class PlatformStatusState(PlatformLogState):
             else:
                 self._connection_status = "disconnected"
                 self._connection_error = result.get("error", "Connection failed")
-            
+
             self._last_connection_check = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         except Exception as e:
             logger.error(f"Error checking connection: {e}")
