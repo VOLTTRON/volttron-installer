@@ -14,5 +14,7 @@ config = rx.Config(
     app_name="volttron_installer",
     backend_port=int(os.environ.get("BACKEND_PORT", 8000)),
     frontend_port=int(os.environ.get("FRONTEND_PORT", 3000)),
-    api_url = f'{os.environ.get("API_URL", "http://localhost:8000")}'
+    api_url = f'{os.environ.get("API_URL", "http://192.168.1.123:8000")}',
+    frontend_bind="0.0.0.0",
+    backend_bind="0.0.0.0",
 )

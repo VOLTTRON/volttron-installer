@@ -299,8 +299,24 @@ def _github_repo_has_python_project(owner: str, repo: str, subdirectory: str = "
     )
 
 
+async def _validate_python_modules(ansible: AnsibleService, host: HostEntry, python_cmd: str) -> bool:
+    """Check that a Python has required C extension modules for VOLTTRON.
+
+    pyenv-built Pythons may lack _ctypes (needs libffi-dev) and _sqlite3 (needs libsqlite3-dev).
+    These are required by pyzmq and VOLTTRON core respectively.
+    """
+    ret, _, _ = await ansible.run_ssh_command(
+        host, f"{python_cmd} -c 'import _ctypes; import _sqlite3' 2>&1", timeout=10
+    )
+    return ret == 0
+
+
 async def _select_python_cmd_for_host(host: HostEntry, ansible: AnsibleService, custom_python_path: str = "") -> str:
     """Select a supported Python command on the remote host (requires 3.10).
+
+    Validates that the selected Python has the _ctypes module, which is required
+    by pyzmq (a VOLTTRON dependency). pyenv-built Pythons may lack _ctypes if
+    libffi-dev wasn't installed at build time.
 
     Args:
         host: Remote host entry
@@ -310,75 +326,64 @@ async def _select_python_cmd_for_host(host: HostEntry, ansible: AnsibleService, 
     Returns:
         Python command to use for deployment
     """
-    # If custom Python path is provided, verify it and use it
+    # Candidate Python paths to try in order
+    candidates = []
+
+    # If custom Python path is provided, add it first
     if custom_python_path:
-        # Expand tilde to home directory
-        test_cmd = custom_python_path.replace("~", "$HOME")
-        ret, stdout, stderr = await ansible.run_ssh_command(host, f"{test_cmd} -V 2>&1", timeout=10)
+        candidates.append(custom_python_path.replace("~", "$HOME"))
+
+    # Auto-detect candidates
+    candidates.extend([
+        "python3",
+        "python3.10",
+        "$HOME/.pyenv/versions/3.10.16/bin/python3",
+        "$HOME/.pyenv/versions/3.10.14/bin/python3",
+    ])
+
+    # For local connections, also try the pixi environment Python (which is known to have _ctypes)
+    is_local = hasattr(host, 'ansible_connection') and host.ansible_connection == 'local'
+    if is_local:
+        pixi_python = os.path.join(os.getcwd(), ".pixi/envs/default/bin/python3")
+        candidates.insert(1 if not custom_python_path else 0, pixi_python)
+
+    errors = []
+    for python_cmd in candidates:
+        # Check if the Python exists and get its version
+        ret, stdout, stderr = await ansible.run_ssh_command(host, f"{python_cmd} -V 2>&1", timeout=10)
         if ret != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Custom Python path '{custom_python_path}' not found or not executable: {stderr or stdout}"
-            )
+            continue
 
         version_output = (stdout or stderr).strip()
         match = re.search(r"Python\s+(\d+)\.(\d+)", version_output)
         if not match:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Unable to detect Python version from custom path. Output: {version_output}"
-            )
+            continue
 
         major, minor = int(match.group(1)), int(match.group(2))
         if major != 3 or minor != 10:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Custom Python path must be Python 3.10, but found: {version_output}"
-            )
+            errors.append(f"{python_cmd}: {version_output} (need 3.10)")
+            continue
 
-        return test_cmd
+        # Validate that required C modules are available
+        if await _validate_python_modules(ansible, host, python_cmd):
+            logger.info(f"[PYTHON] Selected {python_cmd} ({version_output}) with all required modules")
+            return python_cmd
 
-    # Auto-detect Python 3.10
-    ret, stdout, stderr = await ansible.run_ssh_command(host, "python3 -V 2>&1", timeout=10)
-    version_output = (stdout or stderr).strip()
+        errors.append(f"{python_cmd}: {version_output} but missing required C modules (_ctypes/_sqlite3)")
 
-    match = re.search(r"Python\s+(\d+)\.(\d+)", version_output)
-    if not match:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unable to detect Python version on remote host. Output: {version_output}"
-        )
-
-    major, minor = int(match.group(1)), int(match.group(2))
-    if major == 3 and minor == 10:
-        return "python3"
-
-    ret, stdout, _ = await ansible.run_ssh_command(host, "command -v python3.10", timeout=10)
-    if ret == 0 and stdout.strip():
-        return "python3.10"
-
-    # Try pyenv-managed Python 3.10 without changing global
-    pyenv_python = "$HOME/.pyenv/versions/3.10.14/bin/python3"
-    ret, stdout, _ = await ansible.run_ssh_command(host, f"test -x {pyenv_python} && echo OK", timeout=10)
-    if ret == 0 and "OK" in stdout:
-        return pyenv_python
+    # If we get here, no suitable Python was found
+    if errors:
+        detail = "No suitable Python 3.10 found. Candidates tried:\n" + "\n".join(f"  - {e}" for e in errors)
+    else:
+        detail = "No Python 3.10 found on this host."
 
     suggestion = (
-        "Python 3.10 is required.\n\n"
-        "Install via pyenv (without changing system Python):\n"
-        "curl https://pyenv.run | bash && \\\n"
-        "echo 'export PATH=\"$HOME/.pyenv/bin:$PATH\"' >> ~/.bashrc && \\\n"
-        "echo 'eval \"$(pyenv init -)\"' >> ~/.bashrc && \\\n"
-        "echo 'eval \"$(pyenv virtualenv-init -)\"' >> ~/.bashrc && \\\n"
-        "source ~/.bashrc && \\\n"
-        "pyenv install 3.10.14\n\n"
-        "After installation, add the path to Advanced Settings:\n"
-        "~/.pyenv/versions/3.10.14/bin/python3"
+        "\n\nInstall a working Python 3.10 with required C modules:\n"
+        "1. Install build deps: sudo apt-get install -y libffi-dev libsqlite3-dev\n"
+        "2. Rebuild pyenv: pyenv install 3.10.16 --force\n"
+        "3. Or set a custom Python path in Advanced Settings"
     )
-    raise HTTPException(
-        status_code=500,
-        detail=f"Unsupported Python version: {version_output}. {suggestion}"
-    )
+    raise HTTPException(status_code=500, detail=detail + suggestion)
 
 
 async def _deploy_modular_via_ssh(
@@ -524,10 +529,15 @@ mkdir -p "$(dirname "$VENV_PATH")"
         _set_deploy_step(platform_id, "Create VOLTTRON_HOME", "success", progress=92)
 
     # Step 7: Write config file
-    # Note: modular VOLTTRON uses 'messagebus' not 'message-bus', and doesn't use 'vip-address' in config
+    # Note: Only write keys that modular VOLTTRON recognizes.
+    # instance-name, messagebus, vip_address, volttron_type are installer-only fields
+    # that cause VOLTTRON to crash on startup.
     config_content = f"""[volttron]
-instance-name = {config.instance_name}
-messagebus = {config.message_bus}
+auth-enabled = True
+server-messagebus-id = vip.server
+agent-monitor-frequency = 600
+enable-federation = False
+enable-federation-cache = True
 """
     # Escape for shell
     config_escaped = config_content.replace("'", "'\\''")
@@ -551,62 +561,73 @@ messagebus = {config.message_bus}
     if installable_agents:
         logger.info(f"[DEPLOY] Installing {len(installable_agents)} pre-deployment agents")
 
-        # Start VOLTTRON in the background
-        start_cmd = f"""VENV_PATH="{venv_path}"
-VOLTTRON_HOME="{volttron_home}"
-VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
-VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
-export VOLTTRON_HOME
-source "$VENV_PATH/bin/activate"
-volttron -vv --log "$VOLTTRON_HOME/volttron.log" &
-sleep 15
-"""
+        # Start VOLTTRON in the background using nohup so it survives the SSH session ending.
+        # Then poll vctl status until the platform reports running (up to 30s).
+        venv_bin = venv_path.replace("~", "$HOME")
+        vhome = volttron_home.replace("~", "$HOME")
+        start_cmd = f'''VENV_BIN="{venv_bin}"
+VHOME="{vhome}"
+export VOLTTRON_HOME="$VHOME"
+export PATH="$VENV_BIN/bin:$PATH"
+. "$VENV_BIN/bin/activate"
+nohup env VOLTTRON_HOME="$VHOME" PATH="$VENV_BIN/bin:$PATH" volttron -vv -l "$VHOME/volttron.log" </dev/null &>/dev/null &
+disown
+# Poll until platform is running (max 30 seconds)
+for i in $(seq 1 30); do
+  sleep 1
+  if "$VENV_BIN/bin/vctl" status >/dev/null 2>&1; then
+    echo "VOLTTRON_READY"
+    break
+  fi
+done
+'''
         if platform_id:
             _set_deploy_step(platform_id, "Start VOLTTRON for agent install", "running", progress=98)
             _append_deploy_log(platform_id, "[Agent install] Starting VOLTTRON platform")
         ret, stdout, stderr = await ansible.run_ssh_command(host, start_cmd, timeout=60)
-        steps.append({"step": "Start VOLTTRON for agent install", "success": True, "output": stdout, "error": stderr})
-        if platform_id:
-            _set_deploy_step(platform_id, "Start VOLTTRON for agent install", "success", progress=98)
 
-        for agent_id, agent in installable_agents.items():
-            source = shlex.quote(agent.source)
-            identity = shlex.quote(agent.identity or agent_id)
-            step_label = f"Install agent {agent.identity or agent_id}"
-            logger.info(f"[DEPLOY] Installing agent {identity} from {source}")
-            if platform_id:
-                _set_deploy_step(platform_id, step_label, "running", progress=99)
-                _append_deploy_log(platform_id, f"[Agent install] Installing {agent.identity or agent_id}")
-            install_cmd = f"""VENV_PATH="{venv_path}"
-VOLTTRON_HOME="{volttron_home}"
-VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
-VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
-export VOLTTRON_HOME
-source "$VENV_PATH/bin/activate"
+        platform_started = "VOLTTRON_READY" in stdout
+        steps.append({"step": "Start VOLTTRON for agent install", "success": platform_started, "output": stdout, "error": stderr})
+        if platform_id:
+            _set_deploy_step(platform_id, "Start VOLTTRON for agent install", "success" if platform_started else "failed", progress=98)
+
+        if not platform_started:
+            logger.warning(f"[DEPLOY] VOLTTRON did not start for agent installation")
+        else:
+            for agent_id, agent in installable_agents.items():
+                source = shlex.quote(agent.source)
+                identity = shlex.quote(agent.identity or agent_id)
+                step_label = f"Install agent {agent.identity or agent_id}"
+                logger.info(f"[DEPLOY] Installing agent {identity} from {source}")
+                if platform_id:
+                    _set_deploy_step(platform_id, step_label, "running", progress=99)
+                    _append_deploy_log(platform_id, f"[Agent install] Installing {agent.identity or agent_id}")
+                install_cmd = f'''VENV_BIN="{venv_bin}"
+VHOME="{vhome}"
+export VOLTTRON_HOME="$VHOME"
+. "$VENV_BIN/bin/activate"
 pip install --quiet {source}
-"$VENV_PATH/bin/vctl" install {source} --vip-identity {identity} --start
-"""
-            ret, stdout, stderr = await ansible.run_ssh_command(host, install_cmd, timeout=300)
-            steps.append({"step": step_label, "success": ret == 0, "output": stdout, "error": stderr})
-            if ret != 0:
-                logger.warning(f"[DEPLOY] Failed to install agent {agent.identity}: {stderr or stdout}")
-                if platform_id:
-                    _append_deploy_log(platform_id, f"[Agent install] WARNING: failed to install {agent.identity or agent_id}: {(stderr or stdout)[:200]}")
-                    _set_deploy_step(platform_id, step_label, "failed", progress=99)
-            else:
-                if platform_id:
-                    _set_deploy_step(platform_id, step_label, "success", progress=99)
+"$VENV_BIN/bin/vctl" install {source} --vip-identity {identity} --start
+'''
+                ret, stdout, stderr = await ansible.run_ssh_command(host, install_cmd, timeout=300)
+                steps.append({"step": step_label, "success": ret == 0, "output": stdout, "error": stderr})
+                if ret != 0:
+                    logger.warning(f"[DEPLOY] Failed to install agent {agent.identity}: {stderr or stdout}")
+                    if platform_id:
+                        _append_deploy_log(platform_id, f"[Agent install] WARNING: failed to install {agent.identity or agent_id}: {(stderr or stdout)[:200]}")
+                        _set_deploy_step(platform_id, step_label, "failed", progress=99)
+                else:
+                    if platform_id:
+                        _set_deploy_step(platform_id, step_label, "success", progress=99)
 
         # Shut VOLTTRON back down so user controls when it runs
-        stop_cmd = f"""VENV_PATH="{venv_path}"
-VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
-VOLTTRON_HOME="{volttron_home}"
-VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
-source "$VENV_PATH/bin/activate"
-export VOLTTRON_HOME
-"$VENV_PATH/bin/vctl" shutdown --platform 2>/dev/null || pkill -f "volttron -vv --log $VOLTTRON_HOME/volttron.log" 2>/dev/null || true
+        stop_cmd = f'''VENV_BIN="{venv_bin}"
+VHOME="{vhome}"
+export VOLTTRON_HOME="$VHOME"
+. "$VENV_BIN/bin/activate"
+"$VENV_BIN/bin/vctl" shutdown --platform 2>/dev/null || pkill -f "volttron -vv -l $VHOME/volttron.log" 2>/dev/null || true
 sleep 3
-"""
+'''
         if platform_id:
             _append_deploy_log(platform_id, "[Agent install] Shutting down VOLTTRON")
         await ansible.run_ssh_command(host, stop_cmd, timeout=30)

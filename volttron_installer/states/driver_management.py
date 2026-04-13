@@ -1008,7 +1008,10 @@ class DriverManagementState(PlatformDeploymentState):
                             paths_to_remove.add(old_csv)
                     except Exception:
                         pass
-            agent.config_store = [e for e in agent.config_store if e.path not in paths_to_remove]
+            # Remove stale entries in-place (can't reassign on proxy in background task)
+            for e in list(agent.config_store):
+                if e.path in paths_to_remove:
+                    agent.config_store.remove(e)
 
             # Add registry CSV entry
             if not csv_name.endswith(".csv"):

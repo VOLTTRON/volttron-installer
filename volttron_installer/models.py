@@ -71,28 +71,28 @@ class Tool(rx.Base):
     module_path: str = ""
     use_poetry: bool = False
 
-class RequestWhoIsModel(rx.Model):
+class RequestWhoIsModel(rx.Base):
     device_instance_low: str = ""
     device_instance_high: str = "" 
     dest: str = ""
 
-class ReadDeviceAllModel(rx.Model):
+class ReadDeviceAllModel(rx.Base):
     device_address: str = ""
     device_object_identifier: str = ""
 
-class ScanIPRangeModel(rx.Model):
+class ScanIPRangeModel(rx.Base):
     network_string: str = ""
 
-class PingIPModel(rx.Model):
+class PingIPModel(rx.Base):
     ip_address: str = ""
 
-class ReadPropertyModel(rx.Model):
+class ReadPropertyModel(rx.Base):
     device_address: str = ""
     object_identifier: str = ""
     property_identifier: str = ""
     property_array_index: str | int = ""
 
-class WritePropertyModel(rx.Model):
+class WritePropertyModel(rx.Base):
     device_address: str = ""
     object_identifier: str = ""
     property_identifier: str = ""

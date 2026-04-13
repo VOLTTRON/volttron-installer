@@ -122,42 +122,53 @@ async def start_platform(platform_id: str, ansible: AnsibleService = Depends(get
         if "RUNNING" in check_stdout and "STOPPED" not in check_stdout:
             return {"status": "success", "message": "VOLTTRON is already running.", "already_running": True}
 
-        # Clean up config file - remove snake_case options and installer-only fields that VOLTTRON doesn't recognize
-        # Remove: instance_name, messagebus, message_bus, options, vip_address, volttron_type (installer-only)
-        # Also disable agent-isolation-mode which causes poetry issues in VOLTTRON_HOME
-        # Use direct SSH for speed and reliability
-        cleanup_cmd = f"sed -i '/instance_name/d; /messagebus/d; /message_bus/d; /^options/d; /vip_address/d; /volttron_type/d; s/agent-isolation-mode = True/agent-isolation-mode = False/g' {volttron_home}/config 2>/dev/null || true"
+        # Clean up config file - remove installer-only fields that VOLTTRON doesn't recognize
+        # Remove: instance-name, instance_name, messagebus, message_bus, options, vip_address, volttron_type (installer-only)
+        # Also disable agent-isolation-mode which causes poetry issues
+        cleanup_cmd = f"sed -i '/instance.name/d; /instance_name/d; /^messagebus/d; /message_bus/d; /^options/d; /vip_address/d; /volttron_type/d; s/agent-isolation-mode = True/agent-isolation-mode = False/g' {volttron_home}/config 2>/dev/null || true"
         await ansible.run_ssh_command(host, cleanup_cmd, timeout=10)
 
         # SSH startup: activate venv, set VOLTTRON_HOME, start in background
-        # Use proper volttron command (not nohup workaround) to ensure setup_poetry_project() is called
-        # Logs go to VOLTTRON_HOME/volttron.log
+        # Use nohup so the process survives the SSH session ending.
+        # Poll vctl status until platform reports running (up to 30s).
+        venv_bin = venv_path.replace("~", "$HOME")
+        vhome = volttron_home.replace("~", "$HOME")
         startup_cmd = f'''
-VENV_PATH="{venv_path}"
-VOLTTRON_HOME="{volttron_home}"
-VENV_PATH="${{VENV_PATH/#\~/$HOME}}"
-VOLTTRON_HOME="${{VOLTTRON_HOME/#\~/$HOME}}"
-export VOLTTRON_HOME
+VENV_BIN="{venv_bin}"
+VHOME="{vhome}"
+export VOLTTRON_HOME="$VHOME"
+export PATH="$VENV_BIN/bin:$PATH"
 
-if [ ! -f "$VENV_PATH/bin/activate" ]; then
-    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
+if [ ! -f "$VENV_BIN/bin/activate" ]; then
+    echo "VOLTTRON_FAILED: venv not found at $VENV_BIN"
     exit 1
 fi
-. "$VENV_PATH/bin/activate"
-mkdir -p "$VOLTTRON_HOME"
+. "$VENV_BIN/bin/activate"
+mkdir -p "$VHOME"
 
-nohup volttron -vv -l "$VOLTTRON_HOME/volttron.log" </dev/null &>/dev/null &
+nohup env VOLTTRON_HOME="$VHOME" PATH="$VENV_BIN/bin:$PATH" volttron -vv -l "$VHOME/volttron.log" </dev/null &>/dev/null &
 disown
-echo "VOLTTRON_STARTED"
+
+# Poll until platform is running (max 30 seconds)
+for i in $(seq 1 30); do
+  sleep 1
+  if "$VENV_BIN/bin/vctl" status >/dev/null 2>&1; then
+    echo "VOLTTRON_RUNNING"
+    exit 0
+  fi
+done
+echo "VOLTTRON_STARTED_BUT_NOT_CONFIRMED"
 '''
 
         logger.info(f"[START] Starting VOLTTRON via direct SSH for platform {platform_id}")
-        return_code, stdout, stderr = await ansible.run_ssh_command(host, startup_cmd, timeout=30)
+        return_code, stdout, stderr = await ansible.run_ssh_command(host, startup_cmd, timeout=60)
 
         logger.debug(f"Startup result - return_code: {return_code}, stdout: {stdout[:500]}, stderr: {stderr[:500]}")
 
-        if "VOLTTRON_STARTED" in stdout:
-            return {"status": "success", "message": "Platform start command issued."}
+        if "VOLTTRON_RUNNING" in stdout:
+            return {"status": "success", "message": "Platform started and confirmed running."}
+        elif "VOLTTRON_STARTED_BUT_NOT_CONFIRMED" in stdout:
+            return {"status": "success", "message": "Platform start command issued, but platform did not confirm running within 30 seconds."}
         elif "VOLTTRON_FAILED" in stdout:
             log_output = stdout.split("VOLTTRON_FAILED:")[-1].strip() if "VOLTTRON_FAILED:" in stdout else stderr
             raise HTTPException(
@@ -634,17 +645,8 @@ async def get_installed_driver_libraries(
             platform_service,
         )
 
-        cmd = f'''
-VENV_PATH="{venv_path}"
-VENV_PATH="${{VENV_PATH/#\\~/$HOME}}
-
-if [ ! -f "$VENV_PATH/bin/activate" ]; then
-    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
-    exit 1
-fi
-source "$VENV_PATH/bin/activate"
-pip list --format=json 2>/dev/null
-'''
+        venv_bin = venv_path.replace("~", "$HOME")
+        cmd = f'"{venv_bin}/bin/pip" list --format=json 2>/dev/null'
 
         return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=60)
         if return_code != 0:
@@ -714,24 +716,16 @@ async def install_driver_library(
 
         platform_service = await get_platform_service()
         inventory_service = await get_inventory_service()
-        _, host, venv_path, _ = await _resolve_platform_host_and_paths(
+        _, host, venv_path, volttron_home = await _resolve_platform_host_and_paths(
             platform_id,
             inventory_service,
             platform_service,
         )
         package_arg = shlex.quote(pip_package)
 
-        cmd = f'''
-VENV_PATH="{venv_path}"
-VENV_PATH="${{VENV_PATH/#\\~/$HOME}}
-
-if [ ! -f "$VENV_PATH/bin/activate" ]; then
-    echo "VOLTTRON_FAILED: venv not found at $VENV_PATH"
-    exit 1
-fi
-source "$VENV_PATH/bin/activate"
-pip install {package_arg}
-'''
+        venv_bin = venv_path.replace("~", "$HOME")
+        vhome = volttron_home.replace("~", "$HOME")
+        cmd = f'VOLTTRON_HOME="{vhome}" "{venv_bin}/bin/vctl" install-lib {package_arg}'
 
         return_code, stdout, stderr = await ansible.run_ssh_command(host, cmd, timeout=300)
 

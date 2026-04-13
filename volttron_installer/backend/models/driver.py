@@ -66,8 +66,8 @@ class DriverLibraryCatalog(BaseModel):
 OutsideAirTemperature,OutsideAirTemperature,degreesFahrenheit,-50 to 250,analogInput,presentValue,FALSE,3000741,,,Primary CHW Return Temp
 ReturnWaterTemperature,ReturnWaterTemperature,degreesFahrenheit,-50 to 250,analogInput,presentValue,FALSE,3000744,,,CHW Flow
 SupplyFanEnable,SupplyFanEnable,On/Off,on/off,binaryOutput,presentValue,TRUE,10010,8,,TRUE,Writable fan enable""",
-            default_device_config='{"device_address": "10.0.0.1", "device_id": 1000, "proxy_address": "platform.bacnet_proxy", "max_per_request": 24, "min_priority": 8, "use_read_multiple": true, "timeout": 30.0, "cov_lifetime": 180, "ping_retry_interval": 5.0}',
-            required_agents=["platform.bacnet_proxy"],
+            default_device_config='{"device_address": "10.0.0.1", "device_id": 1000, "max_per_request": 24, "min_priority": 8, "use_read_multiple": true, "timeout": 30.0, "cov_lifetime": 180, "ping_retry_interval": 5.0}',
+            required_agents=[],
             driver_config_fields=[
                 {"key": "device_address", "label": "Device Address", "type": "text", "required": True, "placeholder": "10.0.0.1", "description": "Network address used by the BACnet driver."},
                 {"key": "device_id", "label": "Device ID", "type": "number", "required": True, "placeholder": "1000", "description": "BACnet device instance number."},

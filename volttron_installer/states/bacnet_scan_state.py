@@ -255,7 +255,11 @@ class BacnetScanState(rx.State):
     
     @rx.var
     def is_read_property_valid(self) -> bool:
-        for field, value in self.read_property.model_dump().items():
+        # Handle case where read_property might be a tuple due to Reflex serialization
+        read_prop = self.read_property
+        if isinstance(read_prop, tuple):
+            read_prop = ReadPropertyModel()
+        for field, value in read_prop.dict().items():
             if field == "property_array_index":
                 break
             if value == "":
@@ -266,7 +270,11 @@ class BacnetScanState(rx.State):
 
     @rx.var
     def is_write_property_valid(self) -> bool:
-        for field, value in self.write_property.model_dump().items():
+        # Handle case where write_property might be a tuple due to Reflex serialization
+        write_prop = self.write_property
+        if isinstance(write_prop, tuple):
+            write_prop = WritePropertyModel()
+        for field, value in write_prop.dict().items():
             if field == "property_array_index":
                 break
             if value == "":
