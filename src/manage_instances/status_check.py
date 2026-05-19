@@ -1,7 +1,14 @@
 import httpx
+import logging
 import os
+import shlex
 import socket
 from urllib.parse import urlparse
+
+from src import ssh_remote
+
+for logger_name in ("httpcore", "httpx"):
+    logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 def is_port_bound(host: str, port: int) -> bool:
     """
@@ -54,6 +61,24 @@ def is_local_volttron_process_running(volttron_home: str | None) -> bool:
 
     return False
 
+
+async def is_remote_volttron_process_running(instance: dict) -> bool:
+    """
+    Check for a remote VOLTTRON process that belongs to this instance.
+    This keeps SSH-only deployments manageable when the web API is disabled.
+    """
+    try:
+        expanded_home = await ssh_remote.expand_path(instance, instance.get("volttron_home"))
+        expected_log = os.path.join(expanded_home, "volttron.log")
+        stdout, _ = await ssh_remote.run(
+            instance,
+            f"pgrep -af volttron | grep -F {shlex.quote(expected_log)} >/dev/null && printf yes || printf no",
+            timeout=30,
+        )
+        return stdout.strip() == "yes"
+    except Exception:
+        return False
+
 async def check_platform_web_status(web_address: str) -> dict:
     """
     Checks the status of the VOLTTRON platform via its web API /discovery/ endpoint.
@@ -89,6 +114,10 @@ async def check_volttron_rest_status(instance: dict) -> dict:
 
     web_address = instance.get("web_bind_address", "")
     if not web_address:
+        if ssh_remote.is_remote_instance(instance):
+            if await is_remote_volttron_process_running(instance):
+                return {"status": "degraded", "message": "Remote process found over SSH, but no web API address is configured"}
+            return {"status": "unknown", "message": "No web address configured; SSH process check did not find VOLTTRON"}
         return {"status": "unknown", "message": "No web address configured"}
 
     username = instance.get("web_admin_user", "")
@@ -135,6 +164,8 @@ async def check_volttron_rest_status(instance: dict) -> dict:
                 return {"status": "unknown", "message": f"Platform status HTTP {status_response.status_code}"}
             return {"status": "stopped", "message": f"Platform status HTTP {status_response.status_code}"}
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout):
+            if ssh_remote.is_remote_instance(instance) and await is_remote_volttron_process_running(instance):
+                return {"status": "degraded", "message": "SSH found the remote process, but the web API is not reachable"}
             return {"status": "stopped", "message": "Web API is not reachable"}
         except Exception as e:
             return {"status": "unknown", "message": str(e)}

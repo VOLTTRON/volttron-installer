@@ -1,5 +1,6 @@
 from nicegui import ui
 import src.db as db
+from src import ssh_remote
 from src.manage_instances import agent_management
 from src.manage_instances import config_store
 
@@ -60,6 +61,17 @@ def render(instance_name: str):
     last_libraries_signature = None
     agent_refresh_in_progress = False
     library_refresh_in_progress = False
+    ssh_refresh_in_progress = False
+
+    def remote_password_needed() -> bool:
+        return ssh_remote.needs_key(instance)
+
+    def render_ssh_needed(container, message: str):
+        container.clear()
+        with container:
+            with ui.column().classes('w-full items-center justify-center gap-2').style(EMPTY_STATE_STYLE):
+                ui.icon('key', size='sm', color='gray')
+                ui.label(message).style('color: #9ca3af;')
 
     def set_platform_status(text: str, color: str, state: str = 'unknown'):
         nonlocal current_platform_state
@@ -99,6 +111,13 @@ def render(instance_name: str):
         if agents_container is None:
             return
         if agent_refresh_in_progress:
+            return
+        if remote_password_needed():
+            signature = ('ssh-password-needed',)
+            if signature == last_agents_signature:
+                return
+            last_agents_signature = signature
+            render_ssh_needed(agents_container, 'Configure an SSH key path to view agents.')
             return
         if current_platform_state != 'running':
             signature = ('platform-not-running', current_platform_state)
@@ -345,6 +364,13 @@ def render(instance_name: str):
             return
         if library_refresh_in_progress:
             return
+        if remote_password_needed():
+            signature = ('ssh-password-needed',)
+            if signature == last_libraries_signature:
+                return
+            last_libraries_signature = signature
+            render_ssh_needed(libraries_container, 'Configure an SSH key path to view libraries.')
+            return
 
         try:
             library_refresh_in_progress = True
@@ -434,11 +460,24 @@ def render(instance_name: str):
                         for library in default_libraries:
                             render_library_row(library, removable=False)
 
-    def refresh_log():
-        nonlocal last_log_content
+    async def refresh_log():
+        nonlocal last_log_content, ssh_refresh_in_progress
         if log_code is None:
             return
-        content = agent_management.read_log_tail(instance, 300)
+        if ssh_refresh_in_progress:
+            return
+        if remote_password_needed():
+            content = 'Configure an SSH key path to view the remote log.'
+        else:
+            try:
+                ssh_refresh_in_progress = True
+                content = await agent_management.read_log_tail(instance, 300)
+            except ssh_remote.SSHCommandError as exc:
+                content = f"SSH unavailable: {exc}"
+            except Exception as exc:
+                content = f"Could not read log: {exc}"
+            finally:
+                ssh_refresh_in_progress = False
         if content == last_log_content:
             return
         last_log_content = content
@@ -460,13 +499,13 @@ def render(instance_name: str):
             with ui.row().classes('justify-end w-full gap-2'):
                 ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
 
-                def confirm_clear():
+                async def confirm_clear():
                     nonlocal last_log_content
                     confirm_dialog.close()
                     try:
-                        agent_management.clear_log(instance)
+                        await agent_management.clear_log(instance)
                         last_log_content = None
-                        refresh_log()
+                        await refresh_log()
                         ui.notify('Log cleared', type='positive')
                     except Exception as e:
                         ui.notify(f'Failed to clear log: {e}', type='negative')
@@ -545,7 +584,7 @@ def render(instance_name: str):
                         error_log_container.style('display: none;')
                         await check_status()
                         await refresh_agents()
-                        refresh_log()
+                        await refresh_log()
                     except Exception as e:
                         ui.notify(f'Failed to shut down: {e}', type='negative')
                         show_command_error('Shutdown Error', e)
@@ -609,6 +648,9 @@ def render(instance_name: str):
                 if rest_result['status'] == 'stopped':
                     set_platform_status('VOLTTRON Stopped', 'red', 'stopped')
                     return
+                if rest_result['status'] == 'degraded':
+                    set_platform_status('VOLTTRON Web Offline', 'warning', 'unknown')
+                    return
 
                 # Fallback for instances that do not have the web API configured yet.
                 vip_address = instance.get('vip', '')
@@ -629,7 +671,8 @@ def render(instance_name: str):
                     
             # Check immediately and then every 5 seconds
             ui.timer(0.1, check_status, once=True)
-            ui.timer(5.0, check_status)
+            if instance.get('is_local', True):
+                ui.timer(5.0, check_status)
             
             async def handle_start():
                 from src.manage_instances.start_platform import start_platform_command
@@ -642,7 +685,7 @@ def render(instance_name: str):
                 dialog.open()
                 
                 try:
-                    await start_platform_command(instance.get('venv'), instance.get('volttron_home'))
+                    await start_platform_command(instance.get('venv'), instance.get('volttron_home'), instance)
                     dialog.close()
                     ui.notify(f'{instance_name} started successfully!', type='positive')
                     error_log_container.clear()
@@ -650,26 +693,17 @@ def render(instance_name: str):
                     set_platform_status('VOLTTRON Running', 'positive', 'running')
                     await check_status()
                     await refresh_agents()
-                    refresh_log()
+                    await refresh_log()
                 except Exception as e:
                     dialog.close()
                     ui.notify(f'Failed to start: {str(e)}', type='negative')
                     await check_status()
                     
-                    import os
-                    volttron_home = os.path.expanduser(instance.get('volttron_home'))
-                    log_file = os.path.join(volttron_home, 'volttron.log')
                     log_content = f"Error: {str(e)}\n\n"
-                    
-                    if os.path.exists(log_file):
-                        try:
-                            with open(log_file, 'r') as f:
-                                lines = f.readlines()
-                                log_content += "".join(lines[-20:])
-                        except Exception as log_err:
-                            log_content += f"Could not read log file: {log_err}"
-                    else:
-                        log_content += f"Log file not found at {log_file}"
+                    try:
+                        log_content += await agent_management.read_log_tail(instance, 20)
+                    except Exception as log_err:
+                        log_content += f"Could not read log file: {log_err}"
                         
                     error_log_container.clear()
                     error_log_container.style('display: flex;')
@@ -705,6 +739,12 @@ def render(instance_name: str):
                     row_label('VIP Address', instance.get('vip') or 'N/A')
                     row_label('VOLTTRON Home', instance.get('volttron_home', 'N/A'))
                     row_label('Virtual Env', instance.get('venv', 'N/A'))
+                    if not instance.get('is_local', True):
+                        ui.separator().classes('my-2')
+                        row_label('SSH User', instance.get('ssh_username', 'N/A'))
+                        row_label('SSH Port', str(instance.get('ssh_port', '22')))
+                        row_label('SSH Key', instance.get('ssh_key_path') or 'Agent/default keys')
+                        ui.label('Remote management uses SSH keys only.').style('color: #9ca3af; font-size: 0.8rem;')
             
             # Agents Card
             with ui.card().classes('flex-grow').style(CARD_STYLE + 'min-width: 420px;'):
@@ -720,7 +760,8 @@ def render(instance_name: str):
                 
                 agents_container = ui.column().classes('w-full gap-0').style('min-height: 120px;')
                 ui.timer(0.2, refresh_agents, once=True)
-                ui.timer(8.0, refresh_agents)
+                if instance.get('is_local', True):
+                    ui.timer(8.0, refresh_agents)
 
         with ui.card().classes('w-full max-w-6xl mt-5').style(CARD_STYLE):
             with ui.row().classes('items-center gap-2 mb-4 justify-between w-full'):
@@ -737,7 +778,8 @@ def render(instance_name: str):
 
             libraries_container = ui.column().classes('w-full gap-0').style('min-height: 120px;')
             ui.timer(0.4, refresh_libraries, once=True)
-            ui.timer(20.0, refresh_libraries)
+            if instance.get('is_local', True):
+                ui.timer(20.0, refresh_libraries)
 
         with ui.card().classes('w-full max-w-6xl mt-5').style(CARD_STYLE):
             with ui.row().classes('items-center justify-between w-full mb-4'):
@@ -751,8 +793,9 @@ def render(instance_name: str):
             log_container = ui.column().classes('w-full')
             with log_container:
                 log_code = ui.code('', language='text').classes('w-full').style('height: 420px; background: #0b0c10; border: 1px solid #2b2d35; border-radius: 6px; color: #d1d5db;')
-            refresh_log()
-            ui.timer(3.0, refresh_log)
+            ui.timer(0.1, refresh_log, once=True)
+            if instance.get('is_local', True):
+                ui.timer(3.0, refresh_log)
 
         # Error Log Container
         error_log_container = ui.column().classes('w-full max-w-6xl mt-5 p-4').style('display: none; background: #18181d; border: 1px solid rgba(239, 68, 68, 0.5); border-radius: 8px;')

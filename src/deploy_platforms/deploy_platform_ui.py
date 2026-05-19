@@ -10,7 +10,8 @@ def render():
     default_name = generate_instance_name()
 
     async def perform_install():
-        ui.notify('Starting local installation...', type='info')
+        install_target = 'local' if is_local.value else 'remote'
+        ui.notify(f'Starting {install_target} installation...', type='info')
         
         with ui.dialog() as dialog, ui.card().classes('p-8 items-center gap-4').style('background: #1e1e24; color: white; border: 1px solid #333; border-radius: 12px;'):
             ui.label('Deploying Platform').classes('text-xl font-bold')
@@ -19,15 +20,39 @@ def render():
         dialog.open()
         
         import src.db as db
-        from src.deploy_platforms.create_python_venv import create_venv
-        from src.deploy_platforms.install_volttron_packages import install_packages
         from src.deploy_platforms.port_allocator import allocate_web_bind_address
         
         try:
+            ssh_instance = None
+            if not is_local.value:
+                if not (host_input.value or '').strip():
+                    raise Exception('Remote host is required.')
+                if not (username_input.value or '').strip():
+                    raise Exception('SSH username is required.')
+                if not (key_path_input.value or '').strip():
+                    raise Exception('SSH key path is required for remote deployment.')
+
+                ssh_instance = {
+                    'host': (host_input.value or '').strip(),
+                    'ssh_username': (username_input.value or '').strip(),
+                    'ssh_port': ssh_port_input.value or '22',
+                    'ssh_key_path': (key_path_input.value or '').strip(),
+                    'ssh_ignore_host_keys': bool(ignore_host_keys_checkbox.value),
+                    'is_local': False,
+                }
+                from src import ssh_remote
+                status_label.set_text('Connecting over SSH...')
+                await ssh_remote.test_connection(ssh_instance)
+
             status_label.set_text('Creating virtual environment...')
             # Default to ~/volttron.venv if empty
             venv_path = venv_input.value if venv_input.value else '~/volttron.venv'
-            await create_venv(venv_path)
+            if is_local.value:
+                from src.deploy_platforms.create_python_venv import create_venv
+                await create_venv(venv_path)
+            else:
+                from src.deploy_platforms.remote_deploy import create_remote_venv
+                await create_remote_venv(ssh_instance, venv_path)
             
             status_label.set_text('Installing VOLTTRON packages...')
             packages_to_install = ['volttron']
@@ -75,13 +100,17 @@ def render():
                     if web_pkg_input.value:
                         packages_to_install.append(f"--no-deps git+https://github.com/{web_pkg_input.value}")
             
-            await install_packages(venv_path, packages_to_install)
+            if is_local.value:
+                from src.deploy_platforms.install_volttron_packages import install_packages
+                await install_packages(venv_path, packages_to_install)
+            else:
+                from src.deploy_platforms.remote_deploy import install_remote_packages
+                await install_remote_packages(ssh_instance, venv_path, packages_to_install)
             
             status_label.set_text('Configuring VOLTTRON home...')
-            from src.deploy_platforms.configure_volttron import configure_volttron
             volttron_home = volttron_home_input.value if volttron_home_input.value else '~/.volttron'
             host = 'localhost' if is_local.value else host_input.value
-            web_bind_address = "http://127.0.0.1:8443"
+            web_bind_address = "http://127.0.0.1:8443" if is_local.value else "http://0.0.0.0:8443"
             port_messages = []
             if web_interface_toggle.value:
                 web_bind_address, port_messages = allocate_web_bind_address(
@@ -95,13 +124,25 @@ def render():
                     status_label.set_text(port_messages[-1])
                     await asyncio.sleep(1.5)
             
-            web_creds = await configure_volttron(
-                venv_path, 
-                volttron_home, 
-                instance_name_input.value, 
-                web_interface_toggle.value,
-                web_bind_address
-            )
+            if is_local.value:
+                from src.deploy_platforms.configure_volttron import configure_volttron
+                web_creds = await configure_volttron(
+                    venv_path, 
+                    volttron_home, 
+                    instance_name_input.value, 
+                    web_interface_toggle.value,
+                    web_bind_address
+                )
+            else:
+                from src.deploy_platforms.remote_deploy import configure_remote_volttron
+                web_creds = await configure_remote_volttron(
+                    ssh_instance,
+                    venv_path,
+                    volttron_home,
+                    instance_name_input.value,
+                    web_interface_toggle.value,
+                    web_bind_address,
+                )
             
             dialog.close()
             
@@ -114,6 +155,14 @@ def render():
                 'venv': venv_path,
                 'volttron_home': volttron_home
             }
+            if not is_local.value:
+                instance_data.update({
+                    'ssh_username': ssh_instance['ssh_username'],
+                    'ssh_port': ssh_instance['ssh_port'],
+                    'ssh_key_path': ssh_instance.get('ssh_key_path', ''),
+                    'ssh_ignore_host_keys': ssh_instance.get('ssh_ignore_host_keys', False),
+                    'ssh_auth_method': 'Key',
+                })
             # Merge web credentials
             instance_data.update(web_creds)
             
@@ -148,8 +197,23 @@ def render():
                     
                     with ui.row().classes('w-full gap-4').bind_visibility_from(is_local, 'value', backward=lambda v: not v):
                         host_input = ui.input('Host').props('outlined rounded bg-color="dark" color="primary"').classes('flex-grow').style('transition: all 0.3s ease;')
-                        ui.input('Username').props('outlined rounded bg-color="dark" color="primary"').classes('flex-grow')
-                        ui.input('SSH Port', value='22').props('outlined rounded bg-color="dark" color="primary"').classes('w-24')
+                        username_input = ui.input('Username').props('outlined rounded bg-color="dark" color="primary"').classes('flex-grow')
+                        ssh_port_input = ui.input('SSH Port', value='22').props('outlined rounded bg-color="dark" color="primary"').classes('w-24')
+
+                    with ui.column().classes('w-full gap-3').bind_visibility_from(is_local, 'value', backward=lambda v: not v):
+                        ui.label('SSH Authentication').style('font-weight: 500; color: #9ca3af; font-size: 0.9rem;')
+                        key_path_input = ui.input('Private Key Path', value='~/.ssh/volttron_installer').props('outlined rounded bg-color="dark" color="primary"').classes('w-full')
+                        ui.label('Remote deployments use SSH keys only. Create a key on this installer host and add its public key to the remote user.').style('font-size: 0.8rem; color: #6b7280;')
+                        with ui.expansion('How to create an SSH key', icon='key').classes('w-full').props('header-class="text-gray-400"'):
+                            with ui.column().classes('w-full gap-2 p-4').style('background: #15151b; border: 1px solid #2b2d35; border-radius: 6px;'):
+                                ui.label('Run these commands on the machine running this installer:').style('color: #d1d5db; font-size: 0.85rem;')
+                                ui.code(
+                                    'ssh-keygen -t ed25519 -f ~/.ssh/volttron_installer -C volttron-installer\n'
+                                    'ssh-copy-id -i ~/.ssh/volttron_installer.pub USER@REMOTE_HOST\n'
+                                    'ssh -i ~/.ssh/volttron_installer USER@REMOTE_HOST',
+                                    language='bash',
+                                ).classes('w-full').style('background: #0b0c10; color: #d1d5db; border: 1px solid #2b2d35;')
+                                ui.label('After the test SSH command works, use ~/.ssh/volttron_installer as the private key path above.').style('color: #9ca3af; font-size: 0.8rem;')
                     
                     with ui.expansion('Advanced Settings', icon='settings').classes('w-full').props('header-class="text-gray-400"'):
                         with ui.column().classes('w-full gap-4 p-4'):
@@ -160,7 +224,7 @@ def render():
                                 volttron_home_input = ui.input('VOLTTRON Home', value=f'~/.{default_name}').props('outlined dense bg-color="dark" color="primary"').classes('flex-grow')
                                 venv_input = ui.input('VOLTTRON venv', value=f'~/.{default_name}.venv').props('outlined dense bg-color="dark" color="primary"').classes('flex-grow')
                             ui.input('Custom Python Path').props('outlined dense bg-color="dark" color="primary"').classes('w-full')
-                            ui.checkbox('Ignore Host Keys (StrictHostKeyChecking=no)').props('color="primary"')
+                            ignore_host_keys_checkbox = ui.checkbox('Ignore Host Keys (StrictHostKeyChecking=no)').props('color="primary"')
 
             # Instance Configuration Section
             with ui.card().classes('w-full').style('background: rgba(30, 30, 36, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 2rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5); transition: transform 0.3s ease, border-color 0.3s ease;').on('mouseenter', lambda e: e.sender.style('border-color: rgba(168, 85, 247, 0.5);')).on('mouseleave', lambda e: e.sender.style('border-color: rgba(255, 255, 255, 0.1);')):
