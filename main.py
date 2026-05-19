@@ -12,7 +12,50 @@ app.add_static_files('/assets', 'assets')
 
 PAGE_HEAD = '''
 <link rel="icon" type="image/x-icon" href="/assets/favicon.ico">
-<style>body { background-color: #0f0f13; color: #f3f4f6; font-family: "Inter", sans-serif; }</style>
+<style>
+body {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-family: "Inter", sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+:root {
+  --bg-color: #f9fafb;
+  --text-color: #111827;
+  --card-bg: rgba(255, 255, 255, 0.85);
+  --card-border: rgba(0, 0, 0, 0.08);
+  --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+  --input-bg: #ffffff;
+  --sub-bg: #f3f4f6;
+  --text-muted: #6b7280;
+  --text-title: #111827;
+  --border-color: rgba(0, 0, 0, 0.08);
+  --code-bg: #f3f4f6;
+  --code-border: #e5e7eb;
+  --text-white-or-dark: #1f2937;
+  --header-btn-color: #4b5563;
+  --dialog-bg: #ffffff;
+}
+
+body.body--dark {
+  --bg-color: #0f0f13;
+  --text-color: #f3f4f6;
+  --card-bg: rgba(30, 30, 36, 0.7);
+  --card-border: rgba(255, 255, 255, 0.1);
+  --card-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  --input-bg: #1a1a20;
+  --sub-bg: #1a1a20;
+  --text-muted: #9ca3af;
+  --text-title: #f3f4f6;
+  --border-color: rgba(255, 255, 255, 0.1);
+  --code-bg: #15151b;
+  --code-border: #2b2d35;
+  --text-white-or-dark: #f3f4f6;
+  --header-btn-color: #ffffff;
+  --dialog-bg: #1e1e24;
+}
+</style>
 '''
 
 @ui.page('/')

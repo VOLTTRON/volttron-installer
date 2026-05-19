@@ -1,22 +1,22 @@
-from nicegui import ui
+from nicegui import ui, binding
 import src.db as db
 from src import ssh_remote
 from src.manage_instances import agent_management
 from src.manage_instances import config_store
 
 CARD_STYLE = (
-    'background: #18181d; border: 1px solid #2b2d35; border-radius: 6px; '
-    'padding: 1.25rem; box-shadow: none;'
+    'background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 6px; '
+    'padding: 1.25rem; box-shadow: var(--card-shadow);'
 )
 EMPTY_STATE_STYLE = (
-    'min-height: 96px; border: 1px dashed #333642; border-radius: 6px; '
+    'min-height: 96px; border: 1px dashed var(--border-color); border-radius: 6px; '
     'background: transparent;'
 )
 LIST_ROW_STYLE = (
-    'border-bottom: 1px solid #272a33; min-height: 56px; padding: 0.75rem 0;'
+    'border-bottom: 1px solid var(--border-color); min-height: 56px; padding: 0.75rem 0;'
 )
 SUBTLE_ROW_STYLE = (
-    'border-bottom: 1px solid #242731; min-height: 48px; padding: 0.55rem 0;'
+    'border-bottom: 1px solid var(--border-color); min-height: 48px; padding: 0.55rem 0;'
 )
 
 DEFAULT_LIBRARY_NAMES = {
@@ -28,13 +28,15 @@ DEFAULT_LIBRARY_NAMES = {
 }
 
 def render(instance_name: str):
+    dark_mode = ui.dark_mode()
     instances = db.get_instances()
     instance = next((i for i in instances if i.get('name') == instance_name), None)
     
     if not instance:
         with ui.column().classes('w-full items-center py-20'):
             ui.label(f'Instance "{instance_name}" not found').classes('text-red-500 text-2xl font-bold mb-4')
-            ui.button('Back to Instances', on_click=lambda: ui.navigate.to('/instances')).props('outline color="white"')
+            back_btn = ui.button('Back to Instances', on_click=lambda: ui.navigate.to('/instances')).props('outline')
+            binding.bind_from(back_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
         return
 
     agents_container = None
@@ -104,7 +106,7 @@ def render(instance_name: str):
             details += f"stdout:\n{stdout}\n"
         with error_log_container:
             ui.label(title).classes('text-red-500 font-bold text-lg mb-2')
-            ui.code(details).classes('w-full').style('background: #1e1e24; color: #f87171; border: 1px solid #ef4444; white-space: pre-wrap;')
+            ui.code(details).classes('w-full').style('background: var(--code-bg); color: #ef4444; border: 1px solid #ef4444; white-space: pre-wrap;')
 
     async def refresh_agents():
         nonlocal agent_refresh_in_progress, last_agents_signature
@@ -196,9 +198,9 @@ def render(instance_name: str):
                             show_command_error('Agent Stop Error', e)
 
                     async def do_remove(agent_ref=agent_id):
-                        with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: #1e1e24; color: white; border: 1px solid #333;'):
+                        with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color);'):
                             ui.label(f'Remove {agent.get("identity", agent_ref)}?').classes('text-lg font-bold')
-                            ui.label('This uninstalls the agent from the running platform.').style('color: #9ca3af;')
+                            ui.label('This uninstalls the agent from the running platform.').style('color: var(--text-muted);')
                             with ui.row().classes('justify-end w-full gap-2'):
                                 ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
                                 async def confirm_remove():
@@ -295,9 +297,9 @@ def render(instance_name: str):
                                 ui.notify(f'Failed to delete config: {e}', type='negative')
 
                         async def delete_all_agent_configs():
-                            with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: #1e1e24; color: white; border: 1px solid #333;'):
+                            with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color);'):
                                 ui.label(f'Delete all configs for {agent_ref}?').classes('text-lg font-bold text-red-400')
-                                ui.label('This removes every configuration entry for this agent from the VOLTTRON config store.').style('color: #9ca3af;')
+                                ui.label('This removes every configuration entry for this agent from the VOLTTRON config store.').style('color: var(--text-muted);')
                                 with ui.row().classes('justify-end w-full gap-2'):
                                     ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
                                     async def confirm_delete_all():
@@ -313,15 +315,16 @@ def render(instance_name: str):
                             confirm_dialog.open()
 
                         with ui.dialog() as config_dialog:
-                            with ui.card().classes('p-0').style('background: #18181d; color: white; border: 1px solid #333; width: 94vw; height: 90vh; max-width: none; max-height: none; display: flex; flex-direction: column;'):
-                              with ui.row().classes('w-full items-center justify-between p-5').style('border-bottom: 1px solid #2b2d35; flex: 0 0 auto;'):
+                            with ui.card().classes('p-0').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); width: 94vw; height: 90vh; max-width: none; max-height: none; display: flex; flex-direction: column;'):
+                              with ui.row().classes('w-full items-center justify-between p-5').style('border-bottom: 1px solid var(--border-color); flex: 0 0 auto;'):
                                 with ui.column().classes('gap-1'):
                                     ui.label('Config Store').classes('text-xl font-bold')
-                                    ui.label(agent_ref).style('color: #9ca3af;')
-                                ui.button(icon='close', on_click=config_dialog.close).props('flat round color="white"')
+                                    ui.label(agent_ref).style('color: var(--text-muted);')
+                                close_btn = ui.button(icon='close', on_click=config_dialog.close).props('flat round')
+                                binding.bind_from(close_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
 
                               with ui.row().classes('w-full gap-0 items-stretch no-wrap').style('flex: 1 1 auto; min-height: 0;'):
-                                with ui.column().classes('gap-3 p-4').style('width: 320px; min-width: 320px; border-right: 1px solid #2b2d35; min-height: 0;'):
+                                with ui.column().classes('gap-3 p-4').style('width: 320px; min-width: 320px; border-right: 1px solid var(--border-color); min-height: 0;'):
                                     ui.button('New Config', icon='add', on_click=clear_editor).props('color="primary" unelevated').classes('w-full')
                                     with ui.row().classes('w-full justify-between items-center'):
                                         ui.label('Stored Configs').style('font-weight: 700;')
@@ -329,7 +332,7 @@ def render(instance_name: str):
                                     ui.button('Delete All Configs', icon='delete_sweep', on_click=delete_all_agent_configs).props('outline color="negative"').classes('w-full')
 
                                 with ui.column().classes('gap-3 p-5 flex-grow').style('min-width: 0; min-height: 0;'):
-                                    status_label = ui.label('Creating new config').style('color: #9ca3af;')
+                                    status_label = ui.label('Creating new config').style('color: var(--text-muted);')
                                     with ui.row().classes('w-full gap-3 no-wrap'):
                                         config_name_input = ui.input('Config Name', placeholder='config').props('outlined dense').classes('flex-grow')
                                         config_type_select = ui.select(
@@ -411,7 +414,7 @@ def render(instance_name: str):
             if not libraries:
                 with ui.column().classes('w-full items-center justify-center gap-2').style(EMPTY_STATE_STYLE):
                     ui.icon('inventory_2', size='sm', color='gray')
-                    ui.label('No VOLTTRON libraries installed').style('color: #9ca3af;')
+                    ui.label('No VOLTTRON libraries installed').style('color: var(--text-muted);')
                 return
 
             def render_library_row(library: dict, removable: bool = True):
@@ -419,9 +422,9 @@ def render(instance_name: str):
                 library_version = library.get('version') or 'unknown version'
 
                 async def do_remove_library(lib_name=library_name):
-                    with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: #1e1e24; color: white; border: 1px solid #333;'):
+                    with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color);'):
                         ui.label(f'Remove {lib_name}?').classes('text-lg font-bold')
-                        ui.label('This removes the library package from the selected platform environment. Agents that depend on it may stop working.').style('color: #9ca3af;')
+                        ui.label('This removes the library package from the selected platform environment. Agents that depend on it may stop working.').style('color: var(--text-muted);')
                         with ui.row().classes('justify-end w-full gap-2'):
                             ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
                             async def confirm_remove_library():
@@ -440,8 +443,8 @@ def render(instance_name: str):
                 row_style = LIST_ROW_STYLE if removable else SUBTLE_ROW_STYLE
                 with ui.row().classes('w-full items-center justify-between gap-4').style(row_style):
                     with ui.column().classes('gap-1'):
-                        ui.label(library_name).style('color: #f3f4f6; font-weight: 700;')
-                        ui.label(library_version).style('color: #9ca3af; font-size: 0.8rem;')
+                        ui.label(library_name).style('color: var(--text-color); font-weight: 700;')
+                        ui.label(library_version).style('color: var(--text-muted); font-size: 0.8rem;')
                     if removable:
                         ui.button(icon='delete', on_click=do_remove_library).props('flat round color="negative"').tooltip('Remove library').set_enabled(current_platform_state == 'running')
 
@@ -451,11 +454,11 @@ def render(instance_name: str):
             else:
                 with ui.column().classes('w-full items-center justify-center gap-2').style(EMPTY_STATE_STYLE):
                     ui.icon('extension_off', size='sm', color='gray')
-                    ui.label('No additional VOLTTRON libraries installed').style('color: #9ca3af;')
+                    ui.label('No additional VOLTTRON libraries installed').style('color: var(--text-muted);')
 
             if default_libraries:
                 default_margin = 'margin-top: 0.75rem;' if additional_libraries else ''
-                with ui.expansion(f'Default Libraries ({len(default_libraries)})', icon='inventory_2').classes('w-full').props('dense header-class="text-gray-300"').style(f'{default_margin} color: #d1d5db;'):
+                with ui.expansion(f'Default Libraries ({len(default_libraries)})', icon='inventory_2').classes('w-full').style(f'{default_margin} color: var(--text-color);'):
                     with ui.column().classes('w-full gap-0 pl-8 pr-1'):
                         for library in default_libraries:
                             render_library_row(library, removable=False)
@@ -493,9 +496,9 @@ def render(instance_name: str):
             )
 
     async def handle_clear_log():
-        with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: #1e1e24; color: white; border: 1px solid #333;'):
+        with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color);'):
             ui.label('Clear volttron.log?').classes('text-lg font-bold')
-            ui.label('This truncates the current log file for this instance. New log entries will still appear here.').style('color: #9ca3af;')
+            ui.label('This truncates the current log file for this instance. New log entries will still appear here.').style('color: var(--text-muted);')
             with ui.row().classes('justify-end w-full gap-2'):
                 ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
 
@@ -525,10 +528,10 @@ def render(instance_name: str):
             return
 
         install_dialog.close()
-        with ui.dialog() as progress_dialog, ui.card().classes('p-8 items-center gap-4').style('background: #1e1e24; color: white; border: 1px solid #333; border-radius: 12px;'):
+        with ui.dialog() as progress_dialog, ui.card().classes('p-8 items-center gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 12px;'):
             ui.label('Installing Agent').classes('text-xl font-bold')
             ui.spinner(size='lg')
-            ui.label(source).style('color: #9ca3af;')
+            ui.label(source).style('color: var(--text-muted);')
         progress_dialog.open()
         try:
             await agent_management.install_agent(instance, source, identity, start, config)
@@ -551,10 +554,10 @@ def render(instance_name: str):
             return
 
         install_library_dialog.close()
-        with ui.dialog() as progress_dialog, ui.card().classes('p-8 items-center gap-4').style('background: #1e1e24; color: white; border: 1px solid #333; border-radius: 12px;'):
+        with ui.dialog() as progress_dialog, ui.card().classes('p-8 items-center gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 12px;'):
             ui.label('Installing Library').classes('text-xl font-bold')
             ui.spinner(size='lg')
-            ui.label(source).style('color: #9ca3af;')
+            ui.label(source).style('color: var(--text-muted);')
         progress_dialog.open()
         try:
             await agent_management.install_library(instance, source, force, allow_prerelease)
@@ -568,9 +571,9 @@ def render(instance_name: str):
             show_command_error('Library Install Error', e)
 
     async def handle_shutdown():
-        with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: #1e1e24; color: white; border: 1px solid #333;'):
+        with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color);'):
             ui.label(f'Shut down {instance_name}?').classes('text-lg font-bold')
-            ui.label('This runs vctl shutdown --platform for the selected instance.').style('color: #9ca3af;')
+            ui.label('This runs vctl shutdown --platform for the selected instance.').style('color: var(--text-muted);')
             with ui.row().classes('justify-end w-full gap-2'):
                 ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
                 async def confirm_shutdown():
@@ -595,22 +598,22 @@ def render(instance_name: str):
     async def handle_delete_platform():
         venv_path = instance.get('venv') or 'N/A'
         volttron_home = instance.get('volttron_home') or 'N/A'
-        with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: #1e1e24; color: white; border: 1px solid #333; min-width: 520px;'):
+        with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); min-width: 520px;'):
             ui.label(f'Delete {instance_name}?').classes('text-lg font-bold text-red-400')
-            ui.label('This will shut down the platform, delete its virtual environment, delete VOLTTRON_HOME, and remove it from this installer.').style('color: #d1d5db;')
-            with ui.column().classes('w-full gap-1 p-3').style('background: #111116; border: 1px solid #333; border-radius: 6px;'):
-                ui.label(f'Virtual Env: {venv_path}').style('color: #d1d5db; font-size: 0.85rem;')
-                ui.label(f'VOLTTRON Home: {volttron_home}').style('color: #d1d5db; font-size: 0.85rem;')
-                ui.label(f'Instance Record: instances_data/{instance_name}.json').style('color: #d1d5db; font-size: 0.85rem;')
+            ui.label('This will shut down the platform, delete its virtual environment, delete VOLTTRON_HOME, and remove it from this installer.').style('color: var(--text-muted);')
+            with ui.column().classes('w-full gap-1 p-3').style('background: var(--code-bg); border: 1px solid var(--border-color); border-radius: 6px;'):
+                ui.label(f'Virtual Env: {venv_path}').style('color: var(--text-muted); font-size: 0.85rem;')
+                ui.label(f'VOLTTRON Home: {volttron_home}').style('color: var(--text-muted); font-size: 0.85rem;')
+                ui.label(f'Instance Record: instances_data/{instance_name}.json').style('color: var(--text-muted); font-size: 0.85rem;')
             with ui.row().classes('justify-end w-full gap-2'):
                 ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
 
                 async def confirm_delete():
                     confirm_dialog.close()
-                    with ui.dialog() as progress_dialog, ui.card().classes('p-8 items-center gap-4').style('background: #1e1e24; color: white; border: 1px solid #333; border-radius: 12px;'):
+                    with ui.dialog() as progress_dialog, ui.card().classes('p-8 items-center gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 12px;'):
                         ui.label('Deleting Platform').classes('text-xl font-bold')
                         ui.spinner(size='lg')
-                        ui.label(instance_name).style('color: #9ca3af;')
+                        ui.label(instance_name).style('color: var(--text-muted);')
                     progress_dialog.open()
                     try:
                         messages = await agent_management.delete_platform_files(instance)
@@ -628,14 +631,20 @@ def render(instance_name: str):
                 ui.button('Delete Platform', icon='delete_forever', on_click=confirm_delete).props('color="negative"')
         confirm_dialog.open()
 
-    with ui.column().classes('w-full items-center py-8').style('min-height: 100vh; background: #0f1014;'):
+    with ui.column().classes('w-full items-center py-8').style('min-height: 100vh; background: var(--bg-color);'):
         # Header
         with ui.column().classes('w-full max-w-6xl gap-4 mb-8'):
             with ui.row().classes('w-full justify-between items-center'):
                 with ui.row().classes('items-center gap-3'):
-                    ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/instances')).props('flat round color="white"')
-                    ui.label(instance_name).style('font-size: 2rem; font-weight: 700; color: #f3f4f6;')
-                status_badge = ui.badge('Checking Status...', color='gray').style('font-size: 0.95rem; padding: 0.45rem 0.75rem;')
+                    back_btn = ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/instances')).props('flat round')
+                    binding.bind_from(back_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
+                    ui.label(instance_name).style('font-size: 2rem; font-weight: 700; color: var(--text-color);')
+                
+                with ui.row().classes('items-center gap-3'):
+                    status_badge = ui.badge('Checking Status...', color='gray').style('font-size: 0.95rem; padding: 0.45rem 0.75rem;')
+                    theme_btn = ui.button(on_click=dark_mode.toggle).props('flat round')
+                    theme_btn.bind_icon_from(dark_mode, 'value', backward=lambda val: 'light_mode' if val else 'dark_mode')
+                    binding.bind_from(theme_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'warning' if val else 'primary')
                 
             async def check_status():
                 from src.manage_instances.status_check import check_volttron_rest_status, is_port_bound
@@ -678,7 +687,7 @@ def render(instance_name: str):
                 from src.manage_instances.start_platform import start_platform_command
                 ui.notify(f'Starting {instance_name}...', type='info')
                 
-                with ui.dialog() as dialog, ui.card().classes('p-8 items-center gap-4').style('background: #1e1e24; color: white; border: 1px solid #333; border-radius: 12px;'):
+                with ui.dialog() as dialog, ui.card().classes('p-8 items-center gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 12px;'):
                     ui.label('Starting Platform').classes('text-xl font-bold')
                     ui.spinner(size='lg')
                     ui.label('Waiting for initialization...')
@@ -709,7 +718,7 @@ def render(instance_name: str):
                     error_log_container.style('display: flex;')
                     with error_log_container:
                         ui.label('Startup Error (Last 20 lines of volttron.log)').classes('text-red-500 font-bold text-lg mb-2')
-                        ui.code(log_content).classes('w-full').style('background: #1e1e24; color: #f87171; border: 1px solid #ef4444;')
+                        ui.code(log_content).classes('w-full').style('background: var(--code-bg); color: #f87171; border: 1px solid #ef4444;')
 
             with ui.row().classes('gap-2 items-center'):
                 start_button = ui.button('Start', icon='play_arrow', on_click=handle_start).props('color="positive" unelevated').style('font-weight: 600; min-width: 112px;')
@@ -718,20 +727,20 @@ def render(instance_name: str):
                 start_button.disable()
                 shutdown_button.disable()
 
-        with ui.row().classes('w-full max-w-6xl gap-5 items-start'):
+        with ui.row().classes('w-full max-w-6xl gap-5 items-stretch'):
             # Configuration Card
             with ui.card().classes('w-full max-w-md').style(CARD_STYLE):
                 with ui.row().classes('items-center gap-2 mb-4'):
                     ui.icon('settings', size='sm', color='#6366f1')
-                    ui.label('Configuration').style('font-size: 1.2rem; font-weight: bold; color: #f3f4f6;')
+                    ui.label('Configuration').style('font-size: 1.2rem; font-weight: bold; color: var(--text-color);')
                 
                 ui.separator().classes('mb-4')
                 
                 with ui.column().classes('gap-3 w-full'):
                     def row_label(key, value):
                         with ui.row().classes('w-full justify-between items-center'):
-                            ui.label(key).style('color: #9ca3af; font-size: 0.9rem;')
-                            ui.label(value).style('color: #f3f4f6; font-weight: 500;')
+                            ui.label(key).style('color: var(--text-muted); font-size: 0.9rem;')
+                            ui.label(value).style('color: var(--text-color); font-weight: 500;')
                     
                     row_label('Type', instance.get('type', 'Modular'))
                     row_label('Host', instance.get('host', 'localhost'))
@@ -744,14 +753,14 @@ def render(instance_name: str):
                         row_label('SSH User', instance.get('ssh_username', 'N/A'))
                         row_label('SSH Port', str(instance.get('ssh_port', '22')))
                         row_label('SSH Key', instance.get('ssh_key_path') or 'Agent/default keys')
-                        ui.label('Remote management uses SSH keys only.').style('color: #9ca3af; font-size: 0.8rem;')
+                        ui.label('Remote management uses SSH keys only.').style('color: var(--text-muted); font-size: 0.8rem;')
             
             # Agents Card
             with ui.card().classes('flex-grow').style(CARD_STYLE + 'min-width: 420px;'):
                 with ui.row().classes('items-center gap-2 mb-4 justify-between w-full'):
                     with ui.row().classes('items-center gap-2'):
                         ui.icon('smart_toy', size='sm', color='#ec4899')
-                        ui.label('Installed Agents').style('font-size: 1.2rem; font-weight: bold; color: #f3f4f6;')
+                        ui.label('Installed Agents').style('font-size: 1.2rem; font-weight: bold; color: var(--text-color);')
                     
                     install_agent_button = ui.button('Install Agent', icon='add', on_click=lambda: install_dialog.open()).props('outline color="primary"').style('font-weight: 700; min-width: 148px;')
                     install_agent_button.disable()
@@ -767,10 +776,11 @@ def render(instance_name: str):
             with ui.row().classes('items-center gap-2 mb-4 justify-between w-full'):
                 with ui.row().classes('items-center gap-2'):
                     ui.icon('extension', size='sm', color='#f59e0b')
-                    ui.label('Installed Libraries').style('font-size: 1.2rem; font-weight: bold; color: #f3f4f6;')
+                    ui.label('Installed Libraries').style('font-size: 1.2rem; font-weight: bold; color: var(--text-color);')
 
                 with ui.row().classes('items-center gap-2'):
-                    ui.button(icon='refresh', on_click=refresh_libraries).props('flat round color="white"').tooltip('Refresh libraries')
+                    refresh_lib_btn = ui.button(icon='refresh', on_click=refresh_libraries).props('flat round').tooltip('Refresh libraries')
+                    binding.bind_from(refresh_lib_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
                     install_library_button = ui.button('Install Library', icon='add', on_click=lambda: install_library_dialog.open()).props('outline color="primary"').style('font-weight: 700; min-width: 156px;')
                     install_library_button.disable()
 
@@ -785,24 +795,25 @@ def render(instance_name: str):
             with ui.row().classes('items-center justify-between w-full mb-4'):
                 with ui.row().classes('items-center gap-2'):
                     ui.icon('article', size='sm', color='#10b981')
-                    ui.label('Live Log Tail').style('font-size: 1.2rem; font-weight: bold; color: #f3f4f6;')
+                    ui.label('Live Log Tail').style('font-size: 1.2rem; font-weight: bold; color: var(--text-color);')
                 with ui.row().classes('items-center gap-2'):
                     log_follow_switch = ui.switch('Follow', value=True).props('dense color="positive"')
-                    ui.button(icon='refresh', on_click=refresh_log).props('flat round color="white"').tooltip('Refresh log')
+                    refresh_log_btn = ui.button(icon='refresh', on_click=refresh_log).props('flat round').tooltip('Refresh log')
+                    binding.bind_from(refresh_log_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
                     ui.button('Clear Log', icon='delete_sweep', on_click=handle_clear_log).props('flat color="negative"').style('font-weight: 700;')
             log_container = ui.column().classes('w-full')
             with log_container:
-                log_code = ui.code('', language='text').classes('w-full').style('height: 420px; background: #0b0c10; border: 1px solid #2b2d35; border-radius: 6px; color: #d1d5db;')
+                log_code = ui.code('', language='text').classes('w-full').style('height: 420px; background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 6px; color: var(--text-color);')
             ui.timer(0.1, refresh_log, once=True)
             if instance.get('is_local', True):
                 ui.timer(3.0, refresh_log)
 
         # Error Log Container
-        error_log_container = ui.column().classes('w-full max-w-6xl mt-5 p-4').style('display: none; background: #18181d; border: 1px solid rgba(239, 68, 68, 0.5); border-radius: 8px;')
+        error_log_container = ui.column().classes('w-full max-w-6xl mt-5 p-4').style('display: none; background: var(--card-bg); border: 1px solid rgba(239, 68, 68, 0.5); border-radius: 8px;')
 
-        with ui.dialog() as install_dialog, ui.card().classes('p-6 gap-4').style('background: #1e1e24; color: white; border: 1px solid #333; border-radius: 12px; min-width: 520px;'):
+        with ui.dialog() as install_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 12px; min-width: 520px;'):
             ui.label('Install Agent').classes('text-xl font-bold')
-            ui.label('Install from a PyPI package, local agent directory, wheel, or git URL.').style('color: #9ca3af;')
+            ui.label('Install from a PyPI package, local agent directory, wheel, or git URL.').style('color: var(--text-muted);')
             agent_source_input = ui.input('Agent Source', placeholder='volttron-listener or /path/to/agent').props('outlined dense').classes('w-full')
             agent_identity_input = ui.input('VIP Identity', placeholder='listener').props('outlined dense').classes('w-full')
             agent_config_input = ui.input('Agent Config Path', placeholder='Optional path to config file').props('outlined dense').classes('w-full')
@@ -811,9 +822,9 @@ def render(instance_name: str):
                 ui.button('Cancel', on_click=install_dialog.close).props('flat color="gray"')
                 ui.button('Install', icon='download', on_click=handle_install_agent).props('color="primary"')
 
-        with ui.dialog() as install_library_dialog, ui.card().classes('p-6 gap-4').style('background: #1e1e24; color: white; border: 1px solid #333; border-radius: 12px; min-width: 520px;'):
+        with ui.dialog() as install_library_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 12px; min-width: 520px;'):
             ui.label('Install Library').classes('text-xl font-bold')
-            ui.label('Install a VOLTTRON library package into this platform environment.').style('color: #9ca3af;')
+            ui.label('Install a VOLTTRON library package into this platform environment.').style('color: var(--text-muted);')
             library_source_input = ui.input('Library Source', placeholder='volttron-lib-web or /path/to/library.whl').props('outlined dense').classes('w-full')
             library_force_switch = ui.switch('Force reinstall', value=False).props('color="warning"')
             library_prerelease_switch = ui.switch('Allow prereleases', value=False).props('color="primary"')
