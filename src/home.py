@@ -2,6 +2,7 @@ from nicegui import ui
 
 def render():
     with ui.column().classes('w-full items-center justify-center').style('min-height: 80vh;'):
+        ui.image('/assets/logo-mini.png').style('width: 96px; height: auto; margin-bottom: 1.25rem;')
         ui.label('VOLTTRON Installer').style('font-size: 3rem; font-weight: bold; background: linear-gradient(90deg, #6366f1, #a855f7, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent;')
         ui.label('Manage and deploy your VOLTTRON platforms with ease.').style('font-size: 1.2rem; color: #9ca3af; margin-bottom: 2rem;')
         
