@@ -1,7 +1,8 @@
 from nicegui import ui, binding
+from src import theme
 
 def render():
-    dark_mode = ui.dark_mode()
+    dark_mode = theme.dark_mode()
     
     with ui.row().classes('absolute top-4 right-4 items-center gap-2'):
         theme_btn = ui.button(on_click=dark_mode.toggle).props('flat round')
@@ -25,4 +26,3 @@ def render():
             bacnet_btn = ui.button('BACnet Scan Tool', on_click=lambda: ui.navigate.to('/bacnet_scan')).props('outline rounded size="lg"').style('padding: 10px 30px; font-weight: bold; transition: all 0.2s ease;')
             binding.bind_from(bacnet_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'secondary' if val else 'secondary')
             bacnet_btn.on('mouseleave', lambda e: e.sender.style('background: transparent;'))
-

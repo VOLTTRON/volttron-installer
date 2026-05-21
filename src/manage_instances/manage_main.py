@@ -1,6 +1,7 @@
 from nicegui import ui, binding
 import src.db as db
 from src import ssh_remote
+from src import theme
 from src.manage_instances import agent_management
 from src.manage_instances import config_store
 
@@ -28,7 +29,7 @@ DEFAULT_LIBRARY_NAMES = {
 }
 
 def render(instance_name: str):
-    dark_mode = ui.dark_mode()
+    dark_mode = theme.dark_mode()
     instances = db.get_instances()
     instance = next((i for i in instances if i.get('name') == instance_name), None)
     

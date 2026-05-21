@@ -2,16 +2,18 @@ from nicegui import ui, binding
 import random
 import string
 import asyncio
+from src import theme
 
 def generate_instance_name():
     return 'volttron-' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
 
 def render():
-    dark_mode = ui.dark_mode()
+    dark_mode = theme.dark_mode()
     default_name = generate_instance_name()
 
     async def perform_install():
-        install_target = 'local' if is_local.value else 'remote'
+        is_local_install = install_target_toggle.value == 'Local'
+        install_target = 'local' if is_local_install else 'remote'
         ui.notify(f'Starting {install_target} installation...', type='info')
         
         with ui.dialog() as dialog, ui.card().classes('p-8 items-center gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 12px;'):
@@ -25,7 +27,7 @@ def render():
         
         try:
             ssh_instance = None
-            if not is_local.value:
+            if not is_local_install:
                 if not (host_input.value or '').strip():
                     raise Exception('Remote host is required.')
                 if not (username_input.value or '').strip():
@@ -48,7 +50,7 @@ def render():
             status_label.set_text('Creating virtual environment...')
             # Default to ~/volttron.venv if empty
             venv_path = venv_input.value if venv_input.value else '~/volttron.venv'
-            if is_local.value:
+            if is_local_install:
                 from src.deploy_platforms.create_python_venv import create_venv
                 await create_venv(venv_path)
             else:
@@ -101,7 +103,7 @@ def render():
                     if web_pkg_input.value:
                         packages_to_install.append(f"--no-deps git+https://github.com/{web_pkg_input.value}")
             
-            if is_local.value:
+            if is_local_install:
                 from src.deploy_platforms.install_volttron_packages import install_packages
                 await install_packages(venv_path, packages_to_install)
             else:
@@ -110,14 +112,14 @@ def render():
             
             status_label.set_text('Configuring VOLTTRON home...')
             volttron_home = volttron_home_input.value if volttron_home_input.value else '~/.volttron'
-            host = 'localhost' if is_local.value else host_input.value
-            web_bind_address = "http://127.0.0.1:8443" if is_local.value else "http://0.0.0.0:8443"
+            host = 'localhost' if is_local_install else host_input.value
+            web_bind_address = "http://127.0.0.1:8443" if is_local_install else "http://0.0.0.0:8443"
             port_messages = []
             if web_interface_toggle.value:
                 web_bind_address, port_messages = allocate_web_bind_address(
                     web_bind_address,
                     host,
-                    can_probe_socket=is_local.value,
+                    can_probe_socket=is_local_install,
                 )
                 for message in port_messages:
                     ui.notify(message, type='warning')
@@ -125,7 +127,7 @@ def render():
                     status_label.set_text(port_messages[-1])
                     await asyncio.sleep(1.5)
             
-            if is_local.value:
+            if is_local_install:
                 from src.deploy_platforms.configure_volttron import configure_volttron
                 web_creds = await configure_volttron(
                     venv_path, 
@@ -151,12 +153,12 @@ def render():
                 'name': instance_name_input.value,
                 'type': type_toggle.value,
                 'host': host,
-                'is_local': is_local.value,
+                'is_local': is_local_install,
                 'vip': vip_input.value,
                 'venv': venv_path,
                 'volttron_home': volttron_home
             }
-            if not is_local.value:
+            if not is_local_install:
                 instance_data.update({
                     'ssh_username': ssh_instance['ssh_username'],
                     'ssh_port': ssh_instance['ssh_port'],
@@ -199,14 +201,16 @@ def render():
                     ui.label('Connection').style('font-size: 1.5rem; font-weight: 600; color: var(--text-color);')
                 
                 with ui.column().classes('w-full gap-5'):
-                    is_local = ui.switch('Install Locally?', value=True).props('color="primary"')
+                    with ui.column().classes('w-full gap-2'):
+                        ui.label('Install Target').style('font-weight: 500; color: var(--text-muted); font-size: 0.9rem;')
+                        install_target_toggle = ui.toggle(['Local', 'Remote'], value='Local').props('unelevated no-caps spread').classes('w-full volttron-segmented')
                     
-                    with ui.row().classes('w-full gap-4').bind_visibility_from(is_local, 'value', backward=lambda v: not v):
+                    with ui.row().classes('w-full gap-4').bind_visibility_from(install_target_toggle, 'value', backward=lambda v: v == 'Remote'):
                         host_input = ui.input('Host').props('outlined rounded color="primary"').classes('flex-grow').style('transition: all 0.3s ease;')
                         username_input = ui.input('Username').props('outlined rounded color="primary"').classes('flex-grow')
                         ssh_port_input = ui.input('SSH Port', value='22').props('outlined rounded color="primary"').classes('w-24')
 
-                    with ui.column().classes('w-full gap-3').bind_visibility_from(is_local, 'value', backward=lambda v: not v):
+                    with ui.column().classes('w-full gap-3').bind_visibility_from(install_target_toggle, 'value', backward=lambda v: v == 'Remote'):
                         ui.label('SSH Authentication').style('font-weight: 500; color: var(--text-muted); font-size: 0.9rem;')
                         key_path_input = ui.input('Private Key Path', value='~/.ssh/volttron_installer').props('outlined rounded color="primary"').classes('w-full')
                         ui.label('Remote deployments use SSH keys only. Create a key on this installer host and add its public key to the remote user.').style('font-size: 0.8rem; color: var(--text-muted);')
@@ -242,17 +246,22 @@ def render():
                     def update_paths(e):
                         volttron_home_input.value = f'~/.{e.value}'
                         venv_input.value = f'~/.{e.value}.venv'
+
+                    def handle_type_change(e):
+                        if e.value == 'Monolithic':
+                            ui.notify('Monolithic deployments are not implemented yet.', type='warning')
+                            type_toggle.value = 'Modular'
                         
                     instance_name_input = ui.input('Instance Name', value=default_name, on_change=update_paths).props('outlined rounded color="primary"').classes('w-full')
                     
                     with ui.column().classes('w-full gap-2'):
                         ui.label('VOLTTRON Type').style('font-weight: 500; color: var(--text-muted); font-size: 0.9rem;')
-                        type_toggle = ui.toggle(['Modular', 'Monolithic'], value='Modular').props('color="primary" rounded spread').classes('w-full')
+                        type_toggle = ui.toggle(['Modular', 'Monolithic'], value='Modular', on_change=handle_type_change).props('unelevated no-caps spread').classes('w-full volttron-segmented')
                         ui.label('Modular: Agents are pip packages (recommended). Monolithic: Bundled all-in-one.').style('font-size: 0.8rem; color: var(--text-muted);')
                     
                     with ui.column().classes('w-full gap-2'):
                         ui.label('Package Source').style('font-weight: 500; color: var(--text-muted); font-size: 0.9rem;')
-                        package_source = ui.toggle(['Automatic', 'Manual'], value='Automatic').props('color="primary" rounded spread').classes('w-full')
+                        package_source = ui.toggle(['Automatic', 'Manual'], value='Automatic').props('unelevated no-caps spread').classes('w-full volttron-segmented')
                         
                         with ui.column().classes('w-full gap-4 p-4 border border-gray-700 rounded-lg bg-[var(--sub-bg)] mt-2').bind_visibility_from(package_source, 'value', backward=lambda v: v == 'Manual'):
                             ui.label('Manual Package Overrides').style('font-weight: 600; color: var(--text-color); font-size: 0.9rem;')

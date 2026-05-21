@@ -1,8 +1,9 @@
 from nicegui import ui, binding
 import src.db as db
+from src import theme
 
 def render():
-    dark_mode = ui.dark_mode()
+    dark_mode = theme.dark_mode()
     
     with ui.column().classes('w-full items-center py-10').style('min-height: 100vh;'):
         # Header

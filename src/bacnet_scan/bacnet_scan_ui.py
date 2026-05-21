@@ -2,6 +2,7 @@ import httpx
 from nicegui import ui, binding
 import asyncio
 import re
+from src import theme
 
 _original_notify = ui.notify
 def safe_notify(*args, **kwargs):
@@ -180,9 +181,9 @@ def render_devices():
                     'vendorID': dev.get('vendorID', '')
                 })
                 
-            dark_mode = ui.dark_mode()
+            dark_mode = theme.dark_mode()
             table = ui.table(columns=columns, rows=rows, row_key='id').classes('w-full bg-[var(--sub-bg)]').props('flat bordered')
-            table.bind_prop('dark', dark_mode, 'value')
+            binding.bind_from(table._props, 'dark', dark_mode, 'value')
             
             table.add_slot('body-cell-actions', '''
                 <q-td :props="props">
@@ -307,7 +308,7 @@ def render_dialog_content():
     dev_id = state.selected_device.get('deviceIdentifier', '')
     dev_addr = state.selected_device.get('address', '')
     
-    dark_mode = ui.dark_mode()
+    dark_mode = theme.dark_mode()
     
     with ui.column().classes('w-full gap-4'):
         # Dialog Header
@@ -340,7 +341,7 @@ def render_dialog_content():
                 ]
                 
                 table = ui.table(columns=columns, rows=state.objects, selection='multiple', row_key='object_id').classes('w-full bg-[var(--sub-bg)]').props('flat bordered')
-                table.bind_prop('dark', dark_mode, 'value')
+                binding.bind_from(table._props, 'dark', dark_mode, 'value')
                 
                 # Bottom Actions Row
                 with ui.row().classes('w-full justify-between items-center mt-4 flex-nowrap'):
@@ -362,7 +363,7 @@ def render_dialog_content():
 def render():
     global object_dialog, networks_container, devices_container
     
-    dark_mode = ui.dark_mode()
+    dark_mode = theme.dark_mode()
     
     # BACnet Object Browser Dialog (Created once globally)
     with ui.dialog() as object_dialog:
