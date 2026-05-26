@@ -18,12 +18,29 @@ python main.py
 ```
 The interface will be hosted locally at `http://localhost:8080` (or `http://<your-server-ip>:8080`).
 
-## SSH Deployments
+## Ansible Deployments
+
+New platform deployments use the modular `develop` branch of `eclipse-volttron/volttron-ansible`.
+The installer installs or updates that collection with:
+
+```bash
+ansible-galaxy collection install -f git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
+```
+
+The target host must have Python 3.10+, `python3-venv`, pip, git, and systemd available. The Ansible
+flow creates a virtual environment, installs the modular VOLTTRON packages, writes the platform config,
+installs a systemd service, enables it, and starts the platform through systemd.
+Local and remote deployments need either passwordless sudo or the sudo password entered in Advanced
+Settings during deployment. The sudo password is only passed to Ansible for that run and is not saved.
+
+Generated inventory/config files are written under `ansible_deployments/` and are local runtime data.
+
+## SSH Management
 
 On the New Platform screen, turn off **Install Locally?** and enter the remote host, SSH username, and port.
 Remote deployments use SSH key authentication. Create a key on the installer host, add the public key to the
 remote user's `~/.ssh/authorized_keys`, and enter the private key path in the installer.
 
-Remote management actions such as start, shutdown, agent install, library install, log tail, and delete run over SSH.
+Remote management actions such as agent install, library install, log tail, and delete run over SSH.
 Remote instance pages do not continuously poll SSH-heavy panels; use the refresh buttons for current log, agent,
 and library data.

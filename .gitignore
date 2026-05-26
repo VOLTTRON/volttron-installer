@@ -154,3 +154,4 @@ Thumbs.db
 # NiceGUI / App specific local data
 *.log
 instances_data/
+ansible_deployments/

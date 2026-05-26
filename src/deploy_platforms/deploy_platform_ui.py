@@ -47,70 +47,7 @@ def render():
                 status_label.set_text('Connecting over SSH...')
                 await ssh_remote.test_connection(ssh_instance)
 
-            status_label.set_text('Creating virtual environment...')
-            # Default to ~/volttron.venv if empty
             venv_path = venv_input.value if venv_input.value else '~/volttron.venv'
-            if is_local_install:
-                from src.deploy_platforms.create_python_venv import create_venv
-                await create_venv(venv_path)
-            else:
-                from src.deploy_platforms.remote_deploy import create_remote_venv
-                await create_remote_venv(ssh_instance, venv_path)
-            
-            status_label.set_text('Installing VOLTTRON packages...')
-            packages_to_install = ['volttron']
-            
-            if type_toggle.value == 'Modular':
-                packages_to_install.extend(['volttron-lib-zmq', 'volttron-lib-auth'])
-                if web_interface_toggle.value:
-                    packages_to_install.extend(['volttron-lib-tree', 'volttron-lib-web'])
-            
-            if package_source.value == 'Manual':
-                packages_to_install = []
-                # First, install the custom core version
-                if core_pkg_input.value:
-                    packages_to_install.append(f"git+https://github.com/{core_pkg_input.value}")
-                
-                # Second, install the required 3rd party runtime dependencies natively so pip resolves them correctly
-                packages_to_install.extend([
-                    "pyzmq>=25.1.2,<26.0.0",
-                    "msgpack-python>=0.5.6,<0.6.0",
-                    "treelib>=1.6.1",
-                    "pydantic>=2.0.0,<3.0.0"
-                ])
-                if web_interface_toggle.value:
-                    packages_to_install.extend([
-                        "argon2-cffi>=21.3.0,<22.0.0",
-                        "jinja2>=2.10.1",
-                        "passlib>=1.7.4,<2.0.0",
-                        "PyJWT==1.7.1",
-                        "requests>=2.28.1",
-                        "werkzeug>=2.1.2",
-                        "ws4py>=0.5.1"
-                    ])
-                    
-                # Third, explicitly install the library branches with --no-deps to bypass strict version checks
-                if auth_pkg_input.value:
-                    packages_to_install.append(f"--no-deps git+https://github.com/{auth_pkg_input.value}")
-                if zmq_pkg_input.value:
-                    packages_to_install.append(f"--no-deps git+https://github.com/{zmq_pkg_input.value}")
-                if web_interface_toggle.value:
-                    if tree_pkg_input.value:
-                        packages_to_install.append(f"--no-deps git+https://github.com/{tree_pkg_input.value}")
-                    else:
-                        packages_to_install.append('--no-deps volttron-lib-tree')
-                        
-                    if web_pkg_input.value:
-                        packages_to_install.append(f"--no-deps git+https://github.com/{web_pkg_input.value}")
-            
-            if is_local_install:
-                from src.deploy_platforms.install_volttron_packages import install_packages
-                await install_packages(venv_path, packages_to_install)
-            else:
-                from src.deploy_platforms.remote_deploy import install_remote_packages
-                await install_remote_packages(ssh_instance, venv_path, packages_to_install)
-            
-            status_label.set_text('Configuring VOLTTRON home...')
             volttron_home = volttron_home_input.value if volttron_home_input.value else '~/.volttron'
             host = 'localhost' if is_local_install else host_input.value
             web_bind_address = "http://127.0.0.1:8443" if is_local_install else "http://0.0.0.0:8443"
@@ -126,26 +63,65 @@ def render():
                 if port_messages:
                     status_label.set_text(port_messages[-1])
                     await asyncio.sleep(1.5)
+
+            extra_packages = []
+            if web_interface_toggle.value:
+                extra_packages.extend(['volttron-lib-tree', 'volttron-lib-web'])
             
-            if is_local_install:
-                from src.deploy_platforms.configure_volttron import configure_volttron
-                web_creds = await configure_volttron(
-                    venv_path, 
-                    volttron_home, 
-                    instance_name_input.value, 
-                    web_interface_toggle.value,
-                    web_bind_address
-                )
-            else:
-                from src.deploy_platforms.remote_deploy import configure_remote_volttron
-                web_creds = await configure_remote_volttron(
-                    ssh_instance,
-                    venv_path,
-                    volttron_home,
-                    instance_name_input.value,
-                    web_interface_toggle.value,
-                    web_bind_address,
-                )
+            if package_source.value == 'Manual':
+                extra_packages = []
+                if core_pkg_input.value:
+                    extra_packages.append(f"git+https://github.com/{core_pkg_input.value}")
+                extra_packages.extend([
+                    "pyzmq>=25.1.2,<26.0.0",
+                    "msgpack-python>=0.5.6,<0.6.0",
+                    "treelib>=1.6.1",
+                    "pydantic>=2.0.0,<3.0.0"
+                ])
+                if web_interface_toggle.value:
+                    extra_packages.extend([
+                        "argon2-cffi>=21.3.0,<22.0.0",
+                        "jinja2>=2.10.1",
+                        "passlib>=1.7.4,<2.0.0",
+                        "PyJWT==1.7.1",
+                        "requests>=2.28.1",
+                        "werkzeug>=2.1.2",
+                        "ws4py>=0.5.1"
+                    ])
+                if auth_pkg_input.value:
+                    extra_packages.append(f"git+https://github.com/{auth_pkg_input.value}")
+                if zmq_pkg_input.value:
+                    extra_packages.append(f"git+https://github.com/{zmq_pkg_input.value}")
+                if web_interface_toggle.value:
+                    if tree_pkg_input.value:
+                        extra_packages.append(f"git+https://github.com/{tree_pkg_input.value}")
+                    else:
+                        extra_packages.append('volttron-lib-tree')
+                        
+                    if web_pkg_input.value:
+                        extra_packages.append(f"git+https://github.com/{web_pkg_input.value}")
+
+            status_label.set_text('Running Ansible deployment...')
+            from src.deploy_platforms.ansible_deploy import deploy_with_ansible
+            ansible_result = await deploy_with_ansible(
+                instance_name=instance_name_input.value,
+                is_local=is_local_install,
+                host=host,
+                username=(username_input.value or '').strip() if not is_local_install else '',
+                ssh_port=ssh_port_input.value or '22',
+                ssh_key_path=(key_path_input.value or '').strip() if not is_local_install else '',
+                ignore_host_keys=bool(ignore_host_keys_checkbox.value),
+                volttron_home=volttron_home,
+                volttron_venv=venv_path,
+                web_enabled=web_interface_toggle.value,
+                web_bind_address=web_bind_address,
+                extra_packages=extra_packages,
+                become_password=sudo_password_input.value or '',
+                http_proxy=http_proxy_input.value or '',
+                https_proxy=https_proxy_input.value or '',
+                python_interpreter=python_path_input.value or 'auto',
+            )
+            web_creds = ansible_result.web_credentials
             
             dialog.close()
             
@@ -156,7 +132,10 @@ def render():
                 'is_local': is_local_install,
                 'vip': vip_input.value,
                 'venv': venv_path,
-                'volttron_home': volttron_home
+                'volttron_home': volttron_home,
+                'deployment_method': 'ansible',
+                'ansible_inventory': str(ansible_result.inventory_path),
+                'ansible_host_alias': ansible_result.host_alias,
             }
             if not is_local_install:
                 instance_data.update({
@@ -228,12 +207,15 @@ def render():
                     with ui.expansion('Advanced Settings', icon='settings').classes('w-full').props('header-class="text-muted"'):
                          with ui.column().classes('w-full gap-4 p-4'):
                             with ui.row().classes('w-full gap-4'):
-                                ui.input('HTTP Proxy').props('outlined dense color="primary"').classes('flex-grow')
-                                ui.input('HTTPS Proxy').props('outlined dense color="primary"').classes('flex-grow')
+                                http_proxy_input = ui.input('HTTP Proxy').props('outlined dense color="primary"').classes('flex-grow')
+                                https_proxy_input = ui.input('HTTPS Proxy').props('outlined dense color="primary"').classes('flex-grow')
                             with ui.row().classes('w-full gap-4'):
                                 volttron_home_input = ui.input('VOLTTRON Home', value=f'~/.{default_name}').props('outlined dense color="primary"').classes('flex-grow')
                                 venv_input = ui.input('VOLTTRON venv', value=f'~/.{default_name}.venv').props('outlined dense color="primary"').classes('flex-grow')
-                            ui.input('Custom Python Path').props('outlined dense color="primary"').classes('w-full')
+                            python_path_input = ui.input('VOLTTRON Python', value='auto').props('outlined dense color="primary"').classes('w-full')
+                            ui.label('Use auto to install a managed Python 3.10 on the target when needed. Set an absolute path only if the host already has a supported Python.').style('font-size: 0.8rem; color: var(--text-muted);')
+                            sudo_password_input = ui.input('Sudo Password', password=True, password_toggle_button=True).props('outlined dense color="primary" autocomplete="current-password"').classes('w-full')
+                            ui.label('Used only during deployment for systemd service setup; it is not saved. Leave blank when passwordless sudo is available.').style('font-size: 0.8rem; color: var(--text-muted);')
                             ignore_host_keys_checkbox = ui.checkbox('Ignore Host Keys (StrictHostKeyChecking=no)').props('color="primary"')
  
             # Instance Configuration Section

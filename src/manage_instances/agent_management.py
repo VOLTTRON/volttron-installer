@@ -443,6 +443,28 @@ async def remove_agent(instance: dict, agent_id: str) -> str:
 
 
 async def shutdown_platform(instance: dict) -> str:
+    if instance.get("deployment_method") == "ansible":
+        service = f"volttron-{instance.get('name')}"
+        if ssh_remote.is_remote_instance(instance):
+            stdout, stderr = await ssh_remote.run(
+                instance,
+                f"sudo -n systemctl stop {shlex.quote(service)}",
+                timeout=120,
+            )
+            return stdout or stderr or f"Stopped {service}"
+
+        cmd = ["systemctl", "stop", service] if os.geteuid() == 0 else ["sudo", "-n", "systemctl", "stop", service]
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
+        if process.returncode != 0:
+            detail = stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip()
+            raise PlatformCommandError(f"Could not stop {service} with systemd: {detail}")
+        return stdout.decode(errors="replace") or stderr.decode(errors="replace") or f"Stopped {service}"
+
     try:
         stdout, stderr = await _run_instance_platform_env(
             instance,

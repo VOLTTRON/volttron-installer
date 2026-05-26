@@ -4,11 +4,33 @@ import shlex
 
 from src import ssh_remote
 
+
+async def _start_ansible_service(instance: dict) -> bool:
+    service = f"volttron-{instance.get('name')}"
+    if ssh_remote.is_remote_instance(instance):
+        await ssh_remote.run(instance, f"sudo -n systemctl start {shlex.quote(service)}", timeout=60)
+        return True
+
+    cmd = ["systemctl", "start", service] if os.geteuid() == 0 else ["sudo", "-n", "systemctl", "start", service]
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    if process.returncode != 0:
+        detail = stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip()
+        raise Exception(f"Could not start {service} with systemd: {detail}")
+    return True
+
 async def start_platform_command(venv_path: str, volttron_home: str, instance: dict | None = None):
     """
     Starts the VOLTTRON platform by executing it in the background via shell,
     exporting the required VOLTTRON_HOME environment variable and using the venv executable.
     """
+    if instance and instance.get("deployment_method") == "ansible":
+        return await _start_ansible_service(instance)
+
     if ssh_remote.is_remote_instance(instance):
         expanded_venv = await ssh_remote.expand_path(instance, venv_path)
         expanded_home = await ssh_remote.expand_path(instance, volttron_home)
