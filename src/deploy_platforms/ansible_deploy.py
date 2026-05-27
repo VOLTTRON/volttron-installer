@@ -595,6 +595,7 @@ async def _run_playbook(
         combined_extra_vars.update(extra_vars)
     if become_password:
         combined_extra_vars["ansible_become_pass"] = become_password
+        combined_extra_vars["ansible_sudo_pass"] = become_password
 
     args = [
         _find_executable("ansible-playbook") or "ansible-playbook",

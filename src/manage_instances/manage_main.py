@@ -1,9 +1,13 @@
 from nicegui import ui, binding
+import io
+import zipfile
+
 import src.db as db
 from src import ssh_remote
 from src import theme
 from src.manage_instances import agent_management
 from src.manage_instances import config_store
+from src.manage_instances.log_parser import parse_volttron_log
 
 CARD_STYLE = (
     'background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 6px; '
@@ -27,6 +31,48 @@ DEFAULT_LIBRARY_NAMES = {
     'volttron-lib-web',
     'volttron-lib-zmq',
 }
+
+
+def _uploaded_config_type(filename: str) -> str:
+    lower_name = filename.lower()
+    if lower_name.endswith(('.json', '.config')):
+        return 'application/json'
+    if lower_name.endswith('.csv'):
+        return 'text/csv'
+    return 'text/plain'
+
+
+def _uploaded_config_name(filename: str, agent_identity: str) -> str:
+    clean_name = filename.replace('\\', '/').split('/')[-1]
+    lower_name = clean_name.lower()
+    if agent_identity == 'platform.driver' and lower_name.endswith('.config'):
+        return f"devices/{clean_name.rsplit('.', 1)[0]}"
+    return clean_name
+
+
+def _uploaded_config_entries(filename: str, content: bytes, agent_identity: str) -> list[tuple[str, str, str]]:
+    lower_name = filename.lower()
+    if lower_name.endswith('.zip'):
+        entries: list[tuple[str, str, str]] = []
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            for member in archive.infolist():
+                if member.is_dir():
+                    continue
+                member_name = member.filename.replace('\\', '/').split('/')[-1]
+                if not member_name or member_name.lower().endswith('readme.txt'):
+                    continue
+                content_type = _uploaded_config_type(member_name)
+                if content_type not in {'application/json', 'text/csv', 'text/plain'}:
+                    continue
+                text = archive.read(member).decode('utf-8-sig')
+                entries.append((_uploaded_config_name(member_name, agent_identity), text, content_type))
+        return entries
+
+    return [(
+        _uploaded_config_name(filename, agent_identity),
+        content.decode('utf-8-sig'),
+        _uploaded_config_type(filename),
+    )]
 
 def render(instance_name: str):
     dark_mode = theme.dark_mode()
@@ -52,7 +98,7 @@ def render(instance_name: str):
     library_source_input = None
     library_force_switch = None
     library_prerelease_switch = None
-    log_code = None
+    log_view = None
     log_follow_switch = None
     start_button = None
     shutdown_button = None
@@ -68,6 +114,50 @@ def render(instance_name: str):
 
     def remote_password_needed() -> bool:
         return ssh_remote.needs_key(instance)
+
+    def render_log_entries(content: str) -> None:
+        if log_view is None:
+            return
+
+        level_colors = {
+            "ERROR": ("#fee2e2", "#b91c1c", "#fecaca"),
+            "CRITICAL": ("#fee2e2", "#991b1b", "#fca5a5"),
+            "WARNING": ("#fef3c7", "#92400e", "#fde68a"),
+            "INFO": ("#dbeafe", "#1d4ed8", "#bfdbfe"),
+            "DEBUG": ("#e5e7eb", "#374151", "#d1d5db"),
+            "TEXT": ("#e5e7eb", "#374151", "#d1d5db"),
+        }
+
+        entries = parse_volttron_log(content)
+        log_view.clear()
+        with log_view:
+            if not entries:
+                ui.label("Log is empty.").style("color: var(--text-muted); padding: 0.75rem;")
+                return
+
+            for entry in entries:
+                bg, fg, border = level_colors.get(entry.level, level_colors["TEXT"])
+                with ui.row().classes("w-full no-wrap items-start gap-2").style(
+                    "border-bottom: 1px solid var(--border-color); padding: 0.45rem 0.65rem;"
+                ):
+                    ui.label(entry.level).style(
+                        f"width: 4.7rem; min-width: 4.7rem; text-align: center; font-size: 0.72rem; "
+                        f"font-weight: 800; color: {fg}; background: {bg}; border: 1px solid {border}; "
+                        "border-radius: 4px; padding: 0.12rem 0.25rem; line-height: 1.35;"
+                    )
+                    ui.label(entry.timestamp or "-").style(
+                        "width: 11.2rem; min-width: 11.2rem; color: var(--text-muted); "
+                        "font-family: monospace; font-size: 0.78rem; line-height: 1.5;"
+                    )
+                    source = f"{entry.logger}:{entry.source_line}" if entry.logger else ""
+                    ui.label(source).style(
+                        "width: 18rem; min-width: 18rem; color: var(--text-muted); "
+                        "font-family: monospace; font-size: 0.78rem; line-height: 1.5; overflow-wrap: anywhere;"
+                    )
+                    ui.label(entry.message).classes("flex-grow").style(
+                        "color: var(--text-color); font-family: monospace; font-size: 0.82rem; "
+                        "line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;"
+                    )
 
     def render_ssh_needed(container, message: str):
         container.clear()
@@ -285,6 +375,29 @@ def render(instance_name: str):
                             except Exception as e:
                                 ui.notify(f'Failed to save config: {e}', type='negative')
 
+                        async def upload_config_file(event):
+                            try:
+                                content = await event.file.read()
+                                entries = _uploaded_config_entries(event.file.name, content, agent_ref)
+                                if not entries:
+                                    ui.notify('No supported config files found in upload', type='warning')
+                                    return
+
+                                for config_name, config_content, content_type in entries:
+                                    await config_store.save_config(
+                                        instance,
+                                        agent_ref,
+                                        config_name,
+                                        config_content,
+                                        content_type,
+                                        overwrite=True,
+                                    )
+
+                                ui.notify(f'Uploaded {len(entries)} config entr{"y" if len(entries) == 1 else "ies"}', type='positive')
+                                await load_configs()
+                            except Exception as e:
+                                ui.notify(f'Failed to upload config: {e}', type='negative')
+
                         async def delete_selected_config():
                             nonlocal selected_config
                             if not selected_config:
@@ -327,6 +440,12 @@ def render(instance_name: str):
                               with ui.row().classes('w-full gap-0 items-stretch no-wrap').style('flex: 1 1 auto; min-height: 0;'):
                                 with ui.column().classes('gap-3 p-4').style('width: 320px; min-width: 320px; border-right: 1px solid var(--border-color); min-height: 0;'):
                                     ui.button('New Config', icon='add', on_click=clear_editor).props('color="primary" unelevated').classes('w-full')
+                                    ui.upload(
+                                        label='Upload Config',
+                                        auto_upload=True,
+                                        multiple=True,
+                                        on_upload=upload_config_file,
+                                    ).props('accept=".json,.config,.csv,.txt,.zip" color="primary" flat bordered').classes('w-full')
                                     with ui.row().classes('w-full justify-between items-center'):
                                         ui.label('Stored Configs').style('font-weight: 700;')
                                     config_names_container = ui.column().classes('w-full gap-1').style('flex: 1 1 auto; min-height: 0; overflow: auto;')
@@ -466,7 +585,7 @@ def render(instance_name: str):
 
     async def refresh_log():
         nonlocal last_log_content, ssh_refresh_in_progress
-        if log_code is None:
+        if log_view is None:
             return
         if ssh_refresh_in_progress:
             return
@@ -485,12 +604,12 @@ def render(instance_name: str):
         if content == last_log_content:
             return
         last_log_content = content
-        log_code.content = content
+        render_log_entries(content)
         if log_follow_switch is not None and log_follow_switch.value:
             ui.run_javascript(
                 f'''
                 setTimeout(() => {{
-                    const el = getElement("{log_code.markdown.id}");
+                    const el = getElement("{log_view.id}");
                     if (el) el.scrollTop = el.scrollHeight;
                 }}, 0);
                 '''
@@ -804,7 +923,10 @@ def render(instance_name: str):
                     ui.button('Clear Log', icon='delete_sweep', on_click=handle_clear_log).props('flat color="negative"').style('font-weight: 700;')
             log_container = ui.column().classes('w-full')
             with log_container:
-                log_code = ui.code('', language='text').classes('w-full').style('height: 420px; background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 6px; color: var(--text-color);')
+                log_view = ui.column().classes('w-full gap-0').style(
+                    'height: 420px; overflow-y: auto; background: var(--code-bg); '
+                    'border: 1px solid var(--code-border); border-radius: 6px; color: var(--text-color);'
+                )
             ui.timer(0.1, refresh_log, once=True)
             if instance.get('is_local', True):
                 ui.timer(3.0, refresh_log)

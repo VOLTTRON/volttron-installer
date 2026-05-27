@@ -3,8 +3,10 @@ import logging
 import os
 import posixpath
 import shlex
+import subprocess
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 
 
 DEFAULT_TIMEOUT = 600
@@ -28,6 +30,7 @@ class SSHCredentials:
     username: str
     port: int = 22
     key_path: str | None = None
+    password: str | None = None
     ignore_host_keys: bool = False
 
 
@@ -46,6 +49,7 @@ def credentials_from_instance(instance: dict) -> SSHCredentials:
         username=instance.get("ssh_username") or instance.get("username") or "",
         port=port,
         key_path=instance.get("ssh_key_path") or None,
+        password=instance.get("ssh_password") or None,
         ignore_host_keys=bool(instance.get("ssh_ignore_host_keys")),
     )
 
@@ -91,6 +95,7 @@ def _connect(creds: SSHCredentials):
             port=creds.port,
             username=creds.username,
             key_filename=key_filename,
+            password=creds.password,
             look_for_keys=not bool(key_filename),
             allow_agent=True,
             timeout=10,
@@ -100,6 +105,108 @@ def _connect(creds: SSHCredentials):
     except Exception as exc:
         raise SSHCommandError(f"SSH connection failed to {creds.username}@{creds.host}:{creds.port}: {exc}") from exc
     return client
+
+
+def ensure_local_key_pair(key_path: str) -> tuple[str, str]:
+    private_key = Path(os.path.expanduser(key_path)).resolve()
+    public_key = private_key.with_name(private_key.name + ".pub")
+    if private_key.exists() and public_key.exists():
+        return str(private_key), public_key.read_text(encoding="utf-8").strip()
+    if private_key.exists():
+        public_text = subprocess.check_output(
+            ["ssh-keygen", "-y", "-f", str(private_key)],
+            text=True,
+        ).strip()
+        public_key.write_text(public_text + "\n", encoding="utf-8")
+        return str(private_key), public_text
+
+    private_key.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "ssh-keygen",
+            "-t",
+            "ed25519",
+            "-f",
+            str(private_key),
+            "-N",
+            "",
+            "-C",
+            "volttron-installer",
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return str(private_key), public_key.read_text(encoding="utf-8").strip()
+
+
+def _install_public_key_sync(instance: dict, public_key: str) -> None:
+    creds = credentials_from_instance(instance)
+    if not creds.password:
+        raise SSHCommandError("Temporary SSH password is required to install the SSH key.")
+
+    with _host_lock(creds):
+        client = _connect(creds)
+        try:
+            escaped_key = shlex.quote(public_key.strip())
+            command = (
+                "mkdir -p ~/.ssh && chmod 700 ~/.ssh && "
+                "touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && "
+                f"grep -qxF {escaped_key} ~/.ssh/authorized_keys || "
+                f"printf '%s\\n' {escaped_key} >> ~/.ssh/authorized_keys"
+            )
+            _, stdout, stderr = client.exec_command(f"bash -lc {shlex.quote(command)}", timeout=30)
+            stdout.channel.settimeout(30)
+            error = stderr.read().decode(errors="replace")
+            exit_status = stdout.channel.recv_exit_status()
+            if exit_status != 0:
+                raise SSHCommandError(error.strip() or "Could not install SSH key.", stderr=error)
+        finally:
+            client.close()
+
+
+async def install_public_key(instance: dict, public_key: str) -> None:
+    await asyncio.to_thread(_install_public_key_sync, instance, public_key)
+
+
+def _ensure_passwordless_sudo_sync(instance: dict) -> None:
+    creds = credentials_from_instance(instance)
+    if not creds.password:
+        raise SSHCommandError("Temporary password is required to configure passwordless sudo.")
+
+    safe_name = "".join(ch for ch in creds.username if ch.isalnum() or ch in ("_", "-")) or "volttron"
+    sudoers_path = f"/etc/sudoers.d/90-volttron-installer-{safe_name}"
+    sudoers_entry = f"{creds.username} ALL=(ALL) NOPASSWD:ALL"
+    password = shlex.quote(creds.password)
+    entry = shlex.quote(sudoers_entry)
+    path = shlex.quote(sudoers_path)
+    command = (
+        "set -eu; "
+        f"printf '%s\\n' {password} | sudo -S -p '' sh -c "
+        + shlex.quote(
+            f"printf '%s\\n' {entry} > {path} && "
+            f"chmod 0440 {path} && "
+            f"visudo -cf {path} >/dev/null"
+        )
+    )
+
+    with _host_lock(creds):
+        client = _connect(creds)
+        try:
+            _, stdout, stderr = client.exec_command(f"bash -lc {shlex.quote(command)}", timeout=30)
+            stdout.channel.settimeout(30)
+            stdout_text = stdout.read().decode(errors="replace")
+            stderr_text = stderr.read().decode(errors="replace")
+            exit_status = stdout.channel.recv_exit_status()
+            if exit_status != 0:
+                detail = stderr_text.strip() or stdout_text.strip() or "Could not configure passwordless sudo."
+                raise SSHCommandError(detail, stdout=stdout_text, stderr=stderr_text)
+        finally:
+            client.close()
+
+
+async def ensure_passwordless_sudo(instance: dict) -> None:
+    await asyncio.to_thread(_ensure_passwordless_sudo_sync, instance)
 
 
 def _run_sync(instance: dict, command: str, timeout: int = DEFAULT_TIMEOUT) -> tuple[str, str]:

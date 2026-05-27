@@ -1,7 +1,11 @@
 import httpx
 from nicegui import ui, binding
 import asyncio
+import csv
+import io
+import json
 import re
+import zipfile
 from src import theme
 
 _original_notify = ui.notify
@@ -182,15 +186,17 @@ def render_devices():
                 })
                 
             dark_mode = theme.dark_mode()
-            table = ui.table(columns=columns, rows=rows, row_key='id').classes('w-full bg-[var(--sub-bg)]').props('flat bordered')
+            table = ui.table(columns=columns, rows=rows, row_key='deviceIdentifier').classes('w-full bg-[var(--sub-bg)]').props('flat bordered')
             binding.bind_from(table._props, 'dark', dark_mode, 'value')
             
             table.add_slot('body-cell-actions', '''
                 <q-td :props="props">
                     <q-btn size="sm" color="accent" label="View Objects" @click="$parent.$emit('view_objects', props.row)" />
+                    <q-btn size="sm" color="primary" label="Config" class="q-ml-sm" @click="$parent.$emit('download_config', props.row)" />
                 </q-td>
             ''')
-            table.on('view_objects', lambda e: asyncio.create_task(open_object_browser(e.args)))
+            table.on('view_objects', open_object_browser)
+            table.on('download_config', generate_and_download_config_bundle)
 
 # Object list pagination and reading
 async def fetch_device_objects(device_address, device_id, page=1):
@@ -253,6 +259,164 @@ def clean_point_name(name):
     cleaned = re.sub(r'[^\w]+', '', cleaned)
     return cleaned
 
+def safe_config_name(name):
+    cleaned = re.sub(r'[^A-Za-z0-9_.-]+', '_', str(name or '').strip())
+    cleaned = cleaned.strip('._-')
+    return cleaned or 'bacnet_device'
+
+def bacnet_object_type_for_config(object_type):
+    parts = re.split(r'[-_\s]+', str(object_type or '').strip())
+    if not parts:
+        return 'unknown'
+    return parts[0] + ''.join(part[:1].upper() + part[1:] for part in parts[1:])
+
+def device_instance_from_identifier(identifier):
+    text = str(identifier or '')
+    if ',' in text:
+        text = text.split(',', 1)[1]
+    match = re.search(r'\d+', text)
+    return int(match.group(0)) if match else 0
+
+def writable_for_object_type(object_type):
+    lowered = str(object_type or '').lower()
+    return 'TRUE' if lowered.endswith('output') or lowered.endswith('value') else 'FALSE'
+
+def registry_csv_content(objects):
+    output = io.StringIO()
+    writer = csv.writer(output, lineterminator='\n')
+    writer.writerow([
+        'Point Name',
+        'Volttron Point Name',
+        'Units',
+        'Unit Details',
+        'BACnet Object Type',
+        'Property',
+        'Writable',
+        'Index',
+        'Notes',
+    ])
+
+    for row in objects:
+        point_name = row.get('name') or f"{row.get('object_type', 'object')}_{row.get('index', '')}"
+        units = '' if row.get('units') in {None, 'N/A'} else str(row.get('units'))
+        writer.writerow([
+            point_name,
+            point_name,
+            units,
+            '',
+            bacnet_object_type_for_config(row.get('object_type')),
+            'presentValue',
+            writable_for_object_type(row.get('object_type')),
+            row.get('index', ''),
+            row.get('description') or '',
+        ])
+
+    return output.getvalue()
+
+def device_config_content(device, registry_filename):
+    return json.dumps({
+        'driver_config': {
+            'device_address': device.get('address', ''),
+            'device_id': device_instance_from_identifier(device.get('deviceIdentifier')),
+        },
+        'driver_type': 'bacnet',
+        'registry_config': f'config://{registry_filename}',
+        'interval': 15,
+        'timezone': 'UTC',
+    }, indent=4)
+
+async def fetch_all_device_objects(device_address, device_id):
+    all_objects = []
+    page = 1
+    total_pages = 1
+
+    async with httpx.AsyncClient() as client:
+        while page <= total_pages:
+            resp = await client.post(
+                f"{PROXY_URL}/bacnet/read_object_list_names",
+                data={
+                    "device_address": device_address,
+                    "device_object_identifier": device_id,
+                    "page": page,
+                    "page_size": 100,
+                    "force_fresh_read": "true" if page == 1 else "false",
+                },
+                timeout=180.0
+            )
+            if resp.status_code != 200:
+                raise RuntimeError(f"Server returned status {resp.status_code}")
+
+            data = resp.json()
+            if data.get("status") != "done":
+                raise RuntimeError(data.get("error") or "Failed to fetch BACnet objects")
+
+            results = data.get("results", {}) or {}
+            pagination = data.get("pagination", {}) or {}
+            total_pages = int(pagination.get("total_pages") or total_pages)
+
+            for obj_id, props in results.items():
+                obj_type = "unknown"
+                obj_index = "0"
+                if ":" in obj_id:
+                    obj_type, obj_index = obj_id.split(":", 1)
+                elif "," in obj_id:
+                    obj_type, obj_index = obj_id.split(",", 1)
+
+                all_objects.append({
+                    "object_id": obj_id,
+                    "object_type": obj_type,
+                    "index": obj_index,
+                    "name": props.get("object_name", "Unnamed Point"),
+                    "present_value": props.get("present_value", "N/A"),
+                    "units": props.get("units", "N/A"),
+                    "description": props.get("description", ""),
+                })
+
+            page += 1
+
+    return all_objects
+
+def build_config_bundle(device, objects):
+    device_id = device_instance_from_identifier(device.get('deviceIdentifier'))
+    base_name = safe_config_name(f"{device.get('object_name') or 'bacnet_device'}_{device_id}")
+    registry_filename = f"{base_name}.csv"
+    config_filename = f"{base_name}.config"
+    readme_filename = f"{base_name}_README.txt"
+
+    csv_content = registry_csv_content(objects)
+    config_content = device_config_content(device, registry_filename)
+    readme_content = (
+        "Generated BACnet Platform Driver config bundle.\n\n"
+        "Store these files with:\n"
+        f"vctl config store platform.driver {registry_filename} {registry_filename} --csv\n"
+        f"vctl config store platform.driver devices/{base_name} {config_filename}\n"
+    )
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zip_file:
+        zip_file.writestr(config_filename, config_content)
+        zip_file.writestr(registry_filename, csv_content)
+        zip_file.writestr(readme_filename, readme_content)
+
+    return f"{base_name}_bacnet_driver_config.zip", buffer.getvalue()
+
+def download_config_bundle(device, objects):
+    zip_filename, zip_content = build_config_bundle(device, objects)
+    ui.download(zip_content, filename=zip_filename, media_type='application/zip')
+
+async def generate_and_download_config_bundle(device):
+    if hasattr(device, 'args'):
+        device = device.args
+    try:
+        ui.notify("Reading all BACnet objects for config bundle...", type='info')
+        objects = await fetch_all_device_objects(device.get('address'), device.get('deviceIdentifier'))
+        if not objects:
+            ui.notify("No objects found for this device", type='warning')
+            return
+        download_config_bundle(device, objects)
+    except Exception as e:
+        ui.notify(f"Failed to generate config bundle: {e}", type='negative')
+
 def generate_and_download_csv(selected_rows, device_instance):
     if not selected_rows:
         ui.notify("Please select at least one point to generate driver", type='warning')
@@ -292,6 +456,8 @@ def generate_and_download_csv(selected_rows, device_instance):
     ui.notify(f"Generated {filename}", type='positive')
 
 async def open_object_browser(row):
+    if hasattr(row, 'args'):
+        row = row.args
     state.selected_device = row
     state.objects = []
     state.objects_page = 1
@@ -355,6 +521,7 @@ def render_dialog_content():
                     
                     # CSV Generation Button
                     with ui.row().classes('gap-2'):
+                        ui.button('Download Driver Config Bundle', on_click=lambda: generate_and_download_config_bundle(state.selected_device)).props('color="primary" icon="archive"').tooltip('Downloads device config and registry CSV for all discovered objects')
                         ui.button('Generate Driver Registry CSV', on_click=lambda: generate_and_download_csv(table.selected, dev_id)).props('color="accent" icon="download"').tooltip('Select points first using checkboxes')
                         close_btn = ui.button('Close', on_click=object_dialog.close).props('outline')
                         binding.bind_from(close_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')

@@ -32,20 +32,57 @@ def render():
                     raise Exception('Remote host is required.')
                 if not (username_input.value or '').strip():
                     raise Exception('SSH username is required.')
-                if not (key_path_input.value or '').strip():
-                    raise Exception('SSH key path is required for remote deployment.')
 
+                temp_password = temporary_password_input.value or ''
+                sudo_setup_password = sudo_password_input.value or temp_password
+                key_path = (key_path_input.value or '~/.ssh/volttron_installer').strip()
                 ssh_instance = {
                     'host': (host_input.value or '').strip(),
                     'ssh_username': (username_input.value or '').strip(),
                     'ssh_port': ssh_port_input.value or '22',
-                    'ssh_key_path': (key_path_input.value or '').strip(),
+                    'ssh_key_path': key_path,
                     'ssh_ignore_host_keys': bool(ignore_host_keys_checkbox.value),
                     'is_local': False,
                 }
+                password_instance = {
+                    **ssh_instance,
+                    'ssh_key_path': '',
+                    'ssh_password': temp_password,
+                }
+                sudo_instance = {
+                    **ssh_instance,
+                    'ssh_password': sudo_setup_password,
+                }
                 from src import ssh_remote
-                status_label.set_text('Connecting over SSH...')
-                await ssh_remote.test_connection(ssh_instance)
+                status_label.set_text('Testing SSH key access...')
+                try:
+                    await ssh_remote.test_connection(ssh_instance)
+                except Exception:
+                    if not temp_password:
+                        raise Exception(
+                            'SSH key access failed. Enter the temporary remote password so the installer can '
+                            'install its public key, or add the public key manually.'
+                        )
+                    status_label.set_text('Installing SSH key with temporary password...')
+                    private_key_path, public_key = ssh_remote.ensure_local_key_pair(key_path)
+                    await ssh_remote.install_public_key(password_instance, public_key)
+                    ssh_instance['ssh_key_path'] = private_key_path
+                    status_label.set_text('Re-testing SSH key access...')
+                    await ssh_remote.test_connection(ssh_instance)
+
+                status_label.set_text('Checking sudo access...')
+                try:
+                    await ssh_remote.run(ssh_instance, 'sudo -n true', timeout=30)
+                except Exception:
+                    if not sudo_setup_password:
+                        raise Exception(
+                            'Remote sudo requires a password. Enter the temporary remote password so the '
+                            'installer can configure non-interactive sudo for Ansible, or configure '
+                            'passwordless sudo manually.'
+                        )
+                    status_label.set_text('Configuring non-interactive sudo...')
+                    await ssh_remote.ensure_passwordless_sudo(sudo_instance)
+                    await ssh_remote.run(ssh_instance, 'sudo -n true', timeout=30)
 
             venv_path = venv_input.value if venv_input.value else '~/volttron.venv'
             volttron_home = volttron_home_input.value if volttron_home_input.value else '~/.volttron'
@@ -116,7 +153,7 @@ def render():
                 web_enabled=web_interface_toggle.value,
                 web_bind_address=web_bind_address,
                 extra_packages=extra_packages,
-                become_password=sudo_password_input.value or '',
+                become_password=sudo_password_input.value or temporary_password_input.value or '',
                 http_proxy=http_proxy_input.value or '',
                 https_proxy=https_proxy_input.value or '',
                 python_interpreter=python_path_input.value or 'auto',
@@ -192,7 +229,9 @@ def render():
                     with ui.column().classes('w-full gap-3').bind_visibility_from(install_target_toggle, 'value', backward=lambda v: v == 'Remote'):
                         ui.label('SSH Authentication').style('font-weight: 500; color: var(--text-muted); font-size: 0.9rem;')
                         key_path_input = ui.input('Private Key Path', value='~/.ssh/volttron_installer').props('outlined rounded color="primary"').classes('w-full')
-                        ui.label('Remote deployments use SSH keys only. Create a key on this installer host and add its public key to the remote user.').style('font-size: 0.8rem; color: var(--text-muted);')
+                        temporary_password_input = ui.input('Temporary SSH/Sudo Password', password=True, password_toggle_button=True).props('outlined rounded color="primary" autocomplete="current-password"').classes('w-full')
+                        ui.label('Used only during this deployment to install the SSH key on a fresh host and, if needed, configure non-interactive sudo for apt and systemd. It is not saved.').style('font-size: 0.8rem; color: var(--text-muted);')
+                        ui.label('After setup, deployment continues with key-based SSH and passwordless sudo. Leave blank when both are already configured.').style('font-size: 0.8rem; color: var(--text-muted);')
                         with ui.expansion('How to create an SSH key', icon='key').classes('w-full').props('header-class="text-muted"'):
                             with ui.column().classes('w-full gap-2 p-4').style('background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 6px;'):
                                 ui.label('Run these commands on the machine running this installer:').style('color: var(--text-color); font-size: 0.85rem;')
@@ -214,8 +253,8 @@ def render():
                                 venv_input = ui.input('VOLTTRON venv', value=f'~/.{default_name}.venv').props('outlined dense color="primary"').classes('flex-grow')
                             python_path_input = ui.input('VOLTTRON Python', value='auto').props('outlined dense color="primary"').classes('w-full')
                             ui.label('Use auto to install a managed Python 3.10 on the target when needed. Set an absolute path only if the host already has a supported Python.').style('font-size: 0.8rem; color: var(--text-muted);')
-                            sudo_password_input = ui.input('Sudo Password', password=True, password_toggle_button=True).props('outlined dense color="primary" autocomplete="current-password"').classes('w-full')
-                            ui.label('Used only during deployment for systemd service setup; it is not saved. Leave blank when passwordless sudo is available.').style('font-size: 0.8rem; color: var(--text-muted);')
+                            sudo_password_input = ui.input('Separate Sudo Password', password=True, password_toggle_button=True).props('outlined dense color="primary" autocomplete="current-password"').classes('w-full')
+                            ui.label('Optional. Use only when sudo uses a different password than SSH. This is not saved.').style('font-size: 0.8rem; color: var(--text-muted);')
                             ignore_host_keys_checkbox = ui.checkbox('Ignore Host Keys (StrictHostKeyChecking=no)').props('color="primary"')
  
             # Instance Configuration Section
