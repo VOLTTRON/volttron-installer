@@ -1,4 +1,5 @@
 import socket
+from collections.abc import Awaitable, Callable
 from urllib.parse import urlparse, urlunparse
 
 import src.db as db
@@ -55,6 +56,42 @@ def allocate_web_bind_address(requested_address: str, host: str, can_probe_socke
             reasons.append("already recorded for this host")
         if can_probe_socket and _is_port_bound(hostname, port):
             reasons.append("currently bound")
+        messages.append(f"Web port {port} is unavailable ({', '.join(reasons)}); trying {port + 1}.")
+        port += 1
+
+    netloc = f"{hostname}:{port}"
+    allocated = urlunparse((scheme, netloc, parsed.path or "", "", "", ""))
+    if port != original_port:
+        messages.append(f"Using web bind address {allocated}.")
+    return allocated, messages
+
+
+async def allocate_remote_web_bind_address(
+    requested_address: str,
+    host: str,
+    is_remote_port_bound: Callable[[str, int], Awaitable[bool]],
+) -> tuple[str, list[str]]:
+    """
+    Return a remote web bind address whose port is not recorded or already
+    listening on the target host.
+    """
+    parsed = urlparse(requested_address)
+    scheme = parsed.scheme or "http"
+    hostname = parsed.hostname or "0.0.0.0"
+    port = parsed.port or (443 if scheme == "https" else 80)
+    recorded_ports = _ports_recorded_for_host(host)
+    messages: list[str] = []
+    original_port = port
+
+    while True:
+        remote_bound = await is_remote_port_bound(hostname, port)
+        reasons = []
+        if port in recorded_ports:
+            reasons.append("already recorded for this host")
+        if remote_bound:
+            reasons.append("currently bound on the remote host")
+        if not reasons:
+            break
         messages.append(f"Web port {port} is unavailable ({', '.join(reasons)}); trying {port + 1}.")
         port += 1
 

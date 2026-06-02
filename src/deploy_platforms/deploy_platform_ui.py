@@ -2,6 +2,7 @@ from nicegui import ui, binding
 import random
 import string
 import asyncio
+import subprocess
 from src import theme
 
 def generate_instance_name():
@@ -23,7 +24,7 @@ def render():
         dialog.open()
         
         import src.db as db
-        from src.deploy_platforms.port_allocator import allocate_web_bind_address
+        from src.deploy_platforms.port_allocator import allocate_remote_web_bind_address, allocate_web_bind_address
         
         try:
             ssh_instance = None
@@ -83,6 +84,19 @@ def render():
                     status_label.set_text('Configuring non-interactive sudo...')
                     await ssh_remote.ensure_passwordless_sudo(sudo_instance)
                     await ssh_remote.run(ssh_instance, 'sudo -n true', timeout=30)
+            else:
+                status_label.set_text('Checking local sudo access...')
+                sudo_check = await asyncio.to_thread(
+                    subprocess.run,
+                    ['sudo', '-n', 'true'],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                if sudo_check.returncode != 0 and not (sudo_password_input.value or ''):
+                    raise Exception(
+                        'Local deployment needs sudo for Ubuntu package setup and systemd service management. '
+                        'Enter your sudo password in Advanced Settings; it is used only for this deployment and is not saved.'
+                    )
 
             venv_path = venv_input.value if venv_input.value else '~/volttron.venv'
             volttron_home = volttron_home_input.value if volttron_home_input.value else '~/.volttron'
@@ -90,11 +104,19 @@ def render():
             web_bind_address = "http://127.0.0.1:8443" if is_local_install else "http://0.0.0.0:8443"
             port_messages = []
             if web_interface_toggle.value:
-                web_bind_address, port_messages = allocate_web_bind_address(
-                    web_bind_address,
-                    host,
-                    can_probe_socket=is_local_install,
-                )
+                if is_local_install:
+                    web_bind_address, port_messages = allocate_web_bind_address(
+                        web_bind_address,
+                        host,
+                        can_probe_socket=True,
+                    )
+                else:
+                    from src import ssh_remote
+                    web_bind_address, port_messages = await allocate_remote_web_bind_address(
+                        web_bind_address,
+                        host,
+                        lambda bind_host, port: ssh_remote.is_tcp_port_bound(ssh_instance, bind_host, port),
+                    )
                 for message in port_messages:
                     ui.notify(message, type='warning')
                 if port_messages:
@@ -102,9 +124,6 @@ def render():
                     await asyncio.sleep(1.5)
 
             extra_packages = []
-            if web_interface_toggle.value:
-                extra_packages.extend(['volttron-lib-tree', 'volttron-lib-web'])
-            
             if package_source.value == 'Manual':
                 extra_packages = []
                 if core_pkg_input.value:
@@ -251,10 +270,10 @@ def render():
                             with ui.row().classes('w-full gap-4'):
                                 volttron_home_input = ui.input('VOLTTRON Home', value=f'~/.{default_name}').props('outlined dense color="primary"').classes('flex-grow')
                                 venv_input = ui.input('VOLTTRON venv', value=f'~/.{default_name}.venv').props('outlined dense color="primary"').classes('flex-grow')
-                            python_path_input = ui.input('VOLTTRON Python', value='auto').props('outlined dense color="primary"').classes('w-full')
-                            ui.label('Use auto to install a managed Python 3.10 on the target when needed. Set an absolute path only if the host already has a supported Python.').style('font-size: 0.8rem; color: var(--text-muted);')
-                            sudo_password_input = ui.input('Separate Sudo Password', password=True, password_toggle_button=True).props('outlined dense color="primary" autocomplete="current-password"').classes('w-full')
-                            ui.label('Optional. Use only when sudo uses a different password than SSH. This is not saved.').style('font-size: 0.8rem; color: var(--text-muted);')
+                            python_path_input = ui.input('VOLTTRON Python Override', value='auto').props('outlined dense color="primary"').classes('w-full')
+                            ui.label('Leave auto unless debugging. Auto uses the installer runtime for local Ansible control and creates the VOLTTRON venv with Python 3.10 when needed. This field never changes Ansible’s control Python.').style('font-size: 0.8rem; color: var(--text-muted);')
+                            sudo_password_input = ui.input('Sudo Password', password=True, password_toggle_button=True).props('outlined dense color="primary" autocomplete="current-password"').classes('w-full')
+                            ui.label('Optional. Used for local system package/service setup, or when remote sudo uses a different password than SSH. This is not saved.').style('font-size: 0.8rem; color: var(--text-muted);')
                             ignore_host_keys_checkbox = ui.checkbox('Ignore Host Keys (StrictHostKeyChecking=no)').props('color="primary"')
  
             # Instance Configuration Section

@@ -166,4 +166,4 @@ def bacnet_scan_page():
     bacnet_scan_ui.render()
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(title='VOLTTRON Installer', dark=True, show=False, favicon='assets/favicon.ico')
+    ui.run(title='VOLTTRON Installer', dark=True, show=False, favicon='assets/favicon.ico', reload=False)

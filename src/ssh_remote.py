@@ -330,6 +330,22 @@ async def path_exists(instance: dict, remote_path: str) -> bool:
     return stdout.strip() == "yes"
 
 
+async def is_tcp_port_bound(instance: dict, host: str, port: int) -> bool:
+    connect_host = "127.0.0.1" if host in {"", "0.0.0.0", "::", "*"} else host
+    script = (
+        "import socket,sys; "
+        "sock=socket.socket(socket.AF_INET, socket.SOCK_STREAM); "
+        "sock.settimeout(0.5); "
+        "sys.exit(0 if sock.connect_ex((sys.argv[1], int(sys.argv[2]))) == 0 else 1)"
+    )
+    command = f"python3 -c {shlex.quote(script)} {shlex.quote(connect_host)} {int(port)}"
+    try:
+        await run(instance, command, timeout=30)
+        return True
+    except SSHCommandError:
+        return False
+
+
 async def safe_rmtree(instance: dict, remote_path: str | None) -> str:
     if not remote_path:
         return "No path configured"

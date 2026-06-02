@@ -20,8 +20,9 @@ The interface will be hosted locally at `http://localhost:8080` (or `http://<you
 
 ## Ansible Deployments
 
-New platform deployments use the modular `develop` branch of `eclipse-volttron/volttron-ansible`.
-The installer installs or updates that collection with:
+New platform deployments use the modular `volttron.deployment` Ansible collection. When a sibling
+`../volttron-ansible` checkout is present, the installer installs that local collection so local
+development changes are used. Otherwise it falls back to the modular `develop` branch:
 
 ```bash
 ansible-galaxy collection install -f git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
@@ -29,7 +30,8 @@ ansible-galaxy collection install -f git+https://github.com/eclipse-volttron/vol
 
 The target host must have Python 3.10+, `python3-venv`, pip, git, and systemd available. The Ansible
 flow creates a virtual environment, installs the modular VOLTTRON packages, writes the platform config,
-installs a systemd service, enables it, and starts the platform through systemd.
+installs a systemd service, enables it, configures the web user and VUI REST API when web is enabled,
+and starts the platform through systemd.
 Local and remote deployments need either passwordless sudo or the sudo password entered in Advanced
 Settings during deployment. The sudo password is only passed to Ansible for that run and is not saved.
 

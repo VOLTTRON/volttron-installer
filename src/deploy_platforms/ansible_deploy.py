@@ -5,6 +5,7 @@ import re
 import secrets
 import shutil
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ ANSIBLE_COLLECTION_URL = "git+https://github.com/eclipse-volttron/volttron-ansib
 ANSIBLE_ROOT = Path("ansible_deployments")
 AUTO_PYTHON_INTERPRETER = "auto"
 BOOTSTRAPPED_PYTHON_PATH = "{{ ansible_env.HOME }}/.local/bin/volttron-python3.10"
+SUPPORTED_LOCAL_PYTHON = (3, 10)
 
 
 @dataclass
@@ -49,8 +51,48 @@ def _find_executable(name: str) -> str | None:
     return None
 
 
+def _local_volttron_ansible_collection_path() -> str | None:
+    candidate = Path(__file__).resolve().parents[3] / "volttron-ansible"
+    if (candidate / "galaxy.yml").exists() and (candidate / "playbooks" / "install_platform.yml").exists():
+        return str(candidate)
+    return None
+
+
 def _expand(path_value: str) -> str:
     return os.path.abspath(os.path.expanduser(path_value))
+
+
+def _local_python_is_supported() -> bool:
+    return sys.version_info[:2] == SUPPORTED_LOCAL_PYTHON
+
+
+def _should_bootstrap_python(*, is_local: bool, python_interpreter: str) -> bool:
+    if (python_interpreter or "").strip().lower() != AUTO_PYTHON_INTERPRETER:
+        return False
+    return not is_local or not _local_python_is_supported()
+
+
+def _resolved_python_interpreter(*, is_local: bool, python_interpreter: str) -> str:
+    if _should_bootstrap_python(is_local=is_local, python_interpreter=python_interpreter):
+        return BOOTSTRAPPED_PYTHON_PATH
+    if (python_interpreter or "").strip().lower() == AUTO_PYTHON_INTERPRETER:
+        return sys.executable
+    return python_interpreter or "python3"
+
+
+def _ansible_module_python_interpreter(*, is_local: bool) -> str:
+    return sys.executable if is_local else "python3"
+
+
+def _write_sudo_askpass_helper(become_password: str) -> str:
+    fd, path = tempfile.mkstemp(prefix="volttron-sudo-askpass-", text=True)
+    with os.fdopen(fd, "w", encoding="utf-8") as file:
+        file.write("#!/bin/sh\n")
+        file.write("cat <<'EOF'\n")
+        file.write(become_password)
+        file.write("\nEOF\n")
+    os.chmod(path, 0o700)
+    return path
 
 
 def _safe_alias(name: str) -> str:
@@ -111,13 +153,14 @@ async def ensure_ansible_ready() -> None:
     if not ansible_galaxy:
         raise AnsibleDeployError("Unable to locate ansible-galaxy.")
 
+    collection_source = _local_volttron_ansible_collection_path() or ANSIBLE_COLLECTION_URL
     await _run_command(
         [
             ansible_galaxy,
             "collection",
             "install",
             "-f",
-            ANSIBLE_COLLECTION_URL,
+            collection_source,
         ],
         timeout=900,
     )
@@ -155,14 +198,17 @@ def _inventory_host_vars(
     web_bind_address: str,
     web_secret: str,
 ) -> dict[str, Any]:
+    use_managed_python = _should_bootstrap_python(is_local=is_local, python_interpreter=python_interpreter)
+    resolved_python_interpreter = _resolved_python_interpreter(
+        is_local=is_local,
+        python_interpreter=python_interpreter,
+    )
     host_vars: dict[str, Any] = {
         "volttron_home": volttron_home,
         "volttron_venv": volttron_venv,
         "volttron_log_file": f"{volttron_home.rstrip('/')}/volttron.log",
-        "python_interpreter": BOOTSTRAPPED_PYTHON_PATH
-        if (python_interpreter or "").strip().lower() == AUTO_PYTHON_INTERPRETER
-        else (python_interpreter or "python3"),
-        "volttron_bootstrap_python": (python_interpreter or "").strip().lower() == AUTO_PYTHON_INTERPRETER,
+        "python_interpreter": resolved_python_interpreter,
+        "volttron_bootstrap_python": use_managed_python,
         "volttron_python_version": "3.10",
         "http_proxy": http_proxy or "",
         "https_proxy": https_proxy or "",
@@ -177,7 +223,7 @@ def _inventory_host_vars(
                 "ansible_connection": "local",
                 "ansible_host": "localhost",
                 "ansible_user": os.getenv("USER") or os.getenv("LOGNAME") or "root",
-                "ansible_python_interpreter": sys.executable,
+                "ansible_python_interpreter": _ansible_module_python_interpreter(is_local=is_local),
             }
         )
         return host_vars
@@ -188,7 +234,7 @@ def _inventory_host_vars(
             "ansible_user": username,
             "ansible_port": int(ssh_port or 22),
             "ansible_connection": "ssh",
-            "ansible_python_interpreter": "python3",
+            "ansible_python_interpreter": _ansible_module_python_interpreter(is_local=is_local),
         }
     )
     if ssh_key_path:
@@ -205,6 +251,8 @@ def _platform_config(
     web_enabled: bool,
     web_bind_address: str,
     web_secret: str,
+    web_admin_user: str,
+    web_admin_password: str,
 ) -> dict[str, Any]:
     config: dict[str, Any] = {
         "instance-name": instance_name,
@@ -214,7 +262,18 @@ def _platform_config(
         "agent-monitor-frequency": 600,
         "enable-federation": False,
         "enable-federation-cache": True,
+        "web-enabled": web_enabled,
     }
+    if web_enabled:
+        config.update(
+            {
+                "bind-web-address": web_bind_address,
+                "web-secret-key": web_secret,
+                "web-admin-user": web_admin_user,
+                "web-admin-password": web_admin_password,
+                "web-admin-groups": ["admin", "vui"],
+            }
+        )
     return {"config": config, "agents": {}}
 
 
@@ -234,6 +293,8 @@ def prepare_ansible_files(
     http_proxy: str = "",
     https_proxy: str = "",
     python_interpreter: str = "python3",
+    web_admin_user: str = "",
+    web_admin_password: str = "",
 ) -> tuple[Path, Path, str, str]:
     host_alias = _safe_alias(instance_name)
     deployment_dir = ANSIBLE_ROOT / host_alias
@@ -276,14 +337,13 @@ def prepare_ansible_files(
             web_enabled=web_enabled,
             web_bind_address=web_bind_address,
             web_secret=web_secret,
+            web_admin_user=web_admin_user,
+            web_admin_password=web_admin_password,
         ),
     )
     _write_yaml(deployment_dir / "install_extra_packages.yml", _extra_packages_playbook())
-    _write_yaml(deployment_dir / "configure_web_service.yml", _configure_web_service_playbook())
-    _write_yaml(deployment_dir / "setup_web_user.yml", _web_user_playbook())
     _write_yaml(deployment_dir / "bootstrap_python.yml", _bootstrap_python_playbook())
     _write_yaml(deployment_dir / "prepare_ansible_venv.yml", _prepare_ansible_venv_playbook())
-    _write_yaml(deployment_dir / "start_systemd_service.yml", _start_systemd_playbook())
     return inventory_path, config_root, host_alias, web_secret
 
 
@@ -385,7 +445,6 @@ def _prepare_ansible_venv_playbook() -> list[dict[str, Any]]:
                     "name": [
                         "packaging",
                         "pexpect",
-                        "psutil",
                     ],
                 },
                 "environment": {
@@ -418,169 +477,6 @@ def _extra_packages_playbook() -> dict[str, Any]:
         ],
     }]
 
-
-def _configure_web_service_playbook() -> list[dict[str, Any]]:
-    # TODO: Replace this installer shim when volttron-ansible configures the modular
-    # PlatformWebService section directly. The web service currently expects [web]
-    # bind-web-address and web-secret-key rather than [volttron] bind-web-address.
-    return [{
-        "name": "configure VOLTTRON web service",
-        "hosts": "{{ on_hosts | default('all') }}",
-        "tasks": [
-            {
-                "name": "Configure web bind address",
-                "ansible.builtin.ini_file": {
-                    "path": "{{ volttron_home }}/config",
-                    "section": "web",
-                    "option": "bind-web-address",
-                    "value": "{{ web_bind_address }}",
-                    "mode": "0600",
-                },
-                "when": "web_enabled | bool",
-            },
-            {
-                "name": "Configure web secret key",
-                "ansible.builtin.ini_file": {
-                    "path": "{{ volttron_home }}/config",
-                    "section": "web",
-                    "option": "web-secret-key",
-                    "value": "{{ web_secret_key }}",
-                    "mode": "0600",
-                },
-                "when": "web_enabled | bool",
-                "no_log": True,
-            },
-        ],
-    }]
-
-
-def _web_user_playbook() -> list[dict[str, Any]]:
-    return [{
-        "name": "setup VOLTTRON web user",
-        "hosts": "{{ on_hosts | default('all') }}",
-        "tasks": [
-            {
-                "name": "Ensure VOLTTRON_HOME exists",
-                "ansible.builtin.file": {
-                    "path": "{{ volttron_home }}",
-                    "state": "directory",
-                    "mode": "0755",
-                },
-            },
-            {
-                "name": "Copy web user setup script",
-                "ansible.builtin.copy": {
-                    "dest": "{{ volttron_home }}/installer_setup_web_user.py",
-                    "mode": "0600",
-                    "content": WEB_USER_SCRIPT,
-                },
-            },
-            {
-                "name": "Create installer web user",
-                "ansible.builtin.command": (
-                    "{{ volttron_venv }}/bin/python {{ volttron_home }}/installer_setup_web_user.py"
-                ),
-                "environment": {
-                    "INSTALLER_WEB_USER": "{{ installer_web_user }}",
-                    "INSTALLER_WEB_PASSWORD": "{{ installer_web_password }}",
-                    "VOLTTRON_HOME": "{{ volttron_home }}",
-                },
-                "changed_when": True,
-            },
-            {
-                "name": "Remove web user setup script",
-                "ansible.builtin.file": {
-                    "path": "{{ volttron_home }}/installer_setup_web_user.py",
-                    "state": "absent",
-                },
-            },
-        ],
-    }]
-
-
-def _start_systemd_playbook() -> list[dict[str, Any]]:
-    # TODO: Switch back to volttron.deployment.run_platforms after its systemd path
-    # verifies service state with systemctl instead of relying on the legacy
-    # VOLTTRON_PID file check.
-    return [{
-        "name": "start VOLTTRON systemd service",
-        "hosts": "{{ on_hosts | default('all') }}",
-        "roles": [
-            "volttron.deployment.set_defaults",
-        ],
-        "tasks": [
-            {
-                "name": "Start and enable VOLTTRON service",
-                "ansible.builtin.systemd_service": {
-                    "name": "volttron-{{ instance_name }}",
-                    "state": "started",
-                    "enabled": True,
-                    "daemon_reload": True,
-                },
-                "become": True,
-            }
-        ],
-    }]
-
-
-WEB_USER_SCRIPT = r"""import json
-import os
-from pathlib import Path
-
-from passlib.hash import argon2
-import zmq
-
-volttron_home = Path(os.environ["VOLTTRON_HOME"]).expanduser()
-volttron_home.mkdir(parents=True, exist_ok=True)
-username = os.environ["INSTALLER_WEB_USER"]
-password = os.environ["INSTALLER_WEB_PASSWORD"]
-
-users_file = volttron_home / "web-users.json"
-users = json.loads(users_file.read_text()) if users_file.exists() else {}
-users[username] = {
-    "hashed_password": argon2.hash(password),
-    "groups": ["admin", "vui"],
-}
-users_file.write_text(json.dumps(users, indent=2))
-
-creds_dir = volttron_home / "credentials_store"
-creds_dir.mkdir(exist_ok=True)
-creds_file = creds_dir / "platform.web.json"
-if not creds_file.exists():
-    publickey, secretkey = [key.decode("ascii") for key in zmq.curve_keypair()]
-    creds_file.write_text(json.dumps({
-        "identity": "platform.web",
-        "publickey": publickey,
-        "secretkey": secretkey,
-        "domain": "",
-        "address": "",
-    }, indent=2))
-
-authz_file = volttron_home / "authz.json"
-authz_data = json.loads(authz_file.read_text()) if authz_file.exists() else {
-    "roles": {},
-    "agents": {},
-    "agent_groups": {},
-}
-authz_data.setdefault("roles", {})
-authz_data.setdefault("agents", {})
-authz_data.setdefault("agent_groups", {})
-authz_data["agents"].setdefault("platform.web", {
-    "comments": "Automatically added by VOLTTRON Installer for web service"
-})
-
-admin_users = authz_data["agent_groups"].setdefault("admin_users", {})
-identities = set(admin_users.get("identities", []))
-identities.add("platform.web")
-admin_users["identities"] = sorted(identities)
-roles = set(admin_users.get("agent_roles", []))
-roles.add("admin")
-admin_users["agent_roles"] = sorted(roles)
-authz_file.write_text(json.dumps(authz_data, indent=2))
-print("INSTALLER_WEB_USER_READY")
-"""
-
-
 async def _run_playbook(
     inventory_path: Path,
     playbook: str,
@@ -588,12 +484,23 @@ async def _run_playbook(
     *,
     extra_vars: dict[str, Any] | None = None,
     become_password: str = "",
+    local_sudo_askpass: bool = False,
     timeout: int = 1800,
 ) -> tuple[str, str]:
     combined_extra_vars = {"on_hosts": host_alias}
     if extra_vars:
         combined_extra_vars.update(extra_vars)
-    if become_password:
+    askpass_path = ""
+    if local_sudo_askpass:
+        if not become_password:
+            raise AnsibleDeployError(
+                "Local deployment needs sudo for Ubuntu package setup and systemd service management. "
+                "Enter your sudo password in Advanced Settings; it is used only for this deployment and is not saved."
+            )
+        askpass_path = _write_sudo_askpass_helper(become_password)
+        combined_extra_vars["ansible_become_method"] = "sudo"
+        combined_extra_vars["ansible_become_flags"] = "-H -A"
+    elif become_password:
         combined_extra_vars["ansible_become_pass"] = become_password
         combined_extra_vars["ansible_sudo_pass"] = become_password
 
@@ -607,7 +514,16 @@ async def _run_playbook(
     ]
     env = os.environ.copy()
     env["ANSIBLE_HOST_KEY_CHECKING"] = "False"
-    return await _run_command(args, env=env, timeout=timeout)
+    if askpass_path:
+        env["SUDO_ASKPASS"] = askpass_path
+    try:
+        return await _run_command(args, env=env, timeout=timeout)
+    finally:
+        if askpass_path:
+            try:
+                os.remove(askpass_path)
+            except FileNotFoundError:
+                pass
 
 
 async def deploy_with_ansible(
@@ -630,6 +546,20 @@ async def deploy_with_ansible(
     python_interpreter: str = "python3",
 ) -> AnsibleDeploymentResult:
     await ensure_ansible_ready()
+
+    web_credentials: dict[str, str] = {}
+    web_admin_user = ""
+    web_admin_password = ""
+    if web_enabled:
+        web_admin_user = "volttron-installer"
+        web_admin_password = secrets.token_urlsafe(16)
+        web_credentials = {
+            "web_admin_user": web_admin_user,
+            "web_admin_pass": web_admin_password,
+            "web_bind_address": _normalize_web_address(web_bind_address, host, is_local),
+            "web_listen_address": web_bind_address,
+        }
+
     inventory_path, config_root, host_alias, _ = prepare_ansible_files(
         instance_name=instance_name,
         is_local=is_local,
@@ -645,14 +575,26 @@ async def deploy_with_ansible(
         http_proxy=http_proxy,
         https_proxy=https_proxy,
         python_interpreter=python_interpreter,
+        web_admin_user=web_admin_user,
+        web_admin_password=web_admin_password,
     )
 
-    if (python_interpreter or "").strip().lower() == AUTO_PYTHON_INTERPRETER:
+    if is_local:
+        generated_inventory = yaml.safe_load(inventory_path.read_text(encoding="utf-8"))
+        generated_host = generated_inventory["all"]["hosts"][host_alias]
+        if generated_host.get("ansible_python_interpreter") != sys.executable:
+            raise AnsibleDeployError(
+                "Local Ansible inventory was generated with the wrong control Python. "
+                f"Expected {sys.executable}, got {generated_host.get('ansible_python_interpreter')}."
+            )
+
+    if _should_bootstrap_python(is_local=is_local, python_interpreter=python_interpreter):
         await _run_playbook(
             inventory_path,
             str((inventory_path.parent / "bootstrap_python.yml").resolve()),
             host_alias,
             become_password=become_password,
+            local_sudo_askpass=is_local and bool(become_password),
             timeout=900,
         )
 
@@ -661,6 +603,7 @@ async def deploy_with_ansible(
         str((inventory_path.parent / "prepare_ansible_venv.yml").resolve()),
         host_alias,
         become_password=become_password,
+        local_sudo_askpass=is_local and bool(become_password),
         timeout=600,
     )
 
@@ -669,6 +612,7 @@ async def deploy_with_ansible(
         "volttron.deployment.install_platform",
         host_alias,
         become_password=become_password,
+        local_sudo_askpass=is_local and bool(become_password),
         timeout=2400,
     )
 
@@ -679,45 +623,16 @@ async def deploy_with_ansible(
             host_alias,
             extra_vars={"extra_volttron_packages": extra_packages},
             become_password=become_password,
+            local_sudo_askpass=is_local and bool(become_password),
             timeout=1200,
         )
 
-    if web_enabled:
-        await _run_playbook(
-            inventory_path,
-            str((inventory_path.parent / "configure_web_service.yml").resolve()),
-            host_alias,
-            become_password=become_password,
-            timeout=300,
-        )
-
-    web_credentials: dict[str, str] = {}
-    if web_enabled:
-        username_value = "volttron-installer"
-        password_value = secrets.token_urlsafe(16)
-        await _run_playbook(
-            inventory_path,
-            str((inventory_path.parent / "setup_web_user.yml").resolve()),
-            host_alias,
-            extra_vars={
-                "installer_web_user": username_value,
-                "installer_web_password": password_value,
-            },
-            become_password=become_password,
-            timeout=300,
-        )
-        web_credentials = {
-            "web_admin_user": username_value,
-            "web_admin_pass": password_value,
-            "web_bind_address": _normalize_web_address(web_bind_address, host, is_local),
-            "web_listen_address": web_bind_address,
-        }
-
     await _run_playbook(
         inventory_path,
-        str((inventory_path.parent / "start_systemd_service.yml").resolve()),
+        "volttron.deployment.run_platforms",
         host_alias,
         become_password=become_password,
+        local_sudo_askpass=is_local and bool(become_password),
         timeout=600,
     )
 

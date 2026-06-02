@@ -442,7 +442,7 @@ async def remove_agent(instance: dict, agent_id: str) -> str:
     return stdout or stderr
 
 
-async def shutdown_platform(instance: dict) -> str:
+async def shutdown_platform(instance: dict, sudo_password: str = "") -> str:
     if instance.get("deployment_method") == "ansible":
         service = f"volttron-{instance.get('name')}"
         if ssh_remote.is_remote_instance(instance):
@@ -453,13 +453,20 @@ async def shutdown_platform(instance: dict) -> str:
             )
             return stdout or stderr or f"Stopped {service}"
 
-        cmd = ["systemctl", "stop", service] if os.geteuid() == 0 else ["sudo", "-n", "systemctl", "stop", service]
+        if os.geteuid() == 0:
+            cmd = ["systemctl", "stop", service]
+        elif sudo_password:
+            cmd = ["sudo", "-S", "-p", "", "systemctl", "stop", service]
+        else:
+            cmd = ["sudo", "-n", "systemctl", "stop", service]
         process = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.PIPE if sudo_password and os.geteuid() != 0 else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await process.communicate()
+        stdin = f"{sudo_password}\n".encode() if sudo_password and os.geteuid() != 0 else None
+        stdout, stderr = await process.communicate(stdin)
         if process.returncode != 0:
             detail = stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip()
             raise PlatformCommandError(f"Could not stop {service} with systemd: {detail}")

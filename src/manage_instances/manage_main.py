@@ -1,5 +1,6 @@
 from nicegui import ui, binding
 import io
+import json
 import zipfile
 
 import src.db as db
@@ -454,7 +455,7 @@ def render(instance_name: str):
                                 with ui.column().classes('gap-3 p-5 flex-grow').style('min-width: 0; min-height: 0;'):
                                     status_label = ui.label('Creating new config').style('color: var(--text-muted);')
                                     with ui.row().classes('w-full gap-3 no-wrap'):
-                                        config_name_input = ui.input('Config Name', placeholder='config').props('outlined dense').classes('flex-grow')
+                                        config_name_input = ui.input('Config Name', placeholder='e.g. devices/campus/building/fake').props('outlined dense').classes('flex-grow')
                                         config_type_select = ui.select(
                                             {
                                                 'application/json': 'JSON',
@@ -464,6 +465,7 @@ def render(instance_name: str):
                                             value='application/json',
                                             label='Content Type',
                                         ).props('outlined dense').style('width: 180px;')
+                                    ui.label('Note: Device configurations for drivers typically require the "devices/" prefix.').style('color: var(--text-muted); font-size: 0.75rem; margin-top: -0.25rem;')
                                     config_content_input = ui.textarea('Content', value='{}').props('outlined').classes('w-full').style('flex: 1 1 auto; min-height: 0; font-family: monospace;')
                                     with ui.row().classes('w-full justify-end gap-2'):
                                         delete_button = ui.button('Delete Config', icon='delete', on_click=delete_selected_config).props('outline color="negative"')
@@ -691,27 +693,55 @@ def render(instance_name: str):
             show_command_error('Library Install Error', e)
 
     async def handle_shutdown():
+        async def run_shutdown(sudo_password: str = ''):
+            try:
+                shutdown_message = await agent_management.shutdown_platform(instance, sudo_password=sudo_password)
+                ui.notify(f'{instance_name} shut down', type='positive')
+                if shutdown_message:
+                    ui.notify(shutdown_message, type='info')
+                error_log_container.clear()
+                error_log_container.style('display: none;')
+                await check_status()
+                await refresh_agents()
+                await refresh_log()
+            except Exception as e:
+                if (
+                    not sudo_password
+                    and instance.get('deployment_method') == 'ansible'
+                    and instance.get('is_local', True)
+                    and 'interactive authentication is required' in str(e)
+                ):
+                    with ui.dialog() as sudo_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); min-width: 420px;'):
+                        ui.label('Sudo Password Required').classes('text-lg font-bold')
+                        ui.label(f'Stopping {instance_name} uses systemd and needs sudo on this machine. The password is used once and is not saved.').style('color: var(--text-muted);')
+                        sudo_password_input = ui.input('Local sudo password', password=True, password_toggle_button=True).props('outlined autocomplete="current-password"').classes('w-full')
+                        with ui.row().classes('justify-end w-full gap-2'):
+                            ui.button('Cancel', on_click=sudo_dialog.close).props('flat color="gray"')
+
+                            async def retry_shutdown():
+                                password = sudo_password_input.value or ''
+                                if not password:
+                                    ui.notify('Enter your sudo password to stop the service.', type='warning')
+                                    return
+                                sudo_dialog.close()
+                                await run_shutdown(password)
+
+                            ui.button('Stop Service', icon='power_settings_new', on_click=retry_shutdown).props('color="negative"')
+                    sudo_dialog.open()
+                    return
+
+                ui.notify(f'Failed to shut down: {e}', type='negative')
+                show_command_error('Shutdown Error', e)
+                await check_status()
+
         with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color);'):
             ui.label(f'Shut down {instance_name}?').classes('text-lg font-bold')
-            ui.label('This runs vctl shutdown --platform for the selected instance.').style('color: var(--text-muted);')
+            ui.label('This stops the selected platform. Ansible deployments use the systemd service.').style('color: var(--text-muted);')
             with ui.row().classes('justify-end w-full gap-2'):
                 ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
                 async def confirm_shutdown():
                     confirm_dialog.close()
-                    try:
-                        shutdown_message = await agent_management.shutdown_platform(instance)
-                        ui.notify(f'{instance_name} shut down', type='positive')
-                        if shutdown_message:
-                            ui.notify(shutdown_message, type='info')
-                        error_log_container.clear()
-                        error_log_container.style('display: none;')
-                        await check_status()
-                        await refresh_agents()
-                        await refresh_log()
-                    except Exception as e:
-                        ui.notify(f'Failed to shut down: {e}', type='negative')
-                        show_command_error('Shutdown Error', e)
-                        await check_status()
+                    await run_shutdown()
                 ui.button('Shut Down', icon='power_settings_new', on_click=confirm_shutdown).props('color="negative"')
         confirm_dialog.open()
 
@@ -806,39 +836,67 @@ def render(instance_name: str):
             async def handle_start():
                 from src.manage_instances.start_platform import start_platform_command
                 ui.notify(f'Starting {instance_name}...', type='info')
-                
-                with ui.dialog() as dialog, ui.card().classes('p-8 items-center gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 12px;'):
-                    ui.label('Starting Platform').classes('text-xl font-bold')
-                    ui.spinner(size='lg')
-                    ui.label('Waiting for initialization...')
-                dialog.open()
-                
-                try:
-                    await start_platform_command(instance.get('venv'), instance.get('volttron_home'), instance)
-                    dialog.close()
-                    ui.notify(f'{instance_name} started successfully!', type='positive')
-                    error_log_container.clear()
-                    error_log_container.style('display: none;')
-                    set_platform_status('VOLTTRON Running', 'positive', 'running')
-                    await check_status()
-                    await refresh_agents()
-                    await refresh_log()
-                except Exception as e:
-                    dialog.close()
-                    ui.notify(f'Failed to start: {str(e)}', type='negative')
-                    await check_status()
-                    
-                    log_content = f"Error: {str(e)}\n\n"
+
+                async def run_start(sudo_password: str = ''):
+                    with ui.dialog() as dialog, ui.card().classes('p-8 items-center gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 12px;'):
+                        ui.label('Starting Platform').classes('text-xl font-bold')
+                        ui.spinner(size='lg')
+                        ui.label('Waiting for initialization...')
+                    dialog.open()
+
                     try:
-                        log_content += await agent_management.read_log_tail(instance, 20)
-                    except Exception as log_err:
-                        log_content += f"Could not read log file: {log_err}"
-                        
-                    error_log_container.clear()
-                    error_log_container.style('display: flex;')
-                    with error_log_container:
-                        ui.label('Startup Error (Last 20 lines of volttron.log)').classes('text-red-500 font-bold text-lg mb-2')
-                        ui.code(log_content).classes('w-full').style('background: var(--code-bg); color: #f87171; border: 1px solid #ef4444;')
+                        await start_platform_command(instance.get('venv'), instance.get('volttron_home'), instance, sudo_password=sudo_password)
+                        dialog.close()
+                        ui.notify(f'{instance_name} started successfully!', type='positive')
+                        error_log_container.clear()
+                        error_log_container.style('display: none;')
+                        set_platform_status('VOLTTRON Running', 'positive', 'running')
+                        await check_status()
+                        await refresh_agents()
+                        await refresh_log()
+                    except Exception as e:
+                        dialog.close()
+                        if (
+                            not sudo_password
+                            and instance.get('deployment_method') == 'ansible'
+                            and instance.get('is_local', True)
+                            and 'interactive authentication is required' in str(e)
+                        ):
+                            with ui.dialog() as sudo_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); min-width: 420px;'):
+                                ui.label('Sudo Password Required').classes('text-lg font-bold')
+                                ui.label(f'Starting {instance_name} uses systemd and needs sudo on this machine. The password is used once and is not saved.').style('color: var(--text-muted);')
+                                sudo_password_input = ui.input('Local sudo password', password=True, password_toggle_button=True).props('outlined autocomplete="current-password"').classes('w-full')
+                                with ui.row().classes('justify-end w-full gap-2'):
+                                    ui.button('Cancel', on_click=sudo_dialog.close).props('flat color="gray"')
+
+                                    async def retry_start():
+                                        password = sudo_password_input.value or ''
+                                        if not password:
+                                            ui.notify('Enter your sudo password to start the service.', type='warning')
+                                            return
+                                        sudo_dialog.close()
+                                        await run_start(password)
+
+                                    ui.button('Start Service', icon='play_arrow', on_click=retry_start).props('color="positive"')
+                            sudo_dialog.open()
+                            return
+
+                        ui.notify(f'Failed to start: {str(e)}', type='negative')
+                        await check_status()
+
+                        log_content = f"Error: {str(e)}\n\n"
+                        try:
+                            log_content += await agent_management.read_log_tail(instance, 20)
+                        except Exception as log_err:
+                            log_content += f"Could not read log file: {log_err}"
+
+                        error_log_container.clear()
+                        error_log_container.style('display: flex;')
+                        with error_log_container:
+                            ui.label('Startup Error (Last 20 lines of volttron.log)').classes('text-red-500 font-bold text-lg mb-2')
+                            ui.code(log_content).classes('w-full').style('background: var(--code-bg); color: #f87171; border: 1px solid #ef4444;')
+
+                await run_start()
 
             with ui.row().classes('gap-2 items-center'):
                 start_button = ui.button('Start', icon='play_arrow', on_click=handle_start).props('color="positive" unelevated').style('font-weight: 600; min-width: 112px;')
@@ -857,17 +915,69 @@ def render(instance_name: str):
                 ui.separator().classes('mb-4')
                 
                 with ui.column().classes('gap-3 w-full'):
-                    def row_label(key, value):
-                        with ui.row().classes('w-full justify-between items-center'):
+                    def copy_button(command: str, label: str):
+                        button = ui.button(icon='content_copy').props('flat round dense color="primary"')
+                        button.on('click', js_handler=f'''
+                            async () => {{
+                                const text = {json.dumps(command)};
+                                try {{
+                                    if (navigator.clipboard && window.isSecureContext) {{
+                                        await navigator.clipboard.writeText(text);
+                                    }} else {{
+                                        const textarea = document.createElement('textarea');
+                                        textarea.value = text;
+                                        textarea.style.position = 'fixed';
+                                        textarea.style.left = '-9999px';
+                                        textarea.style.top = '0';
+                                        document.body.appendChild(textarea);
+                                        textarea.focus();
+                                        textarea.select();
+                                        document.execCommand('copy');
+                                        document.body.removeChild(textarea);
+                                    }}
+                                }} catch (error) {{
+                                    const textarea = document.createElement('textarea');
+                                    textarea.value = text;
+                                    textarea.style.position = 'fixed';
+                                    textarea.style.left = '-9999px';
+                                    textarea.style.top = '0';
+                                    document.body.appendChild(textarea);
+                                    textarea.focus();
+                                    textarea.select();
+                                    document.execCommand('copy');
+                                    document.body.removeChild(textarea);
+                                }}
+                            }}
+                        ''')
+                        ui.tooltip(f'Copy {label} command')
+                        return button
+
+                    def row_label(key, value, copy_command: str | None = None, copy_label: str = ''):
+                        with ui.row().classes('w-full justify-between items-center gap-3 no-wrap'):
                             ui.label(key).style('color: var(--text-muted); font-size: 0.9rem;')
-                            ui.label(value).style('color: var(--text-color); font-weight: 500;')
+                            with ui.row().classes('items-center gap-1 no-wrap').style('min-width: 0;'):
+                                ui.label(value).style('color: var(--text-color); font-weight: 500; overflow-wrap: anywhere;')
+                                if copy_command:
+                                    copy_button(copy_command, copy_label or key)
                     
                     row_label('Type', instance.get('type', 'Modular'))
                     row_label('Host', instance.get('host', 'localhost'))
                     row_label('Local Install', 'Yes' if instance.get('is_local') else 'No')
                     row_label('VIP Address', instance.get('vip') or 'N/A')
-                    row_label('VOLTTRON Home', instance.get('volttron_home', 'N/A'))
-                    row_label('Virtual Env', instance.get('venv', 'N/A'))
+                    volttron_home = instance.get('volttron_home', 'N/A')
+                    venv_path = instance.get('venv', 'N/A')
+                    row_label(
+                        'VOLTTRON Home',
+                        volttron_home,
+                        None if volttron_home == 'N/A' else f'export VOLTTRON_HOME={volttron_home}',
+                        'VOLTTRON_HOME',
+                    )
+                    row_label(
+                        'Virtual Env',
+                        venv_path,
+                        None if venv_path == 'N/A' else f'source {venv_path.rstrip("/")}/bin/activate',
+                        'venv activation',
+                    )
                     if not instance.get('is_local', True):
                         ui.separator().classes('my-2')
                         row_label('SSH User', instance.get('ssh_username', 'N/A'))
