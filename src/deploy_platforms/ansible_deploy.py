@@ -14,7 +14,7 @@ from urllib.parse import urlparse, urlunparse
 import yaml
 
 
-ANSIBLE_COLLECTION_URL = "git+https://github.com/eclipse-volttron/volttron-ansible.git,develop"
+ANSIBLE_COLLECTION_URL = "git+https://github.com/riley206-pnnl/volttron-ansible.git,develop"
 ANSIBLE_ROOT = Path("ansible_deployments")
 AUTO_PYTHON_INTERPRETER = "auto"
 BOOTSTRAPPED_PYTHON_PATH = "{{ ansible_env.HOME }}/.local/bin/volttron-python3.10"
@@ -40,9 +40,13 @@ def _find_executable(name: str) -> str | None:
 
     # TODO: Move Ansible executable discovery into app startup/configuration so deployment code
     # can receive explicit tool paths instead of searching local virtualenv layouts.
-    venv_candidate = Path(sys.executable).resolve().parent / name
-    if venv_candidate.exists() and os.access(venv_candidate, os.X_OK):
-        return str(venv_candidate)
+    candidates = [Path(sys.executable).parent / name]
+    if os.environ.get("VIRTUAL_ENV"):
+        candidates.append(Path(os.environ["VIRTUAL_ENV"]) / "bin" / name)
+
+    for candidate in candidates:
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate)
 
     project_venv_candidate = Path.cwd() / ".venv" / "bin" / name
     if project_venv_candidate.exists() and os.access(project_venv_candidate, os.X_OK):

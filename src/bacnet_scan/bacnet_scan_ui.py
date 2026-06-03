@@ -26,6 +26,7 @@ class BacnetScanState:
         self.subnet_to_scan = ""
         self.discovered_devices = []
         self.is_scanning = False
+        self.scan_task = None
         self.is_discovering = False
         
         # Object browser state
@@ -114,10 +115,13 @@ async def scan_subnet():
                     ui.notify(f"Scan failed: {data.get('error')}", type='negative')
             else:
                 ui.notify(f"Scan returned status {resp.status_code}", type='negative')
+    except asyncio.CancelledError:
+        ui.notify("Scan canceled", type='warning')
     except Exception as e:
         ui.notify(f"Error scanning: {e}", type='negative')
     finally:
         state.is_scanning = False
+        state.scan_task = None
 
 async def handle_toggle_proxy():
     await toggle_proxy()
@@ -136,12 +140,21 @@ async def handle_discover_networks():
         render_networks()
 
 async def handle_scan_subnet():
+    if state.is_scanning:
+        return
     state.is_scanning = True
+    state.scan_task = asyncio.current_task()
     try:
         await scan_subnet()
     finally:
         state.is_scanning = False
+        state.scan_task = None
         render_devices()
+
+def cancel_scan():
+    if state.scan_task and not state.scan_task.done():
+        state.scan_task.cancel()
+        ui.notify("Canceling scan...", type='warning')
 
 networks_container = None
 devices_container = None
@@ -281,6 +294,21 @@ def writable_for_object_type(object_type):
     lowered = str(object_type or '').lower()
     return 'TRUE' if lowered.endswith('output') or lowered.endswith('value') else 'FALSE'
 
+SUPPORTED_BACNET_REGISTRY_OBJECT_TYPES = {
+    'analogInput',
+    'analogOutput',
+    'analogValue',
+    'binaryInput',
+    'binaryOutput',
+    'binaryValue',
+    'multiStateInput',
+    'multiStateOutput',
+    'multiStateValue',
+}
+
+def is_supported_bacnet_registry_object(object_type):
+    return bacnet_object_type_for_config(object_type) in SUPPORTED_BACNET_REGISTRY_OBJECT_TYPES
+
 def registry_csv_content(objects):
     output = io.StringIO()
     writer = csv.writer(output, lineterminator='\n')
@@ -297,6 +325,9 @@ def registry_csv_content(objects):
     ])
 
     for row in objects:
+        if not is_supported_bacnet_registry_object(row.get('object_type')):
+            continue
+
         point_name = row.get('name') or f"{row.get('object_type', 'object')}_{row.get('index', '')}"
         units = '' if row.get('units') in {None, 'N/A'} else str(row.get('units'))
         writer.writerow([
@@ -593,7 +624,11 @@ def render():
                         ui.label('Step 3: Scan for Devices').style('font-weight: 600; font-size: 1.1rem; color: var(--text-color);')
                     
                     ui.input('Subnet Range (CIDR)', value=state.subnet_to_scan).bind_value_to(state, 'subnet_to_scan').props('outlined dense color="primary"').classes('w-full mb-4')
-                    ui.button('Scanning...', icon='sync').props('color="accent" outline disable').classes('w-full').bind_visibility_from(state, 'is_scanning')
+                    with ui.column().classes('w-full gap-2').bind_visibility_from(state, 'is_scanning'):
+                        with ui.row().classes('items-center justify-center gap-2 w-full'):
+                            ui.spinner('dots', size='lg', color='accent')
+                            ui.label('Scanning...').style('color: var(--text-muted); font-size: 0.9rem;')
+                        ui.button('Cancel Scan', icon='close', on_click=cancel_scan).props('color="negative" outline').classes('w-full')
                     ui.button('Scan for Devices', on_click=handle_scan_subnet).props('color="accent"').classes('w-full').bind_enabled_from(state, 'proxy_running').bind_visibility_from(state, 'is_scanning', backward=lambda s: not s)
                     ui.label('Proxy must be running to scan').style('color: #ef4444; font-size: 0.75rem; margin-top: 0.5rem; text-align: center; width: 100%;').bind_visibility_from(state, 'proxy_running', backward=lambda p: not p)
 

@@ -11,6 +11,15 @@ Install the required packages in your python environment:
 pip install -r requirements.txt
 ```
 
+Until these supporting packages are published to PyPI, install them from GitHub:
+
+```bash
+pip install \
+  "git+https://github.com/riley206-pnnl/eclipse-bacnet-scan-tool.git@develop" \
+  "git+https://github.com/riley206-pnnl/lib-protocol-proxy-bacnet-fixed.git@new_merge_of_rileys_discovery_work" \
+  "git+https://github.com/riley206-pnnl/lib-protocol-proxy.git@develop"
+```
+
 ### 3. Run the Installer UI
 Start the web interface using:
 ```bash
@@ -25,7 +34,7 @@ New platform deployments use the modular `volttron.deployment` Ansible collectio
 development changes are used. Otherwise it falls back to the modular `develop` branch:
 
 ```bash
-ansible-galaxy collection install -f git+https://github.com/eclipse-volttron/volttron-ansible.git,develop
+ansible-galaxy collection install -f git+https://github.com/riley206-pnnl/volttron-ansible.git,develop
 ```
 
 The target host must have Python 3.10+, `python3-venv`, pip, git, and systemd available. The Ansible
