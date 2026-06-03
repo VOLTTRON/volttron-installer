@@ -1,54 +1,23 @@
-import re
-from dataclasses import dataclass
+from nicegui import ui
 
-
-LOG_LINE_RE = re.compile(
-    r"^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) "
-    r"(?P<logger>[\w.]+)\((?P<line>\d+)\) "
-    r"(?P<level>[A-Z]+): (?P<message>.*)$"
-)
-
-
-@dataclass
-class ParsedLogLine:
-    timestamp: str
-    logger: str
-    source_line: str
-    level: str
-    message: str
-    raw: str
-
-
-def parse_volttron_log(content: str) -> list[ParsedLogLine]:
-    entries: list[ParsedLogLine] = []
-
+def push_logs_to_ui(content: str, log_view: ui.log) -> None:
+    """
+    Parses a block of log content and pushes each line to a NiceGUI ui.log element
+    with appropriate color coding based on the log level.
+    """
+    log_view.clear()
+    if not content:
+        log_view.push("Log is empty.")
+        return
+        
     for line in content.splitlines():
-        match = LOG_LINE_RE.match(line)
-        if match:
-            entries.append(
-                ParsedLogLine(
-                    timestamp=match.group("timestamp"),
-                    logger=match.group("logger"),
-                    source_line=match.group("line"),
-                    level=match.group("level"),
-                    message=match.group("message"),
-                    raw=line,
-                )
-            )
-        elif entries:
-            entries[-1].message = f"{entries[-1].message}\n{line}"
-            entries[-1].raw = f"{entries[-1].raw}\n{line}"
-        elif line:
-            entries.append(
-                ParsedLogLine(
-                    timestamp="",
-                    logger="",
-                    source_line="",
-                    level="TEXT",
-                    message=line,
-                    raw=line,
-                )
-            )
-
-    return entries
-
+        if "ERROR" in line or "CRITICAL" in line:
+            log_view.push(line, classes='text-red')
+        elif "WARNING" in line:
+            log_view.push(line, classes='text-orange')
+        elif "DEBUG" in line:
+            log_view.push(line, classes='text-grey')
+        elif "INFO" in line:
+            log_view.push(line, classes='text-blue')
+        else:
+            log_view.push(line)

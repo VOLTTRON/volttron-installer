@@ -3,6 +3,7 @@ import src.home as home
 import src.deploy_platforms.deploy_platform_ui as deploy_platform
 import src.manage_instances.instances as instances
 import src.manage_instances.manage_main as manage_main
+import src.manage_instances.config_store_page as config_store_page
 import src.bacnet_scan.bacnet_scan_ui as bacnet_scan_ui
 from nicegui import app
 from bacnet_scan_api.main import app as bacnet_app
@@ -152,6 +153,12 @@ def instances_page():
     ui.colors(primary='#6366f1', secondary='#a855f7', accent='#ec4899', dark='#121212', positive='#10b981')
     ui.add_head_html(PAGE_HEAD)
     instances.render()
+
+@ui.page('/manage/{instance_name}/config-store/{agent_identity}')
+def config_store(instance_name: str, agent_identity: str):
+    ui.colors(primary='#6366f1', secondary='#a855f7', accent='#ec4899', dark='#121212', positive='#10b981')
+    ui.add_head_html(PAGE_HEAD)
+    config_store_page.render(instance_name, agent_identity)
 
 @ui.page('/manage/{instance_name}')
 def manage_page(instance_name: str):

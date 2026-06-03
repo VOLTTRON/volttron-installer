@@ -1,14 +1,12 @@
 from nicegui import ui, binding
-import io
 import json
-import zipfile
+from urllib.parse import quote
 
 import src.db as db
 from src import ssh_remote
 from src import theme
 from src.manage_instances import agent_management
-from src.manage_instances import config_store
-from src.manage_instances.log_parser import parse_volttron_log
+from src.manage_instances.log_parser import push_logs_to_ui
 
 CARD_STYLE = (
     'background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 6px; '
@@ -18,13 +16,6 @@ EMPTY_STATE_STYLE = (
     'min-height: 96px; border: 1px dashed var(--border-color); border-radius: 6px; '
     'background: transparent;'
 )
-LIST_ROW_STYLE = (
-    'border-bottom: 1px solid var(--border-color); min-height: 56px; padding: 0.75rem 0;'
-)
-SUBTLE_ROW_STYLE = (
-    'border-bottom: 1px solid var(--border-color); min-height: 48px; padding: 0.55rem 0;'
-)
-
 DEFAULT_LIBRARY_NAMES = {
     'volttron-lib-auth',
     'volttron-lib-base-driver',
@@ -32,48 +23,6 @@ DEFAULT_LIBRARY_NAMES = {
     'volttron-lib-web',
     'volttron-lib-zmq',
 }
-
-
-def _uploaded_config_type(filename: str) -> str:
-    lower_name = filename.lower()
-    if lower_name.endswith(('.json', '.config')):
-        return 'application/json'
-    if lower_name.endswith('.csv'):
-        return 'text/csv'
-    return 'text/plain'
-
-
-def _uploaded_config_name(filename: str, agent_identity: str) -> str:
-    clean_name = filename.replace('\\', '/').split('/')[-1]
-    lower_name = clean_name.lower()
-    if agent_identity == 'platform.driver' and lower_name.endswith('.config'):
-        return f"devices/{clean_name.rsplit('.', 1)[0]}"
-    return clean_name
-
-
-def _uploaded_config_entries(filename: str, content: bytes, agent_identity: str) -> list[tuple[str, str, str]]:
-    lower_name = filename.lower()
-    if lower_name.endswith('.zip'):
-        entries: list[tuple[str, str, str]] = []
-        with zipfile.ZipFile(io.BytesIO(content)) as archive:
-            for member in archive.infolist():
-                if member.is_dir():
-                    continue
-                member_name = member.filename.replace('\\', '/').split('/')[-1]
-                if not member_name or member_name.lower().endswith('readme.txt'):
-                    continue
-                content_type = _uploaded_config_type(member_name)
-                if content_type not in {'application/json', 'text/csv', 'text/plain'}:
-                    continue
-                text = archive.read(member).decode('utf-8-sig')
-                entries.append((_uploaded_config_name(member_name, agent_identity), text, content_type))
-        return entries
-
-    return [(
-        _uploaded_config_name(filename, agent_identity),
-        content.decode('utf-8-sig'),
-        _uploaded_config_type(filename),
-    )]
 
 def render(instance_name: str):
     dark_mode = theme.dark_mode()
@@ -117,48 +66,8 @@ def render(instance_name: str):
         return ssh_remote.needs_key(instance)
 
     def render_log_entries(content: str) -> None:
-        if log_view is None:
-            return
-
-        level_colors = {
-            "ERROR": ("#fee2e2", "#b91c1c", "#fecaca"),
-            "CRITICAL": ("#fee2e2", "#991b1b", "#fca5a5"),
-            "WARNING": ("#fef3c7", "#92400e", "#fde68a"),
-            "INFO": ("#dbeafe", "#1d4ed8", "#bfdbfe"),
-            "DEBUG": ("#e5e7eb", "#374151", "#d1d5db"),
-            "TEXT": ("#e5e7eb", "#374151", "#d1d5db"),
-        }
-
-        entries = parse_volttron_log(content)
-        log_view.clear()
-        with log_view:
-            if not entries:
-                ui.label("Log is empty.").style("color: var(--text-muted); padding: 0.75rem;")
-                return
-
-            for entry in entries:
-                bg, fg, border = level_colors.get(entry.level, level_colors["TEXT"])
-                with ui.row().classes("w-full no-wrap items-start gap-2").style(
-                    "border-bottom: 1px solid var(--border-color); padding: 0.45rem 0.65rem;"
-                ):
-                    ui.label(entry.level).style(
-                        f"width: 4.7rem; min-width: 4.7rem; text-align: center; font-size: 0.72rem; "
-                        f"font-weight: 800; color: {fg}; background: {bg}; border: 1px solid {border}; "
-                        "border-radius: 4px; padding: 0.12rem 0.25rem; line-height: 1.35;"
-                    )
-                    ui.label(entry.timestamp or "-").style(
-                        "width: 11.2rem; min-width: 11.2rem; color: var(--text-muted); "
-                        "font-family: monospace; font-size: 0.78rem; line-height: 1.5;"
-                    )
-                    source = f"{entry.logger}:{entry.source_line}" if entry.logger else ""
-                    ui.label(source).style(
-                        "width: 18rem; min-width: 18rem; color: var(--text-muted); "
-                        "font-family: monospace; font-size: 0.78rem; line-height: 1.5; overflow-wrap: anywhere;"
-                    )
-                    ui.label(entry.message).classes("flex-grow").style(
-                        "color: var(--text-color); font-family: monospace; font-size: 0.82rem; "
-                        "line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;"
-                    )
+        if log_view is not None:
+            push_logs_to_ui(content, log_view)
 
     def render_ssh_needed(container, message: str):
         container.clear()
@@ -220,9 +129,9 @@ def render(instance_name: str):
             last_agents_signature = signature
             agents_container.clear()
             with agents_container:
-                with ui.column().classes('w-full items-center justify-center gap-2').style(EMPTY_STATE_STYLE):
+                with ui.column().classes('w-full items-center justify-center gap-2 py-8 text-grey-6'):
                     ui.icon('power_settings_new', size='sm', color='gray')
-                    ui.label('Start VOLTTRON to view installed agents.').style('color: #9ca3af;')
+                    ui.label('Start VOLTTRON to view installed agents.')
             return
         try:
             agent_refresh_in_progress = True
@@ -234,9 +143,9 @@ def render(instance_name: str):
             last_agents_signature = signature
             agents_container.clear()
             with agents_container:
-                with ui.column().classes('w-full items-center justify-center gap-2').style(EMPTY_STATE_STYLE):
+                with ui.column().classes('w-full items-center justify-center gap-2 py-8 text-negative'):
                     ui.icon('error_outline', size='md', color='red')
-                    ui.label(f'Could not load agents: {e}').style('color: #f87171;')
+                    ui.label(f'Could not load agents: {e}')
             return
         finally:
             agent_refresh_in_progress = False
@@ -252,24 +161,17 @@ def render(instance_name: str):
 
         with agents_container:
             if not agents:
-                with ui.column().classes('w-full items-center justify-center gap-2').style(EMPTY_STATE_STYLE):
+                with ui.column().classes('w-full items-center justify-center gap-2 py-8 text-grey-6'):
                     ui.icon('extension_off', size='sm', color='gray')
-                    ui.label('No agents installed').style('color: #9ca3af;')
+                    ui.label('No agents installed')
                 return
 
-            for agent in agents:
-                agent_id = agent.get('uuid') or agent.get('identity')
-                agent_identity = agent.get('identity', 'unknown')
-                is_running = agent.get('state') == 'running'
-                with ui.row().classes('w-full items-center justify-between gap-4').style(LIST_ROW_STYLE):
-                    with ui.column().classes('gap-1'):
-                        with ui.row().classes('items-center gap-2'):
-                            ui.label(agent_identity).style('color: #f3f4f6; font-weight: 700;')
-                            ui.badge('running' if is_running else 'stopped', color='positive' if is_running else 'gray')
-                        detail = agent.get('status') or agent.get('uuid') or 'No status detail'
-                        ui.label(detail).style('color: #9ca3af; font-size: 0.8rem;')
-                        if agent.get('health'):
-                            ui.label(agent.get('health')).style('color: #a7f3d0; font-size: 0.8rem;')
+            with ui.list().classes('w-full').props('separator'):
+                for agent in agents:
+                    agent_id = agent.get('uuid') or agent.get('identity')
+                    agent_identity = agent.get('identity', 'unknown')
+                    is_running = agent.get('state') == 'running'
+                    detail = agent.get('status') or agent.get('uuid') or 'No status detail'
 
                     async def do_start(agent_ref=agent_id):
                         try:
@@ -289,12 +191,13 @@ def render(instance_name: str):
                             ui.notify(f'Failed to stop agent: {e}', type='negative')
                             show_command_error('Agent Stop Error', e)
 
-                    async def do_remove(agent_ref=agent_id):
-                        with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color);'):
-                            ui.label(f'Remove {agent.get("identity", agent_ref)}?').classes('text-lg font-bold')
-                            ui.label('This uninstalls the agent from the running platform.').style('color: var(--text-muted);')
+                    async def do_remove(agent_ref=agent_id, label=agent_identity):
+                        with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4 min-w-96'):
+                            ui.label(f'Remove {label}?').classes('text-lg font-bold')
+                            ui.label('This uninstalls the agent from the running platform.').classes('text-grey-6')
                             with ui.row().classes('justify-end w-full gap-2'):
-                                ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
+                                ui.button('Cancel', on_click=confirm_dialog.close).props('flat')
+
                                 async def confirm_remove():
                                     confirm_dialog.close()
                                     try:
@@ -304,184 +207,32 @@ def render(instance_name: str):
                                     except Exception as e:
                                         ui.notify(f'Failed to remove agent: {e}', type='negative')
                                         show_command_error('Agent Remove Error', e)
+
                                 ui.button('Remove', icon='delete', on_click=confirm_remove).props('color="negative"')
                         confirm_dialog.open()
 
-                    async def open_config_store(agent_ref=agent_identity):
-                        selected_config = None
-                        config_names_container = None
-                        config_name_input = None
-                        config_type_select = None
-                        config_content_input = None
-                        save_button = None
-                        delete_button = None
-                        status_label = None
+                    with ui.item().classes('px-0 py-3'):
+                        with ui.item_section():
+                            with ui.row().classes('items-center gap-2'):
+                                ui.item_label(agent_identity).classes('font-bold')
+                                ui.badge('running' if is_running else 'stopped', color='positive' if is_running else 'grey')
+                            ui.item_label(detail).props('caption')
+                            if agent.get('health'):
+                                ui.item_label(agent.get('health')).props('caption').classes('text-positive')
 
-                        async def load_configs():
-                            if config_names_container is None:
-                                return
-                            config_names_container.clear()
-                            try:
-                                names = await config_store.list_configs(instance, agent_ref)
-                            except Exception as e:
-                                with config_names_container:
-                                    ui.label(f'Could not load configs: {e}').style('color: #f87171;')
-                                return
-
-                            with config_names_container:
-                                if not names:
-                                    ui.label('No configs stored for this agent.').style('color: #9ca3af;')
-                                    return
-
-                                for name in names:
-                                    async def select_config(config_name=name):
-                                        nonlocal selected_config
-                                        selected_config = config_name
-                                        try:
-                                            content, content_type = await config_store.get_config(instance, agent_ref, config_name)
-                                            config_name_input.value = config_name
-                                            config_type_select.value = content_type if content_type in ['application/json', 'text/csv', 'text/plain'] else 'application/json'
-                                            config_content_input.value = content
-                                            delete_button.enable()
-                                            save_button.set_text('Update Config')
-                                            status_label.set_text(f'Editing {config_name}')
-                                        except Exception as e:
-                                            ui.notify(f'Failed to load config: {e}', type='negative')
-
-                                    ui.button(name, icon='description', on_click=select_config).props('flat color="white" align="left"').classes('w-full justify-start')
-
-                        def clear_editor():
-                            nonlocal selected_config
-                            selected_config = None
-                            config_name_input.value = ''
-                            config_type_select.value = 'application/json'
-                            config_content_input.value = '{}'
-                            delete_button.disable()
-                            save_button.set_text('Create Config')
-                            status_label.set_text('Creating new config')
-
-                        async def save_config():
-                            overwrite = selected_config == (config_name_input.value or '').strip()
-                            try:
-                                await config_store.save_config(
-                                    instance,
-                                    agent_ref,
-                                    (config_name_input.value or '').strip(),
-                                    config_content_input.value or '',
-                                    config_type_select.value,
-                                    overwrite=overwrite,
-                                )
-                                ui.notify('Config saved', type='positive')
-                                await load_configs()
-                            except Exception as e:
-                                ui.notify(f'Failed to save config: {e}', type='negative')
-
-                        async def upload_config_file(event):
-                            try:
-                                content = await event.file.read()
-                                entries = _uploaded_config_entries(event.file.name, content, agent_ref)
-                                if not entries:
-                                    ui.notify('No supported config files found in upload', type='warning')
-                                    return
-
-                                for config_name, config_content, content_type in entries:
-                                    await config_store.save_config(
-                                        instance,
-                                        agent_ref,
-                                        config_name,
-                                        config_content,
-                                        content_type,
-                                        overwrite=True,
-                                    )
-
-                                ui.notify(f'Uploaded {len(entries)} config entr{"y" if len(entries) == 1 else "ies"}', type='positive')
-                                await load_configs()
-                            except Exception as e:
-                                ui.notify(f'Failed to upload config: {e}', type='negative')
-
-                        async def delete_selected_config():
-                            nonlocal selected_config
-                            if not selected_config:
-                                return
-                            try:
-                                await config_store.delete_config(instance, agent_ref, selected_config)
-                                ui.notify(f'Deleted {selected_config}', type='positive')
-                                clear_editor()
-                                await load_configs()
-                            except Exception as e:
-                                ui.notify(f'Failed to delete config: {e}', type='negative')
-
-                        async def delete_all_agent_configs():
-                            with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color);'):
-                                ui.label(f'Delete all configs for {agent_ref}?').classes('text-lg font-bold text-red-400')
-                                ui.label('This removes every configuration entry for this agent from the VOLTTRON config store.').style('color: var(--text-muted);')
-                                with ui.row().classes('justify-end w-full gap-2'):
-                                    ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
-                                    async def confirm_delete_all():
-                                        confirm_dialog.close()
-                                        try:
-                                            await config_store.delete_all_configs(instance, agent_ref)
-                                            ui.notify('All configs deleted', type='positive')
-                                            clear_editor()
-                                            await load_configs()
-                                        except Exception as e:
-                                            ui.notify(f'Failed to delete configs: {e}', type='negative')
-                                    ui.button('Delete All', icon='delete_sweep', on_click=confirm_delete_all).props('color="negative"')
-                            confirm_dialog.open()
-
-                        with ui.dialog() as config_dialog:
-                            with ui.card().classes('p-0').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); width: 94vw; height: 90vh; max-width: none; max-height: none; display: flex; flex-direction: column;'):
-                              with ui.row().classes('w-full items-center justify-between p-5').style('border-bottom: 1px solid var(--border-color); flex: 0 0 auto;'):
-                                with ui.column().classes('gap-1'):
-                                    ui.label('Config Store').classes('text-xl font-bold')
-                                    ui.label(agent_ref).style('color: var(--text-muted);')
-                                close_btn = ui.button(icon='close', on_click=config_dialog.close).props('flat round')
-                                binding.bind_from(close_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
-
-                              with ui.row().classes('w-full gap-0 items-stretch no-wrap').style('flex: 1 1 auto; min-height: 0;'):
-                                with ui.column().classes('gap-3 p-4').style('width: 320px; min-width: 320px; border-right: 1px solid var(--border-color); min-height: 0;'):
-                                    ui.button('New Config', icon='add', on_click=clear_editor).props('color="primary" unelevated').classes('w-full')
-                                    ui.upload(
-                                        label='Upload Config',
-                                        auto_upload=True,
-                                        multiple=True,
-                                        on_upload=upload_config_file,
-                                    ).props('accept=".json,.config,.csv,.txt,.zip" color="primary" flat bordered').classes('w-full')
-                                    with ui.row().classes('w-full justify-between items-center'):
-                                        ui.label('Stored Configs').style('font-weight: 700;')
-                                    config_names_container = ui.column().classes('w-full gap-1').style('flex: 1 1 auto; min-height: 0; overflow: auto;')
-                                    ui.button('Delete All Configs', icon='delete_sweep', on_click=delete_all_agent_configs).props('outline color="negative"').classes('w-full')
-
-                                with ui.column().classes('gap-3 p-5 flex-grow').style('min-width: 0; min-height: 0;'):
-                                    status_label = ui.label('Creating new config').style('color: var(--text-muted);')
-                                    with ui.row().classes('w-full gap-3 no-wrap'):
-                                        config_name_input = ui.input('Config Name', placeholder='e.g. devices/campus/building/fake').props('outlined dense').classes('flex-grow')
-                                        config_type_select = ui.select(
-                                            {
-                                                'application/json': 'JSON',
-                                                'text/csv': 'CSV',
-                                                'text/plain': 'Raw Text',
-                                            },
-                                            value='application/json',
-                                            label='Content Type',
-                                        ).props('outlined dense').style('width: 180px;')
-                                    ui.label('Note: Device configurations for drivers typically require the "devices/" prefix.').style('color: var(--text-muted); font-size: 0.75rem; margin-top: -0.25rem;')
-                                    config_content_input = ui.textarea('Content', value='{}').props('outlined').classes('w-full').style('flex: 1 1 auto; min-height: 0; font-family: monospace;')
-                                    with ui.row().classes('w-full justify-end gap-2'):
-                                        delete_button = ui.button('Delete Config', icon='delete', on_click=delete_selected_config).props('outline color="negative"')
-                                        save_button = ui.button('Create Config', icon='save', on_click=save_config).props('color="primary"')
-                                    delete_button.disable()
-
-                        config_dialog.open()
-                        await load_configs()
-
-                    with ui.row().classes('items-center gap-1'):
-                        ui.button(icon='settings', on_click=open_config_store).props('flat round color="primary"').tooltip('Config store')
-                        if is_running:
-                            ui.button(icon='stop', on_click=do_stop).props('flat round color="warning"').tooltip('Stop agent')
-                        else:
-                            ui.button(icon='play_arrow', on_click=do_start).props('flat round color="positive"').tooltip('Start agent')
-                        ui.button(icon='delete', on_click=do_remove).props('flat round color="negative"').tooltip('Remove agent')
+                        with ui.item_section().props('side'):
+                            with ui.row().classes('items-center gap-1'):
+                                ui.button(
+                                    icon='settings',
+                                    on_click=lambda agent_ref=agent_identity: ui.navigate.to(
+                                        f'/manage/{quote(instance_name, safe="")}/config-store/{quote(agent_ref, safe="")}'
+                                    ),
+                                ).props('flat round color="primary"').tooltip('Config store')
+                                if is_running:
+                                    ui.button(icon='stop', on_click=do_stop).props('flat round color="warning"').tooltip('Stop agent')
+                                else:
+                                    ui.button(icon='play_arrow', on_click=do_start).props('flat round color="positive"').tooltip('Start agent')
+                                ui.button(icon='delete', on_click=do_remove).props('flat round color="negative"').tooltip('Remove agent')
 
     async def refresh_libraries():
         nonlocal library_refresh_in_progress, last_libraries_signature
@@ -507,9 +258,9 @@ def render(instance_name: str):
             last_libraries_signature = signature
             libraries_container.clear()
             with libraries_container:
-                with ui.column().classes('w-full items-center justify-center gap-2').style(EMPTY_STATE_STYLE):
+                with ui.column().classes('w-full items-center justify-center gap-2 py-8 text-negative'):
                     ui.icon('error_outline', size='md', color='red')
-                    ui.label(f'Could not load libraries: {e}').style('color: #f87171;')
+                    ui.label(f'Could not load libraries: {e}')
             return
         finally:
             library_refresh_in_progress = False
@@ -534,9 +285,9 @@ def render(instance_name: str):
                     additional_libraries.append(library)
 
             if not libraries:
-                with ui.column().classes('w-full items-center justify-center gap-2').style(EMPTY_STATE_STYLE):
+                with ui.column().classes('w-full items-center justify-center gap-2 py-8 text-grey-6'):
                     ui.icon('inventory_2', size='sm', color='gray')
-                    ui.label('No VOLTTRON libraries installed').style('color: var(--text-muted);')
+                    ui.label('No VOLTTRON libraries installed')
                 return
 
             def render_library_row(library: dict, removable: bool = True):
@@ -544,11 +295,11 @@ def render(instance_name: str):
                 library_version = library.get('version') or 'unknown version'
 
                 async def do_remove_library(lib_name=library_name):
-                    with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color);'):
+                    with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4 min-w-96'):
                         ui.label(f'Remove {lib_name}?').classes('text-lg font-bold')
-                        ui.label('This removes the library package from the selected platform environment. Agents that depend on it may stop working.').style('color: var(--text-muted);')
+                        ui.label('This removes the library package from the selected platform environment. Agents that depend on it may stop working.').classes('text-grey-6')
                         with ui.row().classes('justify-end w-full gap-2'):
-                            ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
+                            ui.button('Cancel', on_click=confirm_dialog.close).props('flat')
                             async def confirm_remove_library():
                                 confirm_dialog.close()
                                 try:
@@ -562,26 +313,26 @@ def render(instance_name: str):
                             ui.button('Remove', icon='delete', on_click=confirm_remove_library).props('color="negative"')
                     confirm_dialog.open()
 
-                row_style = LIST_ROW_STYLE if removable else SUBTLE_ROW_STYLE
-                with ui.row().classes('w-full items-center justify-between gap-4').style(row_style):
-                    with ui.column().classes('gap-1'):
-                        ui.label(library_name).style('color: var(--text-color); font-weight: 700;')
-                        ui.label(library_version).style('color: var(--text-muted); font-size: 0.8rem;')
+                with ui.item().classes('px-0 py-3'):
+                    with ui.item_section():
+                        ui.item_label(library_name).classes('font-bold')
+                        ui.item_label(library_version).props('caption')
                     if removable:
-                        ui.button(icon='delete', on_click=do_remove_library).props('flat round color="negative"').tooltip('Remove library').set_enabled(current_platform_state == 'running')
+                        with ui.item_section().props('side'):
+                            ui.button(icon='delete', on_click=do_remove_library).props('flat round color="negative"').tooltip('Remove library').set_enabled(current_platform_state == 'running')
 
             if additional_libraries:
-                for library in additional_libraries:
-                    render_library_row(library)
+                with ui.list().classes('w-full').props('separator'):
+                    for library in additional_libraries:
+                        render_library_row(library)
             else:
-                with ui.column().classes('w-full items-center justify-center gap-2').style(EMPTY_STATE_STYLE):
+                with ui.column().classes('w-full items-center justify-center gap-2 py-8 text-grey-6'):
                     ui.icon('extension_off', size='sm', color='gray')
-                    ui.label('No additional VOLTTRON libraries installed').style('color: var(--text-muted);')
+                    ui.label('No additional VOLTTRON libraries installed')
 
             if default_libraries:
-                default_margin = 'margin-top: 0.75rem;' if additional_libraries else ''
-                with ui.expansion(f'Default Libraries ({len(default_libraries)})', icon='inventory_2').classes('w-full').style(f'{default_margin} color: var(--text-color);'):
-                    with ui.column().classes('w-full gap-0 pl-8 pr-1'):
+                with ui.expansion(f'Default Libraries ({len(default_libraries)})', icon='inventory_2').classes('w-full mt-3'):
+                    with ui.list().classes('w-full').props('separator'):
                         for library in default_libraries:
                             render_library_row(library, removable=False)
 
@@ -607,15 +358,6 @@ def render(instance_name: str):
             return
         last_log_content = content
         render_log_entries(content)
-        if log_follow_switch is not None and log_follow_switch.value:
-            ui.run_javascript(
-                f'''
-                setTimeout(() => {{
-                    const el = getElement("{log_view.id}");
-                    if (el) el.scrollTop = el.scrollHeight;
-                }}, 0);
-                '''
-            )
 
     async def handle_clear_log():
         with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color);'):
@@ -905,61 +647,56 @@ def render(instance_name: str):
                 start_button.disable()
                 shutdown_button.disable()
 
-        with ui.row().classes('w-full max-w-6xl gap-5 items-stretch'):
-            # Configuration Card
-            with ui.card().classes('w-full max-w-md').style(CARD_STYLE):
-                with ui.row().classes('items-center gap-2 mb-4'):
-                    ui.icon('settings', size='sm', color='#6366f1')
-                    ui.label('Configuration').style('font-size: 1.2rem; font-weight: bold; color: var(--text-color);')
-                
-                ui.separator().classes('mb-4')
-                
-                with ui.column().classes('gap-3 w-full'):
-                    def copy_button(command: str, label: str):
-                        button = ui.button(icon='content_copy').props('flat round dense color="primary"')
-                        button.on('click', js_handler=f'''
-                            async () => {{
-                                const text = {json.dumps(command)};
-                                try {{
-                                    if (navigator.clipboard && window.isSecureContext) {{
-                                        await navigator.clipboard.writeText(text);
-                                    }} else {{
-                                        const textarea = document.createElement('textarea');
-                                        textarea.value = text;
-                                        textarea.style.position = 'fixed';
-                                        textarea.style.left = '-9999px';
-                                        textarea.style.top = '0';
-                                        document.body.appendChild(textarea);
-                                        textarea.focus();
-                                        textarea.select();
-                                        document.execCommand('copy');
-                                        document.body.removeChild(textarea);
-                                    }}
-                                }} catch (error) {{
-                                    const textarea = document.createElement('textarea');
-                                    textarea.value = text;
-                                    textarea.style.position = 'fixed';
-                                    textarea.style.left = '-9999px';
-                                    textarea.style.top = '0';
-                                    document.body.appendChild(textarea);
-                                    textarea.focus();
-                                    textarea.select();
-                                    document.execCommand('copy');
-                                    document.body.removeChild(textarea);
-                                }}
+        with ui.column().classes('w-full max-w-6xl gap-5'):
+            def copy_button(command: str, label: str):
+                button = ui.button(icon='content_copy').props('flat round dense color="primary"')
+                button.on('click', js_handler=f'''
+                    async () => {{
+                        const text = {json.dumps(command)};
+                        try {{
+                            if (navigator.clipboard && window.isSecureContext) {{
+                                await navigator.clipboard.writeText(text);
+                            }} else {{
+                                const textarea = document.createElement('textarea');
+                                textarea.value = text;
+                                textarea.style.position = 'fixed';
+                                textarea.style.left = '-9999px';
+                                textarea.style.top = '0';
+                                document.body.appendChild(textarea);
+                                textarea.focus();
+                                textarea.select();
+                                document.execCommand('copy');
+                                document.body.removeChild(textarea);
                             }}
-                        ''')
-                        ui.tooltip(f'Copy {label} command')
-                        return button
+                        }} catch (error) {{
+                            const textarea = document.createElement('textarea');
+                            textarea.value = text;
+                            textarea.style.position = 'fixed';
+                            textarea.style.left = '-9999px';
+                            textarea.style.top = '0';
+                            document.body.appendChild(textarea);
+                            textarea.focus();
+                            textarea.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(textarea);
+                        }}
+                    }}
+                ''')
+                ui.tooltip(f'Copy {label} command')
+                return button
 
-                    def row_label(key, value, copy_command: str | None = None, copy_label: str = ''):
-                        with ui.row().classes('w-full justify-between items-center gap-3 no-wrap'):
-                            ui.label(key).style('color: var(--text-muted); font-size: 0.9rem;')
-                            with ui.row().classes('items-center gap-1 no-wrap').style('min-width: 0;'):
-                                ui.label(value).style('color: var(--text-color); font-weight: 500; overflow-wrap: anywhere;')
-                                if copy_command:
-                                    copy_button(copy_command, copy_label or key)
-                    
+            def row_label(key, value, copy_command: str | None = None, copy_label: str = ''):
+                with ui.item().classes('px-0'):
+                    with ui.item_section():
+                        ui.item_label(key).props('caption')
+                    with ui.item_section().props('side'):
+                        with ui.row().classes('items-center gap-1 no-wrap'):
+                            ui.item_label(value).classes('font-medium')
+                            if copy_command:
+                                copy_button(copy_command, copy_label or key)
+
+            with ui.expansion('Platform Information', icon='info').classes('w-full'):
+                with ui.list().classes('w-full').props('separator'):
                     row_label('Type', instance.get('type', 'Modular'))
                     row_label('Host', instance.get('host', 'localhost'))
                     row_label('Local Install', 'Yes' if instance.get('is_local') else 'No')
@@ -979,44 +716,43 @@ def render(instance_name: str):
                         'venv activation',
                     )
                     if not instance.get('is_local', True):
-                        ui.separator().classes('my-2')
                         row_label('SSH User', instance.get('ssh_username', 'N/A'))
                         row_label('SSH Port', str(instance.get('ssh_port', '22')))
                         row_label('SSH Key', instance.get('ssh_key_path') or 'Agent/default keys')
-                        ui.label('Remote management uses SSH keys only.').style('color: var(--text-muted); font-size: 0.8rem;')
-            
-            # Agents Card
-            with ui.card().classes('flex-grow').style(CARD_STYLE + 'min-width: 420px;'):
+                        ui.item_label('Remote management uses SSH keys only.').props('caption').classes('px-0 py-2')
+
+            # Agents
+            with ui.column().classes('w-full gap-4'):
                 with ui.row().classes('items-center gap-2 mb-4 justify-between w-full'):
                     with ui.row().classes('items-center gap-2'):
-                        ui.icon('smart_toy', size='sm', color='#ec4899')
-                        ui.label('Installed Agents').style('font-size: 1.2rem; font-weight: bold; color: var(--text-color);')
+                        ui.icon('smart_toy', size='sm', color='accent')
+                        ui.label('Installed Agents').classes('text-xl font-bold')
                     
-                    install_agent_button = ui.button('Install Agent', icon='add', on_click=lambda: install_dialog.open()).props('outline color="primary"').style('font-weight: 700; min-width: 148px;')
+                    install_agent_button = ui.button('Install Agent', icon='add', on_click=lambda: install_dialog.open()).props('outline color="primary"')
                     install_agent_button.disable()
                 
-                ui.separator().classes('mb-4')
+                ui.separator()
                 
-                agents_container = ui.column().classes('w-full gap-0').style('min-height: 120px;')
+                agents_container = ui.column().classes('w-full gap-0')
                 ui.timer(0.2, refresh_agents, once=True)
                 if instance.get('is_local', True):
                     ui.timer(8.0, refresh_agents)
 
-        with ui.card().classes('w-full max-w-6xl mt-5').style(CARD_STYLE):
+        with ui.column().classes('w-full max-w-6xl gap-4 mt-5'):
             with ui.row().classes('items-center gap-2 mb-4 justify-between w-full'):
                 with ui.row().classes('items-center gap-2'):
-                    ui.icon('extension', size='sm', color='#f59e0b')
-                    ui.label('Installed Libraries').style('font-size: 1.2rem; font-weight: bold; color: var(--text-color);')
+                    ui.icon('extension', size='sm', color='warning')
+                    ui.label('Installed Libraries').classes('text-xl font-bold')
 
                 with ui.row().classes('items-center gap-2'):
                     refresh_lib_btn = ui.button(icon='refresh', on_click=refresh_libraries).props('flat round').tooltip('Refresh libraries')
                     binding.bind_from(refresh_lib_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
-                    install_library_button = ui.button('Install Library', icon='add', on_click=lambda: install_library_dialog.open()).props('outline color="primary"').style('font-weight: 700; min-width: 156px;')
+                    install_library_button = ui.button('Install Library', icon='add', on_click=lambda: install_library_dialog.open()).props('outline color="primary"')
                     install_library_button.disable()
 
-            ui.separator().classes('mb-4')
+            ui.separator()
 
-            libraries_container = ui.column().classes('w-full gap-0').style('min-height: 120px;')
+            libraries_container = ui.column().classes('w-full gap-0')
             ui.timer(0.4, refresh_libraries, once=True)
             if instance.get('is_local', True):
                 ui.timer(20.0, refresh_libraries)
@@ -1027,19 +763,25 @@ def render(instance_name: str):
                     ui.icon('article', size='sm', color='#10b981')
                     ui.label('Live Log Tail').style('font-size: 1.2rem; font-weight: bold; color: var(--text-color);')
                 with ui.row().classes('items-center gap-2'):
-                    log_follow_switch = ui.switch('Follow', value=True).props('dense color="positive"')
+                    log_follow_switch = ui.switch('Follow', value=True, on_change=lambda e: refresh_log() if getattr(e, 'value', False) else None).props('dense color="positive"')
                     refresh_log_btn = ui.button(icon='refresh', on_click=refresh_log).props('flat round').tooltip('Refresh log')
                     binding.bind_from(refresh_log_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
                     ui.button('Clear Log', icon='delete_sweep', on_click=handle_clear_log).props('flat color="negative"').style('font-weight: 700;')
             log_container = ui.column().classes('w-full')
             with log_container:
-                log_view = ui.column().classes('w-full gap-0').style(
-                    'height: 420px; overflow-y: auto; background: var(--code-bg); '
-                    'border: 1px solid var(--code-border); border-radius: 6px; color: var(--text-color);'
+                log_view = ui.log(max_lines=1000).classes('w-full').style(
+                    'height: 420px; background: var(--code-bg); '
+                    'border: 1px solid var(--code-border); border-radius: 6px; color: var(--text-color); '
+                    'font-family: monospace; font-size: 0.82rem; padding: 0.5rem;'
                 )
+            
+            async def live_refresh_log():
+                if log_follow_switch is not None and log_follow_switch.value:
+                    await refresh_log()
+                    
             ui.timer(0.1, refresh_log, once=True)
             if instance.get('is_local', True):
-                ui.timer(3.0, refresh_log)
+                ui.timer(3.0, live_refresh_log)
 
         # Error Log Container
         error_log_container = ui.column().classes('w-full max-w-6xl mt-5 p-4').style('display: none; background: var(--card-bg); border: 1px solid rgba(239, 68, 68, 0.5); border-radius: 8px;')
