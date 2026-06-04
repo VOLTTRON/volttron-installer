@@ -497,6 +497,121 @@ async def shutdown_platform(instance: dict, sudo_password: str = "") -> str:
         raise
 
 
+async def _run_local_systemctl_for_service(service: str, sudo_password: str, *args: str) -> tuple[str, str]:
+    if os.geteuid() == 0:
+        cmd = ["systemctl", *args, service]
+        stdin = None
+    elif sudo_password:
+        cmd = ["sudo", "-S", "-p", "", "systemctl", *args, service]
+        stdin = f"{sudo_password}\n".encode()
+    else:
+        cmd = ["sudo", "-n", "systemctl", *args, service]
+        stdin = None
+
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdin=asyncio.subprocess.PIPE if stdin is not None else None,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate(stdin)
+    stdout_text = stdout.decode(errors="replace")
+    stderr_text = stderr.decode(errors="replace")
+    if process.returncode != 0:
+        detail = stderr_text.strip() or stdout_text.strip() or f"systemctl exited with {process.returncode}"
+        raise PlatformCommandError(detail, stdout=stdout_text, stderr=stderr_text)
+    return stdout_text, stderr_text
+
+
+async def _run_local_sudo_shell(command: str, sudo_password: str, timeout: int = 120) -> tuple[str, str]:
+    if os.geteuid() == 0:
+        shell_command = command
+        stdin = None
+    elif sudo_password:
+        shell_command = f"sudo -S -p '' bash -c {shlex.quote(command)}"
+        stdin = f"{sudo_password}\n".encode()
+    else:
+        shell_command = f"sudo -n bash -c {shlex.quote(command)}"
+        stdin = None
+
+    process = await asyncio.create_subprocess_shell(
+        shell_command,
+        executable="/bin/bash",
+        stdin=asyncio.subprocess.PIPE if stdin is not None else None,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(stdin), timeout=timeout)
+    except asyncio.TimeoutError as exc:
+        process.kill()
+        await process.communicate()
+        raise PlatformCommandError(f"Command timed out after {timeout} seconds") from exc
+
+    stdout_text = stdout.decode(errors="replace")
+    stderr_text = stderr.decode(errors="replace")
+    if process.returncode != 0:
+        detail = stderr_text.strip() or stdout_text.strip() or f"Command exited with {process.returncode}"
+        raise PlatformCommandError(detail, stdout=stdout_text, stderr=stderr_text)
+    return stdout_text, stderr_text
+
+
+async def remove_platform_service(instance: dict, sudo_password: str = "") -> list[str]:
+    if instance.get("deployment_method") != "ansible":
+        return ["No systemd service removal needed for this deployment type."]
+
+    service = f"volttron-{instance.get('name')}.service"
+    messages: list[str] = []
+
+    if ssh_remote.is_remote_instance(instance):
+        command = f"""
+set -e
+service={shlex.quote(service)}
+unit_path="$(systemctl show -p FragmentPath --value "$service" 2>/dev/null || true)"
+sudo -n systemctl disable --now "$service" 2>/dev/null || true
+if [ -n "$unit_path" ] && [ -f "$unit_path" ]; then
+  sudo -n rm -f "$unit_path"
+else
+  sudo -n rm -f "/etc/systemd/system/$service" "/lib/systemd/system/$service" "/usr/lib/systemd/system/$service"
+fi
+sudo -n systemctl daemon-reload
+sudo -n systemctl reset-failed "$service" 2>/dev/null || true
+printf 'Removed systemd service %s' "$service"
+"""
+        try:
+            stdout, stderr = await ssh_remote.run(instance, command, timeout=120)
+        except ssh_remote.SSHCommandError as exc:
+            raise PlatformCommandError(str(exc), stdout=exc.stdout, stderr=exc.stderr) from exc
+        messages.append((stdout or stderr).strip() or f"Removed systemd service {service}")
+        return messages
+
+    try:
+        await _run_local_systemctl_for_service(service, sudo_password, "disable", "--now")
+        messages.append(f"Disabled and stopped {service}")
+    except PlatformCommandError as exc:
+        message = f"{exc}\n{exc.stderr}\n{exc.stdout}"
+        if "could not be found" in message or "not loaded" in message or "does not exist" in message:
+            messages.append(f"Service not loaded: {service}")
+        else:
+            raise
+
+    cleanup_command = f"""
+set -e
+service={shlex.quote(service)}
+unit_path="$(systemctl show -p FragmentPath --value "$service" 2>/dev/null || true)"
+if [ -n "$unit_path" ] && [ -f "$unit_path" ]; then
+  rm -f "$unit_path"
+else
+  rm -f "/etc/systemd/system/$service" "/lib/systemd/system/$service" "/usr/lib/systemd/system/$service"
+fi
+systemctl daemon-reload
+systemctl reset-failed "$service" 2>/dev/null || true
+"""
+    await _run_local_sudo_shell(cleanup_command, sudo_password)
+    messages.append(f"Removed systemd unit file for {service}")
+    return messages
+
+
 def _safe_rmtree(path_value: str | None) -> str:
     path = Path(_expand(path_value)).resolve()
     home = Path.home().resolve()
@@ -512,7 +627,7 @@ def _safe_rmtree(path_value: str | None) -> str:
     return f"Deleted {path}"
 
 
-async def delete_platform_files(instance: dict) -> list[str]:
+async def delete_platform_files(instance: dict, sudo_password: str = "") -> list[str]:
     """
     Shut down the platform if possible, then remove its venv and VOLTTRON_HOME.
 
@@ -521,16 +636,19 @@ async def delete_platform_files(instance: dict) -> list[str]:
     """
     messages: list[str] = []
 
-    try:
-        await shutdown_platform(instance)
-        messages.append("Platform shutdown command completed")
-    except PlatformCommandError as exc:
-        vctl_missing = "vctl executable not found" in str(exc)
-        already_down = "Connection refused" in str(exc) or "No route to host" in str(exc)
-        if vctl_missing or already_down:
-            messages.append(f"Shutdown skipped: {exc}")
-        else:
-            messages.append(f"Shutdown warning: {exc}")
+    if instance.get("deployment_method") == "ansible":
+        messages.extend(await remove_platform_service(instance, sudo_password=sudo_password))
+    else:
+        try:
+            await shutdown_platform(instance, sudo_password=sudo_password)
+            messages.append("Platform shutdown command completed")
+        except PlatformCommandError as exc:
+            vctl_missing = "vctl executable not found" in str(exc)
+            already_down = "Connection refused" in str(exc) or "No route to host" in str(exc)
+            if vctl_missing or already_down:
+                messages.append(f"Shutdown skipped: {exc}")
+            else:
+                messages.append(f"Shutdown warning: {exc}")
 
     for path_value in (instance.get("venv"), instance.get("volttron_home")):
         if ssh_remote.is_remote_instance(instance):
@@ -541,12 +659,20 @@ async def delete_platform_files(instance: dict) -> list[str]:
     return messages
 
 
-async def read_log_tail(instance: dict, line_count: int = 200) -> str:
+def _log_filename(log_name: str) -> str:
+    allowed_logs = {"volttron.log", "driver.log"}
+    if log_name not in allowed_logs:
+        raise PlatformCommandError(f"Unsupported log file: {log_name}")
+    return log_name
+
+
+async def read_log_tail(instance: dict, line_count: int = 200, log_name: str = "volttron.log") -> str:
+    log_filename = _log_filename(log_name)
     if ssh_remote.is_remote_instance(instance):
         expanded_home = await _remote_expanded_path(instance, "volttron_home")
-        return await ssh_remote.tail_file(instance, f"{expanded_home}/volttron.log", line_count)
+        return await ssh_remote.tail_file(instance, f"{expanded_home}/{log_filename}", line_count)
 
-    log_path = Path(_expand(instance.get("volttron_home"))) / "volttron.log"
+    log_path = Path(_expand(instance.get("volttron_home"))) / log_filename
     if not log_path.exists():
         return f"Log file not found at {log_path}"
 
@@ -558,12 +684,13 @@ async def read_log_tail(instance: dict, line_count: int = 200) -> str:
     return "".join(lines[-line_count:]) or "Log file is empty."
 
 
-async def clear_log(instance: dict) -> str:
+async def clear_log(instance: dict, log_name: str = "volttron.log") -> str:
+    log_filename = _log_filename(log_name)
     if ssh_remote.is_remote_instance(instance):
         expanded_home = await _remote_expanded_path(instance, "volttron_home")
-        return await ssh_remote.truncate_file(instance, f"{expanded_home}/volttron.log")
+        return await ssh_remote.truncate_file(instance, f"{expanded_home}/{log_filename}")
 
-    log_path = Path(_expand(instance.get("volttron_home"))) / "volttron.log"
+    log_path = Path(_expand(instance.get("volttron_home"))) / log_filename
     if not log_path.parent.exists():
         raise PlatformCommandError(f"VOLTTRON_HOME does not exist at {log_path.parent}")
 

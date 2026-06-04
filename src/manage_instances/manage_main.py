@@ -55,6 +55,7 @@ def render(instance_name: str):
     install_agent_button = None
     install_library_button = None
     current_platform_state = 'unknown'
+    active_log_name = 'volttron.log'
     last_log_content = None
     last_agents_signature = None
     last_libraries_signature = None
@@ -347,7 +348,7 @@ def render(instance_name: str):
         else:
             try:
                 ssh_refresh_in_progress = True
-                content = await agent_management.read_log_tail(instance, 300)
+                content = await agent_management.read_log_tail(instance, 300, active_log_name)
             except ssh_remote.SSHCommandError as exc:
                 content = f"SSH unavailable: {exc}"
             except Exception as exc:
@@ -359,9 +360,15 @@ def render(instance_name: str):
         last_log_content = content
         render_log_entries(content)
 
+    async def handle_log_selection(event):
+        nonlocal active_log_name, last_log_content
+        active_log_name = event.value or 'volttron.log'
+        last_log_content = None
+        await refresh_log()
+
     async def handle_clear_log():
         with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color);'):
-            ui.label('Clear volttron.log?').classes('text-lg font-bold')
+            ui.label(f'Clear {active_log_name}?').classes('text-lg font-bold')
             ui.label('This truncates the current log file for this instance. New log entries will still appear here.').style('color: var(--text-muted);')
             with ui.row().classes('justify-end w-full gap-2'):
                 ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
@@ -370,10 +377,10 @@ def render(instance_name: str):
                     nonlocal last_log_content
                     confirm_dialog.close()
                     try:
-                        await agent_management.clear_log(instance)
+                        await agent_management.clear_log(instance, active_log_name)
                         last_log_content = None
                         await refresh_log()
-                        ui.notify('Log cleared', type='positive')
+                        ui.notify(f'{active_log_name} cleared', type='positive')
                     except Exception as e:
                         ui.notify(f'Failed to clear log: {e}', type='negative')
                         show_command_error('Clear Log Error', e)
@@ -490,17 +497,29 @@ def render(instance_name: str):
     async def handle_delete_platform():
         venv_path = instance.get('venv') or 'N/A'
         volttron_home = instance.get('volttron_home') or 'N/A'
+        service_name = f"volttron-{instance_name}.service"
+        needs_local_sudo = instance.get('deployment_method') == 'ansible' and instance.get('is_local', True)
         with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); min-width: 520px;'):
             ui.label(f'Delete {instance_name}?').classes('text-lg font-bold text-red-400')
-            ui.label('This will shut down the platform, delete its virtual environment, delete VOLTTRON_HOME, and remove it from this installer.').style('color: var(--text-muted);')
+            ui.label('This will stop and remove its systemd service, delete its virtual environment, delete VOLTTRON_HOME, and remove it from this installer.').style('color: var(--text-muted);')
             with ui.column().classes('w-full gap-1 p-3').style('background: var(--code-bg); border: 1px solid var(--border-color); border-radius: 6px;'):
+                if instance.get('deployment_method') == 'ansible':
+                    ui.label(f'Systemd Service: {service_name}').style('color: var(--text-muted); font-size: 0.85rem;')
                 ui.label(f'Virtual Env: {venv_path}').style('color: var(--text-muted); font-size: 0.85rem;')
                 ui.label(f'VOLTTRON Home: {volttron_home}').style('color: var(--text-muted); font-size: 0.85rem;')
                 ui.label(f'Instance Record: instances_data/{instance_name}.json').style('color: var(--text-muted); font-size: 0.85rem;')
+            sudo_password_input = None
+            if needs_local_sudo:
+                ui.label('Local sudo is required to remove the systemd service. The password is used once and is not saved.').style('color: var(--text-muted); font-size: 0.85rem;')
+                sudo_password_input = ui.input('Local sudo password', password=True, password_toggle_button=True).props('outlined autocomplete="current-password"').classes('w-full')
             with ui.row().classes('justify-end w-full gap-2'):
                 ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
 
                 async def confirm_delete():
+                    sudo_password = sudo_password_input.value or '' if sudo_password_input is not None else ''
+                    if needs_local_sudo and not sudo_password:
+                        ui.notify('Enter your sudo password to remove the service.', type='warning')
+                        return
                     confirm_dialog.close()
                     with ui.dialog() as progress_dialog, ui.card().classes('p-8 items-center gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 12px;'):
                         ui.label('Deleting Platform').classes('text-xl font-bold')
@@ -508,7 +527,7 @@ def render(instance_name: str):
                         ui.label(instance_name).style('color: var(--text-muted);')
                     progress_dialog.open()
                     try:
-                        messages = await agent_management.delete_platform_files(instance)
+                        messages = await agent_management.delete_platform_files(instance, sudo_password=sudo_password)
                         db.delete_instance(instance_name)
                         progress_dialog.close()
                         ui.notify(f'{instance_name} deleted', type='positive')
@@ -763,6 +782,11 @@ def render(instance_name: str):
                     ui.icon('article', size='sm', color='#10b981')
                     ui.label('Live Log Tail').style('font-size: 1.2rem; font-weight: bold; color: var(--text-color);')
                 with ui.row().classes('items-center gap-2'):
+                    ui.toggle(
+                        {'volttron.log': 'VOLTTRON', 'driver.log': 'Driver'},
+                        value=active_log_name,
+                        on_change=handle_log_selection,
+                    ).props('dense no-caps toggle-color="primary"')
                     log_follow_switch = ui.switch('Follow', value=True, on_change=lambda e: refresh_log() if getattr(e, 'value', False) else None).props('dense color="positive"')
                     refresh_log_btn = ui.button(icon='refresh', on_click=refresh_log).props('flat round').tooltip('Refresh log')
                     binding.bind_from(refresh_log_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')

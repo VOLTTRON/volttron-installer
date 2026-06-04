@@ -55,9 +55,14 @@ async def toggle_proxy():
     if state.proxy_running:
         try:
             async with httpx.AsyncClient() as client:
-                await client.post(f"{PROXY_URL}/stop_proxy")
-            state.proxy_running = False
-            ui.notify("Proxy stopped", type='positive')
+                resp = await client.post(f"{PROXY_URL}/stop_proxy", timeout=15.0)
+                resp.raise_for_status()
+                result = resp.json()
+            if result.get("status") == "done":
+                state.proxy_running = False
+                ui.notify(result.get("message", "Proxy stopped"), type='positive')
+            else:
+                ui.notify(f"Failed to stop proxy: {result.get('error', 'unknown error')}", type='negative')
         except Exception as e:
             ui.notify(f"Error stopping proxy: {e}", type='negative')
     else:
