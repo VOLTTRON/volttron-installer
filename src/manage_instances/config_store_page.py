@@ -207,7 +207,7 @@ def render(instance_name: str, agent_identity: str):
             ui.separator()
 
             with ui.row().classes('w-full gap-5 items-stretch no-wrap'):
-                with ui.column().classes('gap-3 py-2').style('width: 320px; min-width: 320px;'):
+                with ui.column().classes('gap-3 py-2 w-80 min-w-80'):
                     ui.label('Add Configs').classes('font-bold')
                     ui.button('Blank Config', icon='add', on_click=clear_editor).props('outline color="primary"').classes('w-full')
                     import_upload = ui.upload(
@@ -222,13 +222,13 @@ def render(instance_name: str, agent_identity: str):
                     )
                     ui.separator()
                     ui.label('Stored Configs').classes('font-bold')
-                    config_names_container = ui.column().classes('w-full gap-1').style('min-height: 320px;')
+                    config_names_container = ui.column().classes('w-full gap-1 min-h-80')
                     ui.space()
                     ui.button('Delete All Configs', icon='delete_sweep', on_click=delete_all_agent_configs).props('outline color="negative"').classes('w-full')
 
                 ui.separator().props('vertical')
 
-                with ui.column().classes('gap-3 py-2 flex-grow').style('min-width: 0; min-height: 680px;'):
+                with ui.column().classes('gap-3 py-2 flex-grow min-w-0 min-h-screen'):
                     status_label = ui.label('Creating new config').classes('text-grey-6')
                     with ui.row().classes('w-full gap-3 no-wrap'):
                         config_name_input = ui.input('Config Name', placeholder='e.g. devices/campus/building/fake').props('outlined dense').classes('flex-grow')
@@ -240,11 +240,9 @@ def render(instance_name: str, agent_identity: str):
                             },
                             value='application/json',
                             label='Content Type',
-                        ).props('outlined dense').style('width: 180px;')
+                        ).props('outlined dense').classes('w-44')
                     ui.label('Device configurations for drivers typically require the "devices/" prefix.').classes('text-grey-6 text-xs')
-                    config_content_input = ui.textarea('Content', value='{}').props('outlined').classes('w-full').style(
-                        'flex: 1 1 auto; min-height: 460px; font-family: monospace;'
-                    )
+                    config_content_input = ui.textarea('Content', value='{}').props('outlined').classes('w-full flex-auto min-h-96 font-mono')
                     with ui.row().classes('w-full justify-end gap-2'):
                         delete_button = ui.button('Delete Config', icon='delete', on_click=delete_selected_config).props('outline color="negative"')
                         save_button = ui.button('Save Config', icon='save', on_click=save_config).props('color="primary"')

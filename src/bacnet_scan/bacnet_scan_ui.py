@@ -168,7 +168,7 @@ def render_networks():
     networks_container.clear()
     with networks_container:
         if state.networks:
-            ui.label('Discovered Networks:').style('font-weight: bold; color: var(--text-color);')
+            ui.label('Discovered Networks:').classes('font-bold')
             with ui.column().classes('w-full gap-1'):
                 for net in state.networks:
                     ui.button(net, on_click=lambda n=net: setattr(state, 'subnet_to_scan', n)).props('flat size="sm"').classes('w-full justify-start')
@@ -177,14 +177,14 @@ def render_devices():
     devices_container.clear()
     with devices_container:
         with ui.row().classes('items-center justify-between w-full mb-4'):
-            ui.label('Discovered Devices').style('font-size: 1.25rem; font-weight: 600; color: var(--text-color);')
+            ui.label('Discovered Devices').classes(theme.section_title())
             ui.badge(f"{len(state.discovered_devices)} Found", color='primary').classes('text-sm')
         
         if not state.discovered_devices:
-            with ui.column().classes('w-full h-full items-center justify-center gap-2').style('flex-grow: 1; opacity: 0.5;'):
+            with ui.column().classes('w-full h-full flex-grow items-center justify-center gap-2 opacity-50'):
                 ui.icon('device_hub', size='4rem', color='gray')
-                ui.label('No devices discovered yet').style('font-size: 1.1rem;')
-                ui.label('Start the proxy and run a scan to find devices.').style('font-size: 0.9rem;')
+                ui.label('No devices discovered yet').classes('text-lg')
+                ui.label('Start the proxy and run a scan to find devices.').classes(theme.small_muted())
         else:
             columns = [
                 {'name': 'name', 'label': 'Device Name', 'field': 'object_name', 'sortable': True, 'align': 'left'},
@@ -204,7 +204,7 @@ def render_devices():
                 })
                 
             dark_mode = theme.dark_mode()
-            table = ui.table(columns=columns, rows=rows, row_key='deviceIdentifier').classes('w-full bg-[var(--sub-bg)]').props('flat bordered')
+            table = ui.table(columns=columns, rows=rows, row_key='deviceIdentifier').classes('w-full').props('flat bordered')
             binding.bind_from(table._props, 'dark', dark_mode, 'value')
             
             table.add_slot('body-cell-actions', '''
@@ -514,10 +514,10 @@ def render_dialog_content():
     
     with ui.column().classes('w-full gap-4'):
         # Dialog Header
-        with ui.row().classes('w-full justify-between items-center pb-4 border-b border-[var(--border-color)]'):
+        with ui.row().classes('w-full justify-between items-center pb-4 border-b'):
             with ui.column():
-                ui.label(f"Browse Objects: {dev_name}").style('font-size: 1.5rem; font-weight: bold; color: var(--text-color);')
-                ui.label(f"ID: {dev_id} | Address: {dev_addr}").style('font-size: 0.85rem; color: var(--text-muted);')
+                ui.label(f"Browse Objects: {dev_name}").classes('text-2xl font-bold')
+                ui.label(f"ID: {dev_id} | Address: {dev_addr}").classes(theme.small_muted())
             
             close_icon_btn = ui.button(icon='close', on_click=object_dialog.close).props('flat round')
             binding.bind_from(close_icon_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
@@ -525,12 +525,12 @@ def render_dialog_content():
         if state.objects_loading:
             with ui.column().classes('w-full py-20 items-center justify-center gap-4'):
                 ui.spinner('gears', size='4rem', color='accent')
-                ui.label("Querying device registers over BACnet...").style('color: var(--text-muted); font-size: 1rem;')
+                ui.label("Querying device registers over BACnet...").classes(theme.muted())
         else:
             if not state.objects:
                 with ui.column().classes('w-full py-10 items-center justify-center gap-2 opacity-50'):
                     ui.icon('layers_clear', size='4rem', color='gray')
-                    ui.label('No objects found or queried').style('font-size: 1.1rem;')
+                    ui.label('No objects found or queried').classes('text-lg')
             else:
                 # Table of objects with native checkbox selection
                 columns = [
@@ -542,7 +542,7 @@ def render_dialog_content():
                     {'name': 'description', 'label': 'Description', 'field': 'description', 'align': 'left'}
                 ]
                 
-                table = ui.table(columns=columns, rows=state.objects, selection='multiple', row_key='object_id').classes('w-full bg-[var(--sub-bg)]').props('flat bordered')
+                table = ui.table(columns=columns, rows=state.objects, selection='multiple', row_key='object_id').classes('w-full').props('flat bordered')
                 binding.bind_from(table._props, 'dark', dark_mode, 'value')
                 
                 # Bottom Actions Row
@@ -551,7 +551,7 @@ def render_dialog_content():
                     with ui.row().classes('items-center gap-2'):
                         prev_btn = ui.button(icon='chevron_left', on_click=lambda: fetch_device_objects(dev_addr, dev_id, state.objects_page - 1)).props('flat round').bind_enabled_from(state, 'objects_page', backward=lambda p: p > 1)
                         binding.bind_from(prev_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
-                        ui.label(f"Page {state.objects_page} of {state.objects_total_pages}").style('color: var(--text-muted);')
+                        ui.label(f"Page {state.objects_page} of {state.objects_total_pages}").classes(theme.muted())
                         next_btn = ui.button(icon='chevron_right', on_click=lambda: fetch_device_objects(dev_addr, dev_id, state.objects_page + 1)).props('flat round').bind_enabled_from(state, 'objects_page', backward=lambda p: p < state.objects_total_pages)
                         binding.bind_from(next_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
                     
@@ -570,16 +570,16 @@ def render():
     
     # BACnet Object Browser Dialog (Created once globally)
     with ui.dialog() as object_dialog:
-        with ui.card().classes('w-full max-w-5xl p-6').style('background: var(--dialog-bg); border: 1px solid var(--border-color); border-radius: 16px;'):
+        with ui.card().classes(theme.card('max-w-5xl')):
             render_dialog_content()
 
-    with ui.column().classes('w-full items-center py-10').style('min-height: 100vh;'):
+    with ui.column().classes(theme.page_container('py-10 px-4')):
         # Header
         with ui.row().classes('w-full max-w-6xl justify-between items-center mb-8'):
             with ui.row().classes('items-center gap-4'):
-                back_btn = ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/')).props('flat round').style('transition: transform 0.2s ease;').on('mouseenter', lambda e: e.sender.style('transform: translateX(-5px);')).on('mouseleave', lambda e: e.sender.style('transform: translateX(0);'))
+                back_btn = ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/')).props('flat round')
                 binding.bind_from(back_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
-                ui.label('BACnet Scan Tool').style('font-size: 2.5rem; font-weight: bold; color: var(--text-color);')
+                ui.label('BACnet Scan Tool').classes(theme.title())
                 
             with ui.row().classes('items-center gap-3'):
                 if state.proxy_running:
@@ -595,15 +595,15 @@ def render():
             with ui.column().classes('w-full gap-6'):
                 
                 # Step 1: BACnet Proxy
-                with ui.card().classes('w-full').style('background: var(--card-bg); backdrop-filter: blur(10px); border: 1px solid var(--card-border); border-radius: 16px; padding: 1.5rem;'):
+                with ui.card().classes(theme.card()):
                     with ui.row().classes('items-center gap-2 mb-4 flex-nowrap'):
-                        ui.icon('router', size='sm', color='#6366f1')
-                        ui.label('Step 1: BACnet Proxy').style('font-weight: 600; font-size: 1.1rem; color: var(--text-color);')
+                        ui.icon('router', size='sm', color='primary')
+                        ui.label('Step 1: BACnet Proxy').classes('text-lg font-semibold')
                     
-                    ui.label('Start or stop the BACnet proxy service').style('color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;')
+                    ui.label('Start or stop the BACnet proxy service').classes(theme.small_muted('mb-4'))
                     
                     ui.input('Local Device Address (Optional)', value=state.local_ip).bind_value_to(state, 'local_ip').props('outlined dense color="primary"').classes('w-full mb-1')
-                    ui.label('Leave blank to auto-detect').style('color: var(--text-muted); font-size: 0.75rem; margin-bottom: 1rem;')
+                    ui.label('Leave blank to auto-detect').classes(theme.small_muted('mb-4'))
                     
                     with ui.row().classes('w-full gap-2 flex-nowrap'):
                         ui.button('Start Proxy', on_click=handle_toggle_proxy).props('color="primary"').classes('flex-grow').bind_visibility_from(state, 'proxy_running', value=False)
@@ -612,10 +612,10 @@ def render():
                         binding.bind_from(detect_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
 
                 # Step 2: Network Information
-                with ui.card().classes('w-full').style('background: var(--card-bg); backdrop-filter: blur(10px); border: 1px solid var(--card-border); border-radius: 16px; padding: 1.5rem;'):
+                with ui.card().classes(theme.card()):
                     with ui.row().classes('items-center gap-2 mb-4 flex-nowrap'):
-                        ui.icon('network_check', size='sm', color='#a855f7')
-                        ui.label('Step 2: Network Info (Optional)').style('font-weight: 600; font-size: 1.1rem; color: var(--text-color);')
+                        ui.icon('network_check', size='sm', color='secondary')
+                        ui.label('Step 2: Network Info (Optional)').classes('text-lg font-semibold')
                     
                     ui.button('Discover Networks', on_click=handle_discover_networks).props('color="secondary" outline').classes('w-full mb-4').bind_visibility_from(state, 'is_discovering', backward=lambda d: not d)
                     ui.button('Discovering...', icon='sync').props('color="secondary" outline disable').classes('w-full mb-4').bind_visibility_from(state, 'is_discovering')
@@ -623,22 +623,22 @@ def render():
                     render_networks()
                                 
                 # Step 3: Scan for Devices
-                with ui.card().classes('w-full').style('background: var(--card-bg); backdrop-filter: blur(10px); border: 1px solid var(--card-border); border-radius: 16px; padding: 1.5rem;'):
+                with ui.card().classes(theme.card()):
                     with ui.row().classes('items-center gap-2 mb-4 flex-nowrap'):
-                        ui.icon('search', size='sm', color='#ec4899')
-                        ui.label('Step 3: Scan for Devices').style('font-weight: 600; font-size: 1.1rem; color: var(--text-color);')
+                        ui.icon('search', size='sm', color='accent')
+                        ui.label('Step 3: Scan for Devices').classes('text-lg font-semibold')
                     
                     ui.input('Subnet Range (CIDR)', value=state.subnet_to_scan).bind_value_to(state, 'subnet_to_scan').props('outlined dense color="primary"').classes('w-full mb-4')
                     with ui.column().classes('w-full gap-2').bind_visibility_from(state, 'is_scanning'):
                         with ui.row().classes('items-center justify-center gap-2 w-full'):
                             ui.spinner('dots', size='lg', color='accent')
-                            ui.label('Scanning...').style('color: var(--text-muted); font-size: 0.9rem;')
+                            ui.label('Scanning...').classes(theme.small_muted())
                         ui.button('Cancel Scan', icon='close', on_click=cancel_scan).props('color="negative" outline').classes('w-full')
                     ui.button('Scan for Devices', on_click=handle_scan_subnet).props('color="accent"').classes('w-full').bind_enabled_from(state, 'proxy_running').bind_visibility_from(state, 'is_scanning', backward=lambda s: not s)
-                    ui.label('Proxy must be running to scan').style('color: #ef4444; font-size: 0.75rem; margin-top: 0.5rem; text-align: center; width: 100%;').bind_visibility_from(state, 'proxy_running', backward=lambda p: not p)
+                    ui.label('Proxy must be running to scan').classes('text-negative text-xs mt-2 text-center w-full').bind_visibility_from(state, 'proxy_running', backward=lambda p: not p)
 
             # Right Column (Results)
             with ui.column().classes('w-full'):
-                with ui.card().classes('w-full').style('background: var(--card-bg); backdrop-filter: blur(10px); border: 1px solid var(--card-border); border-radius: 16px; padding: 1.5rem; min-height: 600px;'):
+                with ui.card().classes(theme.card('min-h-96')):
                     devices_container = ui.column().classes('w-full h-full')
                     render_devices()

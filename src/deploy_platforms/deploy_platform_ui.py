@@ -17,7 +17,7 @@ def render():
         install_target = 'local' if is_local_install else 'remote'
         ui.notify(f'Starting {install_target} installation...', type='info')
         
-        with ui.dialog() as dialog, ui.card().classes('p-8 items-center gap-4').style('background: var(--dialog-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 12px;'):
+        with ui.dialog() as dialog, ui.card().classes('p-8 items-center gap-4'):
             ui.label('Deploying Platform').classes('text-xl font-bold')
             ui.spinner(size='lg')
             status_label = ui.label('Initializing...')
@@ -212,13 +212,13 @@ def render():
             dialog.close()
             ui.notify(f"Installation failed: {str(e)}", type='negative')
 
-    with ui.column().classes('w-full items-center py-10').style('min-height: 100vh;'):
+    with ui.column().classes(theme.page_container('py-10 px-4')):
         # Header
         with ui.row().classes('w-full max-w-4xl justify-between items-center mb-8'):
             with ui.row().classes('items-center gap-4'):
-                back_btn = ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/')).props('flat round').style('transition: transform 0.2s ease;').on('mouseenter', lambda e: e.sender.style('transform: translateX(-5px);')).on('mouseleave', lambda e: e.sender.style('transform: translateX(0);'))
+                back_btn = ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/')).props('flat round')
                 binding.bind_from(back_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
-                ui.label('New Platform').style('font-size: 2.5rem; font-weight: bold; color: var(--text-color);')
+                ui.label('New Platform').classes(theme.title())
             
             with ui.row().classes('items-center gap-2'):
                 theme_btn = ui.button(on_click=dark_mode.toggle).props('flat round')
@@ -230,37 +230,37 @@ def render():
         with ui.column().classes('w-full max-w-4xl gap-8'):
             
             # Connection Section
-            with ui.card().classes('w-full').style('background: var(--card-bg); backdrop-filter: blur(10px); border: 1px solid var(--card-border); border-radius: 16px; padding: 2rem; box-shadow: var(--card-shadow); transition: transform 0.3s ease, border-color 0.3s ease;').on('mouseenter', lambda e: e.sender.style('border-color: rgba(99, 102, 241, 0.5);')).on('mouseleave', lambda e: e.sender.style('border-color: rgba(255, 255, 255, 0.1);')):
+            with ui.card().classes(theme.card('p-8')):
                 with ui.row().classes('items-center gap-3 mb-6'):
-                    ui.icon('lan', size='md', color='#6366f1')
-                    ui.label('Connection').style('font-size: 1.5rem; font-weight: 600; color: var(--text-color);')
+                    ui.icon('lan', size='md', color='primary')
+                    ui.label('Connection').classes('text-2xl font-semibold')
                 
                 with ui.column().classes('w-full gap-5'):
                     with ui.column().classes('w-full gap-2'):
-                        ui.label('Install Target').style('font-weight: 500; color: var(--text-muted); font-size: 0.9rem;')
-                        install_target_toggle = ui.toggle(['Local', 'Remote'], value='Local').props('unelevated no-caps spread').classes('w-full volttron-segmented')
+                        ui.label('Install Target').classes(theme.small_muted('font-medium'))
+                        install_target_toggle = ui.toggle(['Local', 'Remote'], value='Local').props('unelevated no-caps spread toggle-color="primary" text-color="grey-7"').classes('w-full')
                     
                     with ui.row().classes('w-full gap-4').bind_visibility_from(install_target_toggle, 'value', backward=lambda v: v == 'Remote'):
-                        host_input = ui.input('Host').props('outlined rounded color="primary"').classes('flex-grow').style('transition: all 0.3s ease;')
+                        host_input = ui.input('Host').props('outlined rounded color="primary"').classes('flex-grow')
                         username_input = ui.input('Username').props('outlined rounded color="primary"').classes('flex-grow')
                         ssh_port_input = ui.input('SSH Port', value='22').props('outlined rounded color="primary"').classes('w-24')
 
                     with ui.column().classes('w-full gap-3').bind_visibility_from(install_target_toggle, 'value', backward=lambda v: v == 'Remote'):
-                        ui.label('SSH Authentication').style('font-weight: 500; color: var(--text-muted); font-size: 0.9rem;')
+                        ui.label('SSH Authentication').classes(theme.small_muted('font-medium'))
                         key_path_input = ui.input('Private Key Path', value='~/.ssh/volttron_installer').props('outlined rounded color="primary"').classes('w-full')
                         temporary_password_input = ui.input('Temporary SSH/Sudo Password', password=True, password_toggle_button=True).props('outlined rounded color="primary" autocomplete="current-password"').classes('w-full')
-                        ui.label('Used only during this deployment to install the SSH key on a fresh host and, if needed, configure non-interactive sudo for apt and systemd. It is not saved.').style('font-size: 0.8rem; color: var(--text-muted);')
-                        ui.label('After setup, deployment continues with key-based SSH and passwordless sudo. Leave blank when both are already configured.').style('font-size: 0.8rem; color: var(--text-muted);')
+                        ui.label('Used only during this deployment to install the SSH key on a fresh host and, if needed, configure non-interactive sudo for apt and systemd. It is not saved.').classes(theme.small_muted())
+                        ui.label('After setup, deployment continues with key-based SSH and passwordless sudo. Leave blank when both are already configured.').classes(theme.small_muted())
                         with ui.expansion('How to create an SSH key', icon='key').classes('w-full').props('header-class="text-muted"'):
-                            with ui.column().classes('w-full gap-2 p-4').style('background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 6px;'):
-                                ui.label('Run these commands on the machine running this installer:').style('color: var(--text-color); font-size: 0.85rem;')
+                            with ui.column().classes('w-full gap-2 p-4 rounded border'):
+                                ui.label('Run these commands on the machine running this installer:').classes(theme.small_muted())
                                 ui.code(
                                     'ssh-keygen -t ed25519 -f ~/.ssh/volttron_installer -C volttron-installer\n'
                                     'ssh-copy-id -i ~/.ssh/volttron_installer.pub USER@REMOTE_HOST\n'
                                     'ssh -i ~/.ssh/volttron_installer USER@REMOTE_HOST',
                                     language='bash',
-                                ).classes('w-full').style('background: var(--code-bg); color: var(--text-color); border: 1px solid var(--code-border);')
-                                ui.label('After the test SSH command works, use ~/.ssh/volttron_installer as the private key path above.').style('color: var(--text-muted); font-size: 0.8rem;')
+                                ).classes('w-full')
+                                ui.label('After the test SSH command works, use ~/.ssh/volttron_installer as the private key path above.').classes(theme.small_muted())
                     
                     with ui.expansion('Advanced Settings', icon='settings').classes('w-full').props('header-class="text-muted"'):
                          with ui.column().classes('w-full gap-4 p-4'):
@@ -271,16 +271,16 @@ def render():
                                 volttron_home_input = ui.input('VOLTTRON Home', value=f'~/.{default_name}').props('outlined dense color="primary"').classes('flex-grow')
                                 venv_input = ui.input('VOLTTRON venv', value=f'~/.{default_name}.venv').props('outlined dense color="primary"').classes('flex-grow')
                             python_path_input = ui.input('VOLTTRON Python Override', value='auto').props('outlined dense color="primary"').classes('w-full')
-                            ui.label('Leave auto unless debugging. Auto uses the installer runtime for local Ansible control and creates the VOLTTRON venv with Python 3.10 when needed. This field never changes Ansible’s control Python.').style('font-size: 0.8rem; color: var(--text-muted);')
+                            ui.label('Leave auto unless debugging. Auto uses the installer runtime for local Ansible control and creates the VOLTTRON venv with Python 3.10 when needed. This field never changes Ansible’s control Python.').classes(theme.small_muted())
                             sudo_password_input = ui.input('Sudo Password', password=True, password_toggle_button=True).props('outlined dense color="primary" autocomplete="current-password"').classes('w-full')
-                            ui.label('Optional. Used for local system package/service setup, or when remote sudo uses a different password than SSH. This is not saved.').style('font-size: 0.8rem; color: var(--text-muted);')
+                            ui.label('Optional. Used for local system package/service setup, or when remote sudo uses a different password than SSH. This is not saved.').classes(theme.small_muted())
                             ignore_host_keys_checkbox = ui.checkbox('Ignore Host Keys (StrictHostKeyChecking=no)').props('color="primary"')
  
             # Instance Configuration Section
-            with ui.card().classes('w-full').style('background: var(--card-bg); backdrop-filter: blur(10px); border: 1px solid var(--card-border); border-radius: 16px; padding: 2rem; box-shadow: var(--card-shadow); transition: transform 0.3s ease, border-color 0.3s ease;').on('mouseenter', lambda e: e.sender.style('border-color: rgba(168, 85, 247, 0.5);')).on('mouseleave', lambda e: e.sender.style('border-color: rgba(255, 255, 255, 0.1);')):
+            with ui.card().classes(theme.card('p-8')):
                 with ui.row().classes('items-center gap-3 mb-6'):
-                    ui.icon('tune', size='md', color='#a855f7')
-                    ui.label('Instance Configuration').style('font-size: 1.5rem; font-weight: 600; color: var(--text-color);')
+                    ui.icon('tune', size='md', color='secondary')
+                    ui.label('Instance Configuration').classes('text-2xl font-semibold')
                 
                 with ui.column().classes('w-full gap-6'):
                     def update_paths(e):
@@ -295,16 +295,16 @@ def render():
                     instance_name_input = ui.input('Instance Name', value=default_name, on_change=update_paths).props('outlined rounded color="primary"').classes('w-full')
                     
                     with ui.column().classes('w-full gap-2'):
-                        ui.label('VOLTTRON Type').style('font-weight: 500; color: var(--text-muted); font-size: 0.9rem;')
-                        type_toggle = ui.toggle(['Modular', 'Monolithic'], value='Modular', on_change=handle_type_change).props('unelevated no-caps spread').classes('w-full volttron-segmented')
-                        ui.label('Modular: Agents are pip packages (recommended). Monolithic: Bundled all-in-one.').style('font-size: 0.8rem; color: var(--text-muted);')
+                        ui.label('VOLTTRON Type').classes(theme.small_muted('font-medium'))
+                        type_toggle = ui.toggle(['Modular', 'Monolithic'], value='Modular', on_change=handle_type_change).props('unelevated no-caps spread toggle-color="primary" text-color="grey-7"').classes('w-full')
+                        ui.label('Modular: Agents are pip packages (recommended). Monolithic: Bundled all-in-one.').classes(theme.small_muted())
                     
                     with ui.column().classes('w-full gap-2'):
-                        ui.label('Package Source').style('font-weight: 500; color: var(--text-muted); font-size: 0.9rem;')
-                        package_source = ui.toggle(['Automatic', 'Manual'], value='Automatic').props('unelevated no-caps spread').classes('w-full volttron-segmented')
+                        ui.label('Package Source').classes(theme.small_muted('font-medium'))
+                        package_source = ui.toggle(['Automatic', 'Manual'], value='Automatic').props('unelevated no-caps spread toggle-color="primary" text-color="grey-7"').classes('w-full')
                         
-                        with ui.column().classes('w-full gap-4 p-4 border border-gray-700 rounded-lg bg-[var(--sub-bg)] mt-2').bind_visibility_from(package_source, 'value', backward=lambda v: v == 'Manual'):
-                            ui.label('Manual Package Overrides').style('font-weight: 600; color: var(--text-color); font-size: 0.9rem;')
+                        with ui.column().classes('w-full gap-4 p-4 border rounded-lg mt-2').bind_visibility_from(package_source, 'value', backward=lambda v: v == 'Manual'):
+                            ui.label('Manual Package Overrides').classes('font-semibold text-sm')
                             core_pkg_input = ui.input('Core Package', placeholder='eclipse-volttron/volttron-core@main').props('outlined dense color="primary"').classes('w-full')
                             auth_pkg_input = ui.input('Auth Package', placeholder='eclipse-volttron/volttron-lib-auth@main').props('outlined dense color="primary"').classes('w-full')
                             zmq_pkg_input = ui.input('ZMQ Package', placeholder='eclipse-volttron/volttron-lib-zmq@main').props('outlined dense color="primary"').classes('w-full')
@@ -313,44 +313,43 @@ def render():
                     
                     vip_input = ui.input('VIP Address').props('outlined rounded color="primary"').classes('w-full')
                     
-                    with ui.row().classes('w-full justify-between items-center bg-[var(--sub-bg)] p-4 rounded-xl border border-gray-800'):
+                    with ui.row().classes('w-full justify-between items-center p-4 rounded-xl border'):
                         with ui.column().classes('gap-1'):
-                            ui.label('Web Interface').style('font-weight: 600; color: var(--text-color);')
-                            ui.label('Browser-based platform management and monitoring').style('font-size: 0.8rem; color: var(--text-muted);')
+                            ui.label('Web Interface').classes('font-semibold')
+                            ui.label('Browser-based platform management and monitoring').classes(theme.small_muted())
                         web_interface_toggle = ui.switch(value=True).props('color="primary"')
                         
-                    with ui.row().classes('w-full justify-between items-center bg-[var(--sub-bg)] p-4 rounded-xl border border-gray-800'):
+                    with ui.row().classes('w-full justify-between items-center p-4 rounded-xl border'):
                         with ui.column().classes('gap-1'):
-                            ui.label('Federation').style('font-weight: 600; color: var(--text-color);')
-                            ui.label('Connect this platform to a multi-platform VOLTTRON federation').style('font-size: 0.8rem; color: var(--text-muted);')
+                            ui.label('Federation').classes('font-semibold')
+                            ui.label('Connect this platform to a multi-platform VOLTTRON federation').classes(theme.small_muted())
                         ui.switch(value=False).props('color="primary"')
  
             # Pre-Deployment Agents Section
-            with ui.card().classes('w-full').style('background: var(--card-bg); backdrop-filter: blur(10px); border: 1px solid var(--card-border); border-radius: 16px; padding: 2rem; box-shadow: var(--card-shadow); transition: transform 0.3s ease, border-color 0.3s ease;').on('mouseenter', lambda e: e.sender.style('border-color: rgba(236, 72, 153, 0.5);')).on('mouseleave', lambda e: e.sender.style('border-color: rgba(255, 255, 255, 0.1);')):
+            with ui.card().classes(theme.card('p-8')):
                 with ui.row().classes('items-center gap-3 mb-2'):
-                    ui.icon('smart_toy', size='md', color='#ec4899')
-                    ui.label('Pre-Deployment Agents').style('font-size: 1.5rem; font-weight: 600; color: var(--text-color);')
-                ui.label('Select agents to install during deployment.').style('color: var(--text-muted); margin-bottom: 1.5rem;')
+                    ui.icon('smart_toy', size='md', color='accent')
+                    ui.label('Pre-Deployment Agents').classes('text-2xl font-semibold')
+                ui.label('Select agents to install during deployment.').classes(theme.muted('mb-6'))
                 
                 with ui.row().classes('w-full gap-8'):
                     with ui.column().classes('flex-1 gap-3'):
-                        ui.label('Available').style('font-weight: 600; color: var(--text-color); border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; width: 100%;')
+                        ui.label('Available').classes('font-semibold border-b pb-2 w-full')
                         for agent in ['ListenerAgent', 'VCPLogger', 'PlatformAgent']:
-                            with ui.row().classes('w-full justify-between items-center bg-[var(--sub-bg)] p-3 rounded-lg border border-gray-800'):
-                                ui.label(agent).style('color: var(--text-color);')
+                            with ui.row().classes('w-full justify-between items-center p-3 rounded-lg border'):
+                                ui.label(agent)
                                 ui.button(icon='add').props('flat round dense color="primary"')
                                 
                     ui.separator().props('vertical')
                     
                     with ui.column().classes('flex-1 gap-3'):
-                        ui.label('Selected').style('font-weight: 600; color: var(--text-color); border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; width: 100%;')
+                        ui.label('Selected').classes('font-semibold border-b pb-2 w-full')
                         with ui.row().classes('w-full justify-center p-6 border border-dashed border-gray-700 rounded-lg'):
-                            ui.label('No agents selected').style('color: var(--text-muted); font-style: italic;')
+                            ui.label('No agents selected').classes(theme.muted('italic'))
  
             # Action Buttons
             with ui.row().classes('w-full justify-end gap-4 mt-4'):
-                cancel_btn = ui.button('Cancel', on_click=lambda: ui.navigate.to('/')).props('outline rounded size="lg"').style('padding: 10px 30px; font-weight: bold; transition: all 0.2s ease;')
+                cancel_btn = ui.button('Cancel', on_click=lambda: ui.navigate.to('/')).props('outline rounded size="lg"')
                 binding.bind_from(cancel_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
-                cancel_btn.on('mouseenter', lambda e: e.sender.style('background: var(--card-border);')).on('mouseleave', lambda e: e.sender.style('background: transparent;'))
                 
-                ui.button('Save & Deploy', on_click=perform_install).props('color="positive" rounded size="lg"').style('padding: 10px 30px; font-weight: bold; background: linear-gradient(90deg, #10b981, #059669); color: white; transition: transform 0.2s ease, box-shadow 0.2s ease;').on('mouseenter', lambda e: e.sender.style('transform: scale(1.05); box-shadow: 0 0 15px rgba(16, 185, 129, 0.5);')).on('mouseleave', lambda e: e.sender.style('transform: scale(1); box-shadow: none;'))
+                ui.button('Save & Deploy', on_click=perform_install).props('color="positive" rounded size="lg" icon="rocket_launch"')
