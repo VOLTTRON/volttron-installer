@@ -59,6 +59,11 @@ def deploy_page():
     ui.add_head_html(PAGE_HEAD)
     deploy_platform.render()
 
+@ui.page('/deploy/copy/{instance_name}')
+def copy_deploy_page(instance_name: str):
+    ui.add_head_html(PAGE_HEAD)
+    deploy_platform.render(copy_from=instance_name)
+
 @ui.page('/instances')
 def instances_page():
     ui.add_head_html(PAGE_HEAD)

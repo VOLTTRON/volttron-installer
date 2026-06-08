@@ -1,11 +1,66 @@
+import asyncio
+
 from nicegui import ui, binding
 import src.db as db
 from src import theme
 from src.manage_instances import agent_management
+from src.manage_instances.status_check import check_volttron_rest_status
 from src.manage_instances.start_platform import start_platform_command
 
 def render():
     dark_mode = theme.dark_mode()
+    instances = db.get_instances()
+    view_mode = 'cards'
+    status_results = {
+        instance.get('name', ''): {'status': 'checking', 'message': 'Checking platform status'}
+        for instance in instances
+    }
+    status_badges = {}
+
+    def machine_key(instance: dict) -> str:
+        if instance.get('is_local', True):
+            return 'local'
+        return (instance.get('host') or 'unknown remote host').strip().lower()
+
+    def grouped_instances() -> dict[str, list[dict]]:
+        groups: dict[str, list[dict]] = {}
+        for instance in instances:
+            groups.setdefault(machine_key(instance), []).append(instance)
+        return groups
+
+    def machine_details(key: str, machine_instances: list[dict]) -> tuple[str, str, str]:
+        count = len(machine_instances)
+        if key == 'local':
+            return 'Local machine', f'localhost · {count} instance{"s" if count != 1 else ""}', 'computer'
+        host = machine_instances[0].get('host') or key
+        return host, f'Remote machine · {count} instance{"s" if count != 1 else ""}', 'dns'
+
+    def status_presentation(result: dict) -> tuple[str, str]:
+        status = result.get('status', 'unknown')
+        return {
+            'checking': ('Checking...', 'gray'),
+            'running': ('Running', 'positive'),
+            'stopped': ('Stopped', 'negative'),
+            'degraded': ('Web Offline', 'warning'),
+            'unknown': ('Unknown', 'gray'),
+        }.get(status, ('Unknown', 'gray'))
+
+    async def refresh_instance_status(instance: dict):
+        instance_name = instance.get('name', '')
+        try:
+            result = await check_volttron_rest_status(instance)
+        except Exception as error:
+            result = {'status': 'unknown', 'message': str(error)}
+        status_results[instance_name] = result
+        badge = status_badges.get(instance_name)
+        if badge is not None:
+            label, color = status_presentation(result)
+            badge.set_text(label)
+            badge._props['color'] = color
+            badge.update()
+
+    async def refresh_all_statuses():
+        await asyncio.gather(*(refresh_instance_status(instance) for instance in instances))
 
     async def run_instance_action(instance: dict, action_name: str, action, sudo_password: str = ''):
         instance_name = instance.get('name', 'instance')
@@ -17,6 +72,7 @@ def render():
             await action(sudo_password)
             progress_dialog.close()
             ui.notify(f'{instance_name}: {action_name.lower()} complete', type='positive')
+            await refresh_instance_status(instance)
         except Exception as error:
             progress_dialog.close()
             ui.notify(f'{action_name} failed: {error}', type='negative')
@@ -95,10 +151,89 @@ def render():
         with ui.button(icon='more_vert').props('flat round color="gray"').tooltip('Instance actions'):
             with ui.menu():
                 ui.menu_item('Manage', on_click=lambda: ui.navigate.to(f'/manage/{instance_name}'))
+                ui.menu_item('Copy', on_click=lambda: ui.navigate.to(f'/deploy/copy/{instance_name}'))
                 ui.menu_item('Start', on_click=handle_start)
                 ui.menu_item('Stop', on_click=handle_stop)
                 ui.separator()
                 ui.menu_item('Delete', on_click=handle_delete)
+
+    def render_status(instance: dict):
+        instance_name = instance.get('name', '')
+        label, color = status_presentation(status_results.get(instance_name, {}))
+        badge = ui.badge(label, color=color)
+        status_badges[instance_name] = badge
+        return badge
+
+    def render_card(instance: dict):
+        with ui.card().classes(theme.card('h-full gap-4')):
+            with ui.row().classes('w-full justify-between items-start'):
+                with ui.column().classes('gap-1'):
+                    ui.label(instance.get('name', 'Unknown')).classes(theme.section_title())
+                    ui.label(instance.get('type', 'Unknown Type')).classes('text-xs text-grey-6 uppercase font-medium')
+                render_status(instance)
+
+            ui.separator()
+
+            with ui.column().classes('w-full gap-2'):
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('dns', size='sm', color='gray')
+                    ui.label(instance.get('host', 'localhost') if not instance.get('is_local') else 'localhost')
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('link', size='sm', color='gray')
+                    ui.label(instance.get('vip') or 'VIP address not recorded').classes(theme.small_muted())
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('language', size='sm', color='gray')
+                    ui.label(instance.get('web_bind_address') or 'Web interface disabled').classes(theme.small_muted())
+
+            with ui.row().classes('w-full gap-2'):
+                ui.button(
+                    'Manage',
+                    on_click=lambda instance_name=instance.get('name'): ui.navigate.to(f'/manage/{instance_name}'),
+                ).props('color="primary" rounded flex-grow')
+                render_instance_menu(instance)
+
+    def render_list_item(instance: dict):
+        with ui.item().classes('w-full'):
+            with ui.item_section().props('avatar'):
+                ui.icon('dns', color='primary')
+            with ui.item_section():
+                ui.item_label(instance.get('name', 'Unknown')).classes('font-semibold')
+                host = instance.get('host', 'localhost') if not instance.get('is_local') else 'localhost'
+                ui.item_label(f'{instance.get("type", "Unknown Type")} · {host}').props('caption')
+            with ui.item_section():
+                ui.item_label(instance.get('vip') or 'VIP address not recorded')
+                ui.item_label(instance.get('web_bind_address') or 'Web interface disabled').props('caption')
+            with ui.item_section().props('side'):
+                render_status(instance)
+            with ui.item_section().props('side'):
+                with ui.row().classes('items-center gap-1'):
+                    ui.button(
+                        icon='settings',
+                        on_click=lambda instance_name=instance.get('name'): ui.navigate.to(f'/manage/{instance_name}'),
+                    ).props('flat round color="primary"').tooltip('Manage')
+                    render_instance_menu(instance)
+
+    @ui.refreshable
+    def render_instances():
+        status_badges.clear()
+        max_width = 'max-w-5xl' if view_mode == 'list' else 'max-w-6xl'
+        with ui.column().classes(f'w-full {max_width} gap-4'):
+            for key, machine_instances in grouped_instances().items():
+                label, caption, icon = machine_details(key, machine_instances)
+                with ui.expansion(label, caption=caption, icon=icon, value=True).classes('w-full').props('bordered'):
+                    if view_mode == 'list':
+                        with ui.list().classes('w-full').props('separator'):
+                            for instance in machine_instances:
+                                render_list_item(instance)
+                    else:
+                        with ui.grid().classes('w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch p-4'):
+                            for instance in machine_instances:
+                                render_card(instance)
+
+    def change_view(event):
+        nonlocal view_mode
+        view_mode = event.value
+        render_instances.refresh()
     
     with ui.column().classes(theme.page_container('py-10 px-4')):
         # Header
@@ -109,38 +244,19 @@ def render():
                 ui.label('Instances').classes(theme.title())
             
             with ui.row().classes('items-center gap-3'):
+                ui.toggle({'cards': 'Cards', 'list': 'List'}, value=view_mode, on_change=change_view).props(
+                    'unelevated no-caps toggle-color="primary"'
+                )
                 theme_btn = ui.button(on_click=dark_mode.toggle).props('flat round')
                 theme_btn.bind_icon_from(dark_mode, 'value', backward=lambda val: 'light_mode' if val else 'dark_mode')
                 binding.bind_from(theme_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'warning' if val else 'primary')
                 ui.button('Deploy New Platform', icon='add', on_click=lambda: ui.navigate.to('/deploy')).props('color="primary" rounded')
             
-        # Instances Grid
-        instances = db.get_instances()
-        
         if not instances:
             with ui.column().classes('w-full max-w-5xl items-center justify-center gap-4 py-20 border border-dashed rounded-2xl'):
                 ui.icon('inbox', size='xl', color='gray')
                 ui.label('No instances found').classes('text-lg text-grey-6')
                 ui.button('Deploy your first platform', on_click=lambda: ui.navigate.to('/deploy')).props('outline color="primary" rounded')
         else:
-            with ui.row().classes('w-full max-w-5xl gap-6'):
-                for instance in instances:
-                    with ui.card().classes(theme.card('max-w-sm')):
-                        with ui.row().classes('w-full justify-between items-start mb-4'):
-                            with ui.column().classes('gap-1'):
-                                ui.label(instance.get('name', 'Unknown')).classes(theme.section_title())
-                                ui.label(instance.get('type', 'Unknown Type')).classes('text-xs text-grey-6 uppercase font-medium')
-                        
-                        ui.separator().classes('mb-4')
-                        
-                        with ui.column().classes('w-full gap-2 mb-6'):
-                            with ui.row().classes('items-center gap-2'):
-                                ui.icon('dns', size='sm', color='gray')
-                                ui.label(instance.get('host', 'localhost') if not instance.get('is_local') else 'localhost')
-                            with ui.row().classes('items-center gap-2'):
-                                ui.icon('link', size='sm', color='gray')
-                                ui.label(instance.get('vip', 'N/A'))
-                                
-                        with ui.row().classes('w-full gap-2'):
-                            ui.button('Manage', on_click=lambda instance_name=instance.get('name'): ui.navigate.to(f'/manage/{instance_name}')).props('color="primary" rounded flex-grow')
-                            render_instance_menu(instance)
+            render_instances()
+            ui.timer(0.1, refresh_all_statuses, once=True)

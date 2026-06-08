@@ -544,6 +544,10 @@ def render(instance_name: str):
                 
                 with ui.row().classes('items-center gap-3'):
                     status_badge = ui.badge('Checking Status...', color='gray').classes('text-sm px-3 py-2')
+                    ui.button(
+                        icon='content_copy',
+                        on_click=lambda: ui.navigate.to(f'/deploy/copy/{instance_name}'),
+                    ).props('flat round color="primary"').tooltip('Copy platform')
                     theme_btn = ui.button(on_click=dark_mode.toggle).props('flat round')
                     theme_btn.bind_icon_from(dark_mode, 'value', backward=lambda val: 'light_mode' if val else 'dark_mode')
                     binding.bind_from(theme_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'warning' if val else 'primary')

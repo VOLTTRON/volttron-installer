@@ -3,14 +3,100 @@ import random
 import string
 import asyncio
 import subprocess
+from urllib.parse import urlparse, urlunparse
+
+import src.db as db
 from src import theme
 
 def generate_instance_name():
     return 'volttron-' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
 
-def render():
-    dark_mode = theme.dark_mode()
+def _next_vip_address(source_address: str) -> str:
+    used_ports = set()
+    for instance in db.get_instances():
+        parsed = urlparse(instance.get('vip') or '')
+        if parsed.port:
+            used_ports.add(parsed.port)
+        elif instance.get('is_local', True):
+            used_ports.add(22916)
+
+    parsed = urlparse(source_address or 'tcp://127.0.0.1:22916')
+    port = parsed.port or 22916
+    while port in used_ports:
+        port += 1
+    return urlunparse((parsed.scheme or 'tcp', f'{parsed.hostname or "127.0.0.1"}:{port}', '', '', '', ''))
+
+
+def _remote_listen_address(address: str) -> str:
+    parsed = urlparse(address)
+    if parsed.hostname not in {'127.0.0.1', 'localhost', '::1'}:
+        return address
+    port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+    return urlunparse((parsed.scheme or 'http', f'0.0.0.0:{port}', parsed.path or '', '', '', ''))
+
+
+def _copy_defaults(copy_from: str | None) -> tuple[dict, dict | None]:
+    instances = db.get_instances()
+    used_names = {instance.get('name') for instance in instances}
     default_name = generate_instance_name()
+    while default_name in used_names:
+        default_name = generate_instance_name()
+    source = next((instance for instance in instances if instance.get('name') == copy_from), None)
+    defaults = {
+        'name': default_name,
+        'type': 'Modular',
+        'is_local': True,
+        'host': '',
+        'ssh_username': '',
+        'ssh_port': '22',
+        'ssh_key_path': '~/.ssh/volttron_installer',
+        'ssh_ignore_host_keys': False,
+        'vip': _next_vip_address(''),
+        'volttron_home': f'~/.{default_name}',
+        'venv': f'~/.{default_name}.venv',
+        'web_enabled': True,
+        'web_bind_address': 'http://127.0.0.1:8443',
+        'package_source': 'Automatic',
+        'http_proxy': '',
+        'https_proxy': '',
+        'python_interpreter': 'auto',
+        'manual_core_package': '',
+        'manual_auth_package': '',
+        'manual_zmq_package': '',
+        'manual_tree_package': '',
+        'manual_web_package': '',
+    }
+    if not source:
+        return defaults, None
+
+    defaults.update({
+        'type': source.get('type') or 'Modular',
+        'is_local': source.get('is_local', True),
+        'host': '' if source.get('is_local', True) else source.get('host', ''),
+        'ssh_username': source.get('ssh_username', ''),
+        'ssh_port': str(source.get('ssh_port') or '22'),
+        'ssh_key_path': source.get('ssh_key_path') or '~/.ssh/volttron_installer',
+        'ssh_ignore_host_keys': bool(source.get('ssh_ignore_host_keys')),
+        'vip': _next_vip_address(source.get('vip', '')),
+        'web_enabled': source.get('web_enabled', bool(source.get('web_bind_address'))),
+        'web_bind_address': source.get('web_listen_address') or source.get('web_bind_address') or defaults['web_bind_address'],
+        'package_source': source.get('package_source', 'Automatic'),
+        'http_proxy': source.get('http_proxy', ''),
+        'https_proxy': source.get('https_proxy', ''),
+        'python_interpreter': source.get('python_interpreter', 'auto'),
+        'manual_core_package': source.get('manual_core_package', ''),
+        'manual_auth_package': source.get('manual_auth_package', ''),
+        'manual_zmq_package': source.get('manual_zmq_package', ''),
+        'manual_tree_package': source.get('manual_tree_package', ''),
+        'manual_web_package': source.get('manual_web_package', ''),
+    })
+    return defaults, source
+
+
+def render(copy_from: str | None = None):
+    dark_mode = theme.dark_mode()
+    defaults, source_instance = _copy_defaults(copy_from)
+    default_name = defaults['name']
 
     async def perform_install():
         is_local_install = install_target_toggle.value == 'Local'
@@ -23,7 +109,6 @@ def render():
             status_label = ui.label('Initializing...')
         dialog.open()
         
-        import src.db as db
         from src.deploy_platforms.port_allocator import allocate_remote_web_bind_address, allocate_web_bind_address
         
         try:
@@ -101,7 +186,11 @@ def render():
             venv_path = venv_input.value if venv_input.value else '~/volttron.venv'
             volttron_home = volttron_home_input.value if volttron_home_input.value else '~/.volttron'
             host = 'localhost' if is_local_install else host_input.value
-            web_bind_address = "http://127.0.0.1:8443" if is_local_install else "http://0.0.0.0:8443"
+            web_bind_address = web_bind_address_input.value or (
+                "http://127.0.0.1:8443" if is_local_install else "http://0.0.0.0:8443"
+            )
+            if not is_local_install:
+                web_bind_address = _remote_listen_address(web_bind_address)
             port_messages = []
             if web_interface_toggle.value:
                 if is_local_install:
@@ -193,6 +282,16 @@ def render():
                 'systemd_service': f'volttron-{instance_name_input.value}.service',
                 'ansible_inventory': str(ansible_result.inventory_path),
                 'ansible_host_alias': ansible_result.host_alias,
+                'web_enabled': bool(web_interface_toggle.value),
+                'package_source': package_source.value,
+                'http_proxy': http_proxy_input.value or '',
+                'https_proxy': https_proxy_input.value or '',
+                'python_interpreter': python_path_input.value or 'auto',
+                'manual_core_package': core_pkg_input.value or '',
+                'manual_auth_package': auth_pkg_input.value or '',
+                'manual_zmq_package': zmq_pkg_input.value or '',
+                'manual_tree_package': tree_pkg_input.value or '',
+                'manual_web_package': web_pkg_input.value or '',
             }
             if not is_local_install:
                 instance_data.update({
@@ -219,7 +318,7 @@ def render():
             with ui.row().classes('items-center gap-4'):
                 back_btn = ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/')).props('flat round')
                 binding.bind_from(back_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
-                ui.label('New Platform').classes(theme.title())
+                ui.label('Copy Platform' if source_instance else 'New Platform').classes(theme.title())
             
             with ui.row().classes('items-center gap-2'):
                 theme_btn = ui.button(on_click=dark_mode.toggle).props('flat round')
@@ -239,16 +338,28 @@ def render():
                 with ui.column().classes('w-full gap-5'):
                     with ui.column().classes('w-full gap-2'):
                         ui.label('Install Target').classes(theme.small_muted('font-medium'))
-                        install_target_toggle = ui.toggle(['Local', 'Remote'], value='Local').props('unelevated no-caps spread toggle-color="primary" text-color="grey-7"').classes('w-full')
+                        
+                        def handle_install_target_change(e):
+                            try:
+                                if e.value == 'Remote':
+                                    if web_bind_address_input.value == 'http://127.0.0.1:8443':
+                                        web_bind_address_input.value = 'http://0.0.0.0:8443'
+                                else:
+                                    if web_bind_address_input.value == 'http://0.0.0.0:8443':
+                                        web_bind_address_input.value = 'http://127.0.0.1:8443'
+                            except NameError:
+                                pass
+                                
+                        install_target_toggle = ui.toggle(['Local', 'Remote'], value='Local' if defaults['is_local'] else 'Remote', on_change=handle_install_target_change).props('unelevated no-caps spread toggle-color="primary" text-color="grey-7"').classes('w-full')
                     
                     with ui.row().classes('w-full gap-4').bind_visibility_from(install_target_toggle, 'value', backward=lambda v: v == 'Remote'):
-                        host_input = ui.input('Host').props('outlined rounded color="primary"').classes('flex-grow')
-                        username_input = ui.input('Username').props('outlined rounded color="primary"').classes('flex-grow')
-                        ssh_port_input = ui.input('SSH Port', value='22').props('outlined rounded color="primary"').classes('w-24')
+                        host_input = ui.input('Host', value=defaults['host']).props('outlined rounded color="primary"').classes('flex-grow')
+                        username_input = ui.input('Username', value=defaults['ssh_username']).props('outlined rounded color="primary"').classes('flex-grow')
+                        ssh_port_input = ui.input('SSH Port', value=defaults['ssh_port']).props('outlined rounded color="primary"').classes('w-24')
 
                     with ui.column().classes('w-full gap-3').bind_visibility_from(install_target_toggle, 'value', backward=lambda v: v == 'Remote'):
                         ui.label('SSH Authentication').classes(theme.small_muted('font-medium'))
-                        key_path_input = ui.input('Private Key Path', value='~/.ssh/volttron_installer').props('outlined rounded color="primary"').classes('w-full')
+                        key_path_input = ui.input('Private Key Path', value=defaults['ssh_key_path']).props('outlined rounded color="primary"').classes('w-full')
                         temporary_password_input = ui.input('Temporary SSH/Sudo Password', password=True, password_toggle_button=True).props('outlined rounded color="primary" autocomplete="current-password"').classes('w-full')
                         ui.label('Used only during this deployment to install the SSH key on a fresh host and, if needed, configure non-interactive sudo for apt and systemd. It is not saved.').classes(theme.small_muted())
                         ui.label('After setup, deployment continues with key-based SSH and passwordless sudo. Leave blank when both are already configured.').classes(theme.small_muted())
@@ -266,16 +377,16 @@ def render():
                     with ui.expansion('Advanced Settings', icon='settings').classes('w-full').props('header-class="text-muted"'):
                          with ui.column().classes('w-full gap-4 p-4'):
                             with ui.row().classes('w-full gap-4'):
-                                http_proxy_input = ui.input('HTTP Proxy').props('outlined dense color="primary"').classes('flex-grow')
-                                https_proxy_input = ui.input('HTTPS Proxy').props('outlined dense color="primary"').classes('flex-grow')
+                                http_proxy_input = ui.input('HTTP Proxy', value=defaults['http_proxy']).props('outlined dense color="primary"').classes('flex-grow')
+                                https_proxy_input = ui.input('HTTPS Proxy', value=defaults['https_proxy']).props('outlined dense color="primary"').classes('flex-grow')
                             with ui.row().classes('w-full gap-4'):
-                                volttron_home_input = ui.input('VOLTTRON Home', value=f'~/.{default_name}').props('outlined dense color="primary"').classes('flex-grow')
-                                venv_input = ui.input('VOLTTRON venv', value=f'~/.{default_name}.venv').props('outlined dense color="primary"').classes('flex-grow')
-                            python_path_input = ui.input('VOLTTRON Python Override', value='auto').props('outlined dense color="primary"').classes('w-full')
+                                volttron_home_input = ui.input('VOLTTRON Home', value=defaults['volttron_home']).props('outlined dense color="primary"').classes('flex-grow')
+                                venv_input = ui.input('VOLTTRON venv', value=defaults['venv']).props('outlined dense color="primary"').classes('flex-grow')
+                            python_path_input = ui.input('VOLTTRON Python Override', value=defaults['python_interpreter']).props('outlined dense color="primary"').classes('w-full')
                             ui.label('Leave auto unless debugging. Auto uses the installer runtime for local Ansible control and creates the VOLTTRON venv with Python 3.10 when needed. This field never changes Ansible’s control Python.').classes(theme.small_muted())
                             sudo_password_input = ui.input('Sudo Password', password=True, password_toggle_button=True).props('outlined dense color="primary" autocomplete="current-password"').classes('w-full')
                             ui.label('Optional. Used for local system package/service setup, or when remote sudo uses a different password than SSH. This is not saved.').classes(theme.small_muted())
-                            ignore_host_keys_checkbox = ui.checkbox('Ignore Host Keys (StrictHostKeyChecking=no)').props('color="primary"')
+                            ignore_host_keys_checkbox = ui.checkbox('Ignore Host Keys (StrictHostKeyChecking=no)', value=defaults['ssh_ignore_host_keys']).props('color="primary"')
  
             # Instance Configuration Section
             with ui.card().classes(theme.card('p-8')):
@@ -297,28 +408,33 @@ def render():
                     
                     with ui.column().classes('w-full gap-2'):
                         ui.label('VOLTTRON Type').classes(theme.small_muted('font-medium'))
-                        type_toggle = ui.toggle(['Modular', 'Monolithic'], value='Modular', on_change=handle_type_change).props('unelevated no-caps spread toggle-color="primary" text-color="grey-7"').classes('w-full')
+                        type_toggle = ui.toggle(['Modular', 'Monolithic'], value=defaults['type'], on_change=handle_type_change).props('unelevated no-caps spread toggle-color="primary" text-color="grey-7"').classes('w-full')
                         ui.label('Modular: Agents are pip packages (recommended). Monolithic: Bundled all-in-one.').classes(theme.small_muted())
                     
                     with ui.column().classes('w-full gap-2'):
                         ui.label('Package Source').classes(theme.small_muted('font-medium'))
-                        package_source = ui.toggle(['Automatic', 'Manual'], value='Automatic').props('unelevated no-caps spread toggle-color="primary" text-color="grey-7"').classes('w-full')
+                        package_source = ui.toggle(['Automatic', 'Manual'], value=defaults['package_source']).props('unelevated no-caps spread toggle-color="primary" text-color="grey-7"').classes('w-full')
                         
                         with ui.column().classes('w-full gap-4 p-4 border rounded-lg mt-2').bind_visibility_from(package_source, 'value', backward=lambda v: v == 'Manual'):
                             ui.label('Manual Package Overrides').classes('font-semibold text-sm')
-                            core_pkg_input = ui.input('Core Package', placeholder='eclipse-volttron/volttron-core@main').props('outlined dense color="primary"').classes('w-full')
-                            auth_pkg_input = ui.input('Auth Package', placeholder='eclipse-volttron/volttron-lib-auth@main').props('outlined dense color="primary"').classes('w-full')
-                            zmq_pkg_input = ui.input('ZMQ Package', placeholder='eclipse-volttron/volttron-lib-zmq@main').props('outlined dense color="primary"').classes('w-full')
-                            tree_pkg_input = ui.input('Tree Package', placeholder='eclipse-volttron/volttron-lib-tree@main').props('outlined dense color="primary"').classes('w-full')
-                            web_pkg_input = ui.input('Web Package', placeholder='eclipse-volttron/volttron-lib-web@main').props('outlined dense color="primary"').classes('w-full')
+                            core_pkg_input = ui.input('Core Package', value=defaults['manual_core_package'], placeholder='eclipse-volttron/volttron-core@main').props('outlined dense color="primary"').classes('w-full')
+                            auth_pkg_input = ui.input('Auth Package', value=defaults['manual_auth_package'], placeholder='eclipse-volttron/volttron-lib-auth@main').props('outlined dense color="primary"').classes('w-full')
+                            zmq_pkg_input = ui.input('ZMQ Package', value=defaults['manual_zmq_package'], placeholder='eclipse-volttron/volttron-lib-zmq@main').props('outlined dense color="primary"').classes('w-full')
+                            tree_pkg_input = ui.input('Tree Package', value=defaults['manual_tree_package'], placeholder='eclipse-volttron/volttron-lib-tree@main').props('outlined dense color="primary"').classes('w-full')
+                            web_pkg_input = ui.input('Web Package', value=defaults['manual_web_package'], placeholder='eclipse-volttron/volttron-lib-web@main').props('outlined dense color="primary"').classes('w-full')
                     
-                    vip_input = ui.input('VIP Address').props('outlined rounded color="primary"').classes('w-full')
+                    vip_input = ui.input('VIP Address', value=defaults['vip']).props('outlined rounded color="primary"').classes('w-full')
                     
                     with ui.row().classes('w-full justify-between items-center p-4 rounded-xl border'):
                         with ui.column().classes('gap-1'):
                             ui.label('Web Interface').classes('font-semibold')
                             ui.label('Browser-based platform management and monitoring').classes(theme.small_muted())
-                        web_interface_toggle = ui.switch(value=True).props('color="primary"')
+                        web_interface_toggle = ui.switch(value=defaults['web_enabled']).props('color="primary"')
+                    
+                    initial_bind = defaults['web_bind_address']
+                    if not defaults['is_local'] and initial_bind == 'http://127.0.0.1:8443':
+                        initial_bind = 'http://0.0.0.0:8443'
+                    web_bind_address_input = ui.input('Web Bind Address', value=initial_bind).props('outlined rounded color="primary"').classes('w-full')
                         
                     with ui.row().classes('w-full justify-between items-center p-4 rounded-xl border'):
                         with ui.column().classes('gap-1'):
