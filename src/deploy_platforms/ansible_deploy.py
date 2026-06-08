@@ -348,6 +348,7 @@ def prepare_ansible_files(
     _write_yaml(deployment_dir / "install_extra_packages.yml", _extra_packages_playbook())
     _write_yaml(deployment_dir / "bootstrap_python.yml", _bootstrap_python_playbook())
     _write_yaml(deployment_dir / "prepare_ansible_venv.yml", _prepare_ansible_venv_playbook())
+    _write_yaml(deployment_dir / "validate_platform_venv.yml", _validate_platform_venv_playbook())
     return inventory_path, config_root, host_alias, web_secret
 
 
@@ -481,6 +482,27 @@ def _extra_packages_playbook() -> dict[str, Any]:
         ],
     }]
 
+
+def _validate_platform_venv_playbook() -> list[dict[str, Any]]:
+    return [{
+        "name": "validate VOLTTRON platform environment",
+        "hosts": "{{ on_hosts | default('all') }}",
+        "gather_facts": False,
+        "tasks": [
+            {
+                "name": "Verify installed Python package dependencies",
+                "ansible.builtin.command": "{{ volttron_venv }}/bin/python -m pip check",
+                "changed_when": False,
+            },
+            {
+                "name": "Verify Poetry executable",
+                "ansible.builtin.command": "{{ volttron_venv }}/bin/poetry --version",
+                "changed_when": False,
+            }
+        ],
+    }]
+
+
 async def _run_playbook(
     inventory_path: Path,
     playbook: str,
@@ -517,6 +539,8 @@ async def _run_playbook(
         json.dumps(combined_extra_vars),
     ]
     env = os.environ.copy()
+    # Do not let pip mistake installer dependencies for packages in the target venv.
+    env.pop("PYTHONPATH", None)
     env["ANSIBLE_HOST_KEY_CHECKING"] = "False"
     if askpass_path:
         env["SUDO_ASKPASS"] = askpass_path
@@ -630,6 +654,15 @@ async def deploy_with_ansible(
             local_sudo_askpass=is_local and bool(become_password),
             timeout=1200,
         )
+
+    await _run_playbook(
+        inventory_path,
+        str((inventory_path.parent / "validate_platform_venv.yml").resolve()),
+        host_alias,
+        become_password=become_password,
+        local_sudo_askpass=is_local and bool(become_password),
+        timeout=600,
+    )
 
     await _run_playbook(
         inventory_path,

@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 from nicegui import ui
 import src.home as home
 import src.deploy_platforms.deploy_platform_ui as deploy_platform
@@ -15,6 +18,36 @@ app.add_static_files('/assets', 'assets')
 PAGE_HEAD = '''
 <link rel="icon" type="image/x-icon" href="/assets/favicon.ico">
 '''
+
+
+def ssl_options() -> dict[str, str]:
+    certfile = os.environ.get('VOLTTRON_INSTALLER_SSL_CERTFILE', '').strip()
+    keyfile = os.environ.get('VOLTTRON_INSTALLER_SSL_KEYFILE', '').strip()
+    keyfile_password = os.environ.get('VOLTTRON_INSTALLER_SSL_KEYFILE_PASSWORD', '').strip()
+
+    if not certfile and not keyfile:
+        return {}
+    if not certfile or not keyfile:
+        raise RuntimeError(
+            'HTTPS requires both VOLTTRON_INSTALLER_SSL_CERTFILE and '
+            'VOLTTRON_INSTALLER_SSL_KEYFILE.'
+        )
+
+    cert_path = Path(certfile).expanduser()
+    key_path = Path(keyfile).expanduser()
+    if not cert_path.is_file():
+        raise RuntimeError(f'HTTPS certificate file does not exist: {cert_path}')
+    if not key_path.is_file():
+        raise RuntimeError(f'HTTPS key file does not exist: {key_path}')
+
+    options = {
+        'ssl_certfile': str(cert_path),
+        'ssl_keyfile': str(key_path),
+    }
+    if keyfile_password:
+        options['ssl_keyfile_password'] = keyfile_password
+    return options
+
 
 @ui.page('/')
 def home_page():
@@ -47,4 +80,11 @@ def bacnet_scan_page():
     bacnet_scan_ui.render()
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(title='VOLTTRON Installer', dark=False, show=False, favicon='assets/favicon.ico', reload=False)
+    ui.run(
+        title='VOLTTRON Installer',
+        dark=False,
+        show=False,
+        favicon='assets/favicon.ico',
+        reload=False,
+        **ssl_options(),
+    )

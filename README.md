@@ -14,6 +14,10 @@ pip install -r requirements.txt
 Until these supporting packages are published to PyPI, install them from GitHub:
 
 ```bash
+ansible-galaxy collection install -f git+https://github.com/riley206-pnnl/volttron-ansible.git,develop
+```
+
+```bash
 pip install \
   "git+https://github.com/riley206-pnnl/eclipse-bacnet-scan-tool.git@develop" \
   "git+https://github.com/riley206-pnnl/lib-protocol-proxy-bacnet-fixed.git@new_merge_of_rileys_discovery_work" \
@@ -26,6 +30,36 @@ Start the web interface using:
 python main.py
 ```
 The interface will be hosted locally at `http://localhost:8080` (or `http://<your-server-ip>:8080`).
+
+### Optional HTTPS
+
+HTTP is used by default. To start the installer with HTTPS, provide a PEM-encoded certificate and
+private key:
+
+```bash
+export VOLTTRON_INSTALLER_SSL_CERTFILE=/path/to/domain.crt
+export VOLTTRON_INSTALLER_SSL_KEYFILE=/path/to/domain.key
+python main.py
+```
+
+Set `VOLTTRON_INSTALLER_SSL_KEYFILE_PASSWORD` when the private key is encrypted:
+
+```bash
+export VOLTTRON_INSTALLER_SSL_KEYFILE_PASSWORD='key-password'
+```
+
+The filenames do not need to end in `.pem`; many `.crt` and `.key` files already contain PEM data.
+You can confirm by checking for `-----BEGIN CERTIFICATE-----` and `-----BEGIN ... PRIVATE KEY-----`.
+If conversion is required:
+
+```bash
+openssl x509 -in domain.crt -out domain.crt.pem -outform PEM
+openssl pkey -in domain.key -out domain.key.pem
+```
+
+When HTTPS is enabled, the interface is available at `https://localhost:8080` or the corresponding
+server hostname. Both certificate and key variables are required; otherwise startup fails with a
+clear error.
 
 ## Ansible Deployments
 

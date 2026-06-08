@@ -190,6 +190,7 @@ def render():
                 'venv': venv_path,
                 'volttron_home': volttron_home,
                 'deployment_method': 'ansible',
+                'systemd_service': f'volttron-{instance_name_input.value}.service',
                 'ansible_inventory': str(ansible_result.inventory_path),
                 'ansible_host_alias': ansible_result.host_alias,
             }

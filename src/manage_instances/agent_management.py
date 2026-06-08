@@ -557,10 +557,7 @@ async def _run_local_sudo_shell(command: str, sudo_password: str, timeout: int =
 
 
 async def remove_platform_service(instance: dict, sudo_password: str = "") -> list[str]:
-    if instance.get("deployment_method") != "ansible":
-        return ["No systemd service removal needed for this deployment type."]
-
-    service = f"volttron-{instance.get('name')}.service"
+    service = instance.get("systemd_service") or f"volttron-{instance.get('name')}.service"
     messages: list[str] = []
 
     if ssh_remote.is_remote_instance(instance):
@@ -576,6 +573,11 @@ else
 fi
 sudo -n systemctl daemon-reload
 sudo -n systemctl reset-failed "$service" 2>/dev/null || true
+remaining_path="$(systemctl show -p FragmentPath --value "$service" 2>/dev/null || true)"
+if [ -n "$remaining_path" ] && [ -e "$remaining_path" ]; then
+  printf 'Systemd unit file still exists after cleanup: %s' "$remaining_path" >&2
+  exit 1
+fi
 printf 'Removed systemd service %s' "$service"
 """
         try:
@@ -589,8 +591,8 @@ printf 'Removed systemd service %s' "$service"
         await _run_local_systemctl_for_service(service, sudo_password, "disable", "--now")
         messages.append(f"Disabled and stopped {service}")
     except PlatformCommandError as exc:
-        message = f"{exc}\n{exc.stderr}\n{exc.stdout}"
-        if "could not be found" in message or "not loaded" in message or "does not exist" in message:
+        message = f"{exc}\n{exc.stderr}\n{exc.stdout}".lower()
+        if any(text in message for text in ("could not be found", "not loaded", "does not exist", "not found")):
             messages.append(f"Service not loaded: {service}")
         else:
             raise
@@ -606,6 +608,11 @@ else
 fi
 systemctl daemon-reload
 systemctl reset-failed "$service" 2>/dev/null || true
+remaining_path="$(systemctl show -p FragmentPath --value "$service" 2>/dev/null || true)"
+if [ -n "$remaining_path" ] && [ -e "$remaining_path" ]; then
+  printf 'Systemd unit file still exists after cleanup: %s\n' "$remaining_path" >&2
+  exit 1
+fi
 """
     await _run_local_sudo_shell(cleanup_command, sudo_password)
     messages.append(f"Removed systemd unit file for {service}")
@@ -636,9 +643,8 @@ async def delete_platform_files(instance: dict, sudo_password: str = "") -> list
     """
     messages: list[str] = []
 
-    if instance.get("deployment_method") == "ansible":
-        messages.extend(await remove_platform_service(instance, sudo_password=sudo_password))
-    else:
+    messages.extend(await remove_platform_service(instance, sudo_password=sudo_password))
+    if instance.get("deployment_method") != "ansible":
         try:
             await shutdown_platform(instance, sudo_password=sudo_password)
             messages.append("Platform shutdown command completed")

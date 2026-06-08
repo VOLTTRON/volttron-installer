@@ -489,14 +489,13 @@ def render(instance_name: str):
     async def handle_delete_platform():
         venv_path = instance.get('venv') or 'N/A'
         volttron_home = instance.get('volttron_home') or 'N/A'
-        service_name = f"volttron-{instance_name}.service"
-        needs_local_sudo = instance.get('deployment_method') == 'ansible' and instance.get('is_local', True)
+        service_name = instance.get('systemd_service') or f"volttron-{instance_name}.service"
+        needs_local_sudo = instance.get('is_local', True)
         with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4 w-full max-w-xl'):
             ui.label(f'Delete {instance_name}?').classes('text-lg font-bold text-red-400')
             ui.label('This will stop and remove its systemd service, delete its virtual environment, delete VOLTTRON_HOME, and remove it from this installer.').classes(theme.muted())
             with ui.column().classes('w-full gap-1 p-3 border rounded-md'):
-                if instance.get('deployment_method') == 'ansible':
-                    ui.label(f'Systemd Service: {service_name}').classes(theme.small_muted())
+                ui.label(f'Systemd Service: {service_name}').classes(theme.small_muted())
                 ui.label(f'Virtual Env: {venv_path}').classes(theme.small_muted())
                 ui.label(f'VOLTTRON Home: {volttron_home}').classes(theme.small_muted())
                 ui.label(f'Instance Record: instances_data/{instance_name}.json').classes(theme.small_muted())
@@ -660,35 +659,36 @@ def render(instance_name: str):
 
         with ui.column().classes('w-full max-w-6xl gap-5'):
             def copy_button(command: str, label: str):
-                button = ui.button(icon='content_copy').props('flat round dense color="primary"')
-                button.on('click', js_handler=f'''
-                    async () => {{
-                        const text = {json.dumps(command)};
-                        try {{
+                async def copy_command():
+                    copied = await ui.run_javascript(f'''
+                        (async () => {{
+                            const text = {json.dumps(command)};
                             if (navigator.clipboard && window.isSecureContext) {{
-                                await navigator.clipboard.writeText(text);
-                            }} else {{
-                                const textarea = document.createElement('textarea');
-                                textarea.value = text;
-                                textarea.setAttribute('hidden', '');
-                                document.body.appendChild(textarea);
-                                textarea.focus();
-                                textarea.select();
-                                document.execCommand('copy');
-                                document.body.removeChild(textarea);
+                                try {{
+                                    await navigator.clipboard.writeText(text);
+                                    return true;
+                                }} catch (error) {{
+                                    console.warn('Clipboard API failed; trying fallback.', error);
+                                }}
                             }}
-                        }} catch (error) {{
+
                             const textarea = document.createElement('textarea');
                             textarea.value = text;
-                            textarea.setAttribute('hidden', '');
+                            textarea.setAttribute('readonly', '');
                             document.body.appendChild(textarea);
                             textarea.focus();
                             textarea.select();
-                            document.execCommand('copy');
-                            document.body.removeChild(textarea);
-                        }}
-                    }}
-                ''')
+                            const success = document.execCommand('copy');
+                            textarea.remove();
+                            return success;
+                        }})()
+                    ''')
+                    if copied:
+                        ui.notify(f'Copied {label} command', type='positive')
+                    else:
+                        ui.notify('Browser blocked clipboard access. Open the installer through localhost or HTTPS.', type='negative')
+
+                button = ui.button(icon='content_copy', on_click=copy_command).props('flat round dense color="primary"')
                 ui.tooltip(f'Copy {label} command')
                 return button
 
