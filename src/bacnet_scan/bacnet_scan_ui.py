@@ -196,9 +196,10 @@ def render_devices():
             
             rows = []
             for dev in state.discovered_devices:
+                dev_id = dev.get('deviceIdentifier', '')
                 rows.append({
-                    'object_name': dev.get('object_name', 'Unknown Device'),
-                    'deviceIdentifier': dev.get('deviceIdentifier', ''),
+                    'object_name': dev.get('object_name') or dev_id or 'Unknown Device',
+                    'deviceIdentifier': dev_id,
                     'address': dev.get('address', ''),
                     'vendorID': dev.get('vendorID', '')
                 })
@@ -357,7 +358,7 @@ def device_config_content(device, registry_filename):
         },
         'driver_type': 'bacnet',
         'registry_config': f'config://{registry_filename}',
-        'interval': 15,
+        'interval': 60,
         'timezone': 'UTC',
     }, indent=4)
 
@@ -414,7 +415,11 @@ async def fetch_all_device_objects(device_address, device_id):
 
 def build_config_bundle(device, objects):
     device_id = device_instance_from_identifier(device.get('deviceIdentifier'))
-    base_name = safe_config_name(f"{device.get('object_name') or 'bacnet_device'}_{device_id}")
+    dev_name = device.get('object_name')
+    if dev_name:
+        base_name = safe_config_name(f"{dev_name}_{device_id}")
+    else:
+        base_name = safe_config_name(device.get('deviceIdentifier') or str(device_id))
     registry_filename = f"{base_name}.csv"
     config_filename = f"{base_name}.config"
     readme_filename = f"{base_name}_README.txt"
@@ -506,8 +511,8 @@ def render_dialog_content():
     if not state.selected_device:
         return
         
-    dev_name = state.selected_device.get('object_name', 'Unknown')
     dev_id = state.selected_device.get('deviceIdentifier', '')
+    dev_name = state.selected_device.get('object_name') or dev_id or 'Unknown'
     dev_addr = state.selected_device.get('address', '')
     
     dark_mode = theme.dark_mode()
