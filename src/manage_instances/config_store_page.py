@@ -349,8 +349,14 @@ def render(instance_name: str, agent_identity: str):
 
                 ui.separator().props('vertical')
 
-                with ui.column().classes('gap-3 py-2 flex-grow min-w-0 min-h-screen'):
-                    status_label = ui.label('Creating new config').classes('text-grey-6')
+                with ui.column().classes('gap-3 py-2 flex-grow min-w-0'):
+                    with ui.row().classes('w-full justify-between items-center'):
+                        status_label = ui.label('Creating new config').classes('text-grey-6')
+                        with ui.row().classes('gap-2'):
+                            delete_button = ui.button('Delete Config', icon='delete', on_click=delete_selected_config).props('outline color="negative"')
+                            save_button = ui.button('Save Config', icon='save', on_click=save_config).props('color="primary"')
+                            delete_button.disable()
+
                     with ui.row().classes('w-full gap-3 no-wrap'):
                         config_name_input = ui.input('Config Name', placeholder='e.g. devices/campus/building/fake').props('outlined dense').classes('flex-grow')
                         config_type_select = ui.select(
@@ -377,10 +383,5 @@ def render(instance_name: str, agent_identity: str):
                         
                         text_editor = ui.textarea('Content', value='').props('outlined').classes('w-full flex-auto min-h-96 font-mono')
                         text_editor.set_visibility(False)
-                    
-                    with ui.row().classes('w-full justify-end gap-2'):
-                        delete_button = ui.button('Delete Config', icon='delete', on_click=delete_selected_config).props('outline color="negative"')
-                        save_button = ui.button('Save Config', icon='save', on_click=save_config).props('color="primary"')
-                    delete_button.disable()
 
     ui.timer(0.1, load_configs, once=True)
