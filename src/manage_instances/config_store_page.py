@@ -6,6 +6,7 @@ from nicegui import binding, ui
 import src.db as db
 from src import theme
 from src.manage_instances import config_store
+from src.manage_instances.config_templates import TEMPLATES
 
 
 def _uploaded_config_type(filename: str) -> str:
@@ -66,7 +67,11 @@ def render(instance_name: str, agent_identity: str):
     config_names_container = None
     config_name_input = None
     config_type_select = None
-    config_content_input = None
+    
+    json_editor = None
+    text_editor = None
+    editor_errors = {}
+    
     save_button = None
     delete_button = None
     status_label = None
@@ -89,13 +94,16 @@ def render(instance_name: str, agent_identity: str):
 
             for name in names:
                 async def select_config(config_name=name):
-                    nonlocal selected_config
+                    nonlocal selected_config, editor_errors
                     selected_config = config_name
+                    editor_errors = {}
                     try:
                         content, content_type = await config_store.get_config(instance, agent_identity, config_name)
                         config_name_input.value = config_name
-                        config_type_select.value = content_type if content_type in ['application/json', 'text/csv', 'text/plain'] else 'application/json'
-                        config_content_input.value = content
+                        content_type = content_type if content_type in ['application/json', 'text/csv', 'text/plain'] else 'application/json'
+                        config_type_select.value = content_type
+                        set_editor_value(content, content_type)
+                        update_editor_visibility(content_type)
                         delete_button.enable()
                         save_button.set_text('Save Config')
                         status_label.set_text(f'Editing {config_name}')
@@ -104,12 +112,82 @@ def render(instance_name: str, agent_identity: str):
 
                 ui.button(name, icon='description', on_click=select_config).props('flat align="left"').classes('w-full justify-start')
 
+    def get_editor_value() -> str:
+        if config_type_select.value == 'application/json':
+            content = json_editor.properties.get('content', {}) if json_editor else {}
+            if 'json' in content:
+                import json
+                return json.dumps(content['json'], indent=2)
+            elif 'text' in content:
+                return content['text']
+            return '{}'
+        else:
+            return text_editor.value or '' if text_editor else ''
+
+    def set_editor_value(value: str, content_type: str):
+        if content_type == 'application/json':
+            try:
+                import json
+                parsed = json.loads(value)
+                if json_editor:
+                    json_editor.properties['content'] = {'json': parsed}
+            except Exception:
+                if json_editor:
+                    json_editor.properties['content'] = {'text': value}
+            if json_editor:
+                json_editor.update()
+            if text_editor:
+                text_editor.value = value
+        else:
+            if text_editor:
+                text_editor.value = value
+            try:
+                import json
+                parsed = json.loads(value)
+                if json_editor:
+                    json_editor.properties['content'] = {'json': parsed}
+            except Exception:
+                if json_editor:
+                    json_editor.properties['content'] = {'text': value}
+            if json_editor:
+                json_editor.update()
+
+    def update_editor_visibility(content_type: str):
+        if content_type == 'application/json':
+            if text_editor and json_editor:
+                raw_val = text_editor.value or ''
+                try:
+                    import json
+                    parsed = json.loads(raw_val)
+                    json_editor.properties['content'] = {'json': parsed}
+                except Exception:
+                    json_editor.properties['content'] = {'text': raw_val}
+                json_editor.update()
+            if json_editor:
+                json_editor.set_visibility(True)
+            if text_editor:
+                text_editor.set_visibility(False)
+        else:
+            if json_editor and text_editor:
+                content = json_editor.properties.get('content', {})
+                if 'json' in content:
+                    import json
+                    text_editor.value = json.dumps(content['json'], indent=2)
+                elif 'text' in content:
+                    text_editor.value = content['text']
+            if json_editor:
+                json_editor.set_visibility(False)
+            if text_editor:
+                text_editor.set_visibility(True)
+
     def clear_editor():
-        nonlocal selected_config
+        nonlocal selected_config, editor_errors
         selected_config = None
+        editor_errors = {}
         config_name_input.value = ''
         config_type_select.value = 'application/json'
-        config_content_input.value = '{}'
+        set_editor_value('{}', 'application/json')
+        update_editor_visibility('application/json')
         delete_button.disable()
         save_button.set_text('Save Config')
         status_label.set_text('Creating new config')
@@ -117,14 +195,33 @@ def render(instance_name: str, agent_identity: str):
     async def save_config():
         nonlocal selected_config
         config_name = (config_name_input.value or '').strip()
+        if not config_name:
+            ui.notify('Config name is required', type='warning')
+            return
+            
+        content_type = config_type_select.value
+        if content_type == 'application/json':
+            if editor_errors:
+                ui.notify('Cannot save: JSON has validation or syntax errors', type='negative')
+                return
+            content_str = get_editor_value()
+            try:
+                import json
+                json.loads(content_str)
+            except Exception as e:
+                ui.notify(f'Cannot save: Invalid JSON syntax ({e})', type='negative')
+                return
+        else:
+            content_str = get_editor_value()
+
         overwrite = selected_config == config_name
         try:
             await config_store.save_config(
                 instance,
                 agent_identity,
                 config_name,
-                config_content_input.value or '',
-                config_type_select.value,
+                content_str,
+                content_type,
                 overwrite=overwrite,
             )
             selected_config = config_name
@@ -221,6 +318,30 @@ def render(instance_name: str, agent_identity: str):
                         js_handler=f'() => getElement("{import_upload.id}").$refs.qRef.pickFiles()',
                     )
                     ui.separator()
+                    ui.label('Templates').classes('font-bold')
+                    
+                    def apply_template(template_name):
+                        if not template_name:
+                            return
+                        template = TEMPLATES[template_name]
+                        config_name_input.value = template["name"]
+                        config_type_select.value = template["type"]
+                        
+                        import json
+                        content_str = json.dumps(template["content"], indent=2)
+                        set_editor_value(content_str, template["type"])
+                        update_editor_visibility(template["type"])
+                        
+                        template_select.value = None
+                        ui.notify(f"Applied template: {template_name}", type="info")
+
+                    template_select = ui.select(
+                        options=list(TEMPLATES.keys()),
+                        label='Insert Template',
+                        on_change=lambda e: apply_template(e.value)
+                    ).props('outlined dense').classes('w-full')
+                    
+                    ui.separator()
                     ui.label('Stored Configs').classes('font-bold')
                     config_names_container = ui.column().classes('w-full gap-1 min-h-80')
                     ui.space()
@@ -240,9 +361,23 @@ def render(instance_name: str, agent_identity: str):
                             },
                             value='application/json',
                             label='Content Type',
+                            on_change=lambda e: update_editor_visibility(e.value),
                         ).props('outlined dense').classes('w-44')
                     ui.label('Device configurations for drivers typically require the "devices/" prefix.').classes('text-grey-6 text-xs')
-                    config_content_input = ui.textarea('Content', value='{}').props('outlined').classes('w-full flex-auto min-h-96 font-mono')
+                    
+                    with ui.column().classes('w-full flex-auto min-h-96') as editor_container:
+                        def handle_json_change(e):
+                            nonlocal editor_errors
+                            editor_errors = e.errors
+                        
+                        json_editor = ui.json_editor(
+                            properties={'content': {'json': {}}, 'mode': 'tree'},
+                            on_change=handle_json_change,
+                        ).classes('w-full flex-auto min-h-96')
+                        
+                        text_editor = ui.textarea('Content', value='').props('outlined').classes('w-full flex-auto min-h-96 font-mono')
+                        text_editor.set_visibility(False)
+                    
                     with ui.row().classes('w-full justify-end gap-2'):
                         delete_button = ui.button('Delete Config', icon='delete', on_click=delete_selected_config).props('outline color="negative"')
                         save_button = ui.button('Save Config', icon='save', on_click=save_config).props('color="primary"')
