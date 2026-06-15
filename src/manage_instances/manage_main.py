@@ -545,6 +545,10 @@ def render(instance_name: str):
                 with ui.row().classes('items-center gap-3'):
                     status_badge = ui.badge('Checking Status...', color='gray').classes('text-sm px-3 py-2')
                     ui.button(
+                        icon='storage',
+                        on_click=lambda: ui.navigate.to(f'/manage/{instance_name}/database'),
+                    ).props('flat round color="primary"').tooltip('Database viewer')
+                    ui.button(
                         icon='content_copy',
                         on_click=lambda: ui.navigate.to(f'/deploy/copy/{instance_name}'),
                     ).props('flat round color="primary"').tooltip('Copy platform')
