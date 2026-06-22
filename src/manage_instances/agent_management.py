@@ -14,6 +14,35 @@ from src import ssh_remote
 
 COMMAND_TIMEOUT = 600
 
+# Curated list of commonly installed Eclipse VOLTTRON agents.
+# Each entry is (pypi_package_name, short_description).
+KNOWN_AGENTS = [
+    ("volttron-platform-driver", "Platform driver agent"),
+    ("volttron-listener", "Simple listener agent example"),
+    ("volttron-sqlite-historian", "SQLite historian"),
+    ("volttron-postgresql-historian", "PostgreSQL historian"),
+    ("bacnet-scan-tool", "BACnet scanning tool"),
+    ("volttron-openadr-ven", "OpenADR VEN agent"),
+    ("platform-lookup", "Platform lookup service"),
+    ("volttron-testing", "Testing framework"),
+]
+
+# Curated list of commonly installed Eclipse VOLTTRON libraries.
+# Each entry is (pypi_package_name, short_description).
+KNOWN_LIBRARIES = [
+    ("volttron-lib-base-driver", "Base driver library"),
+    ("volttron-lib-fake-driver", "Fake driver for testing"),
+    ("volttron-lib-bacnet-driver", "BACnet driver library"),
+    ("volttron-lib-dnp3-driver", "DNP3 driver library"),
+    ("volttron-lib-modbus-driver", "Modbus driver library"),
+    ("volttron-lib-modbustk-driver", "Modbus-TK driver library"),
+    ("volttron-lib-homeassistant-driver", "Home Assistant driver library"),
+    ("lib-protocol-proxy", "Protocol proxy library"),
+    ("lib-protocol-proxy-bacnet", "BACnet protocol proxy library"),
+    ("volttron-lib-sql-historian", "SQL historian library"),
+    ("volttron-lib-base-historian", "Base historian library"),
+]
+
 
 class PlatformCommandError(Exception):
     def __init__(self, message: str, stdout: str = "", stderr: str = ""):

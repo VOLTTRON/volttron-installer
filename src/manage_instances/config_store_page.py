@@ -67,14 +67,36 @@ def render(instance_name: str, agent_identity: str):
     config_names_container = None
     config_name_input = None
     config_type_select = None
-    
+
     json_editor = None
     text_editor = None
     editor_errors = {}
-    
+    current_json_content = {}   # live content pushed from json_editor on_change
+    is_dirty = False             # True when unsaved changes exist
+
     save_button = None
     delete_button = None
     status_label = None
+
+    def refresh_save_button():
+        """Update the save button's label and enabled state based on mode and dirty flag."""
+        if save_button is None:
+            return
+        if selected_config is not None and not is_dirty:
+            # Viewing an existing config, no pending changes — disable to prevent no-op saves
+            save_button.set_text('Save Config')
+            save_button.props('icon=save')
+            save_button.disable()
+        elif selected_config is not None and is_dirty:
+            # Editing an existing config with unsaved changes
+            save_button.set_text('Update Config')
+            save_button.props('icon=save_as')
+            save_button.enable()
+        else:
+            # Creating a new config (no selected_config)
+            save_button.set_text('Save Config')
+            save_button.props('icon=save')
+            save_button.enable()
 
     async def load_configs():
         if config_names_container is None:
@@ -94,9 +116,10 @@ def render(instance_name: str, agent_identity: str):
 
             for name in names:
                 async def select_config(config_name=name):
-                    nonlocal selected_config, editor_errors
+                    nonlocal selected_config, editor_errors, is_dirty
                     selected_config = config_name
                     editor_errors = {}
+                    is_dirty = False
                     try:
                         content, content_type = await config_store.get_config(instance, agent_identity, config_name)
                         config_name_input.value = config_name
@@ -105,7 +128,7 @@ def render(instance_name: str, agent_identity: str):
                         set_editor_value(content, content_type)
                         update_editor_visibility(content_type)
                         delete_button.enable()
-                        save_button.set_text('Save Config')
+                        refresh_save_button()
                         status_label.set_text(f'Editing {config_name}')
                     except Exception as e:
                         ui.notify(f'Failed to load config: {e}', type='negative')
@@ -114,7 +137,10 @@ def render(instance_name: str, agent_identity: str):
 
     def get_editor_value() -> str:
         if config_type_select.value == 'application/json':
-            content = json_editor.properties.get('content', {}) if json_editor else {}
+            # Prefer live content from the on_change event (user edits in browser).
+            # Fall back to the last server-pushed properties only when no change has
+            # been received yet (e.g. immediately after programmatic load).
+            content = current_json_content or (json_editor.properties.get('content', {}) if json_editor else {})
             if 'json' in content:
                 import json
                 return json.dumps(content['json'], indent=2)
@@ -125,15 +151,20 @@ def render(instance_name: str, agent_identity: str):
             return text_editor.value or '' if text_editor else ''
 
     def set_editor_value(value: str, content_type: str):
+        nonlocal current_json_content
         if content_type == 'application/json':
             try:
                 import json
                 parsed = json.loads(value)
+                pushed = {'json': parsed}
                 if json_editor:
-                    json_editor.properties['content'] = {'json': parsed}
+                    json_editor.properties['content'] = pushed
+                current_json_content = pushed
             except Exception:
+                pushed = {'text': value}
                 if json_editor:
-                    json_editor.properties['content'] = {'text': value}
+                    json_editor.properties['content'] = pushed
+                current_json_content = pushed
             if json_editor:
                 json_editor.update()
             if text_editor:
@@ -144,11 +175,15 @@ def render(instance_name: str, agent_identity: str):
             try:
                 import json
                 parsed = json.loads(value)
+                pushed = {'json': parsed}
                 if json_editor:
-                    json_editor.properties['content'] = {'json': parsed}
+                    json_editor.properties['content'] = pushed
+                current_json_content = pushed
             except Exception:
+                pushed = {'text': value}
                 if json_editor:
-                    json_editor.properties['content'] = {'text': value}
+                    json_editor.properties['content'] = pushed
+                current_json_content = pushed
             if json_editor:
                 json_editor.update()
 
@@ -181,24 +216,25 @@ def render(instance_name: str, agent_identity: str):
                 text_editor.set_visibility(True)
 
     def clear_editor():
-        nonlocal selected_config, editor_errors
+        nonlocal selected_config, editor_errors, is_dirty
         selected_config = None
         editor_errors = {}
+        is_dirty = False
         config_name_input.value = ''
         config_type_select.value = 'application/json'
         set_editor_value('{}', 'application/json')
         update_editor_visibility('application/json')
         delete_button.disable()
-        save_button.set_text('Save Config')
+        refresh_save_button()
         status_label.set_text('Creating new config')
 
     async def save_config():
-        nonlocal selected_config
+        nonlocal selected_config, is_dirty
         config_name = (config_name_input.value or '').strip()
         if not config_name:
             ui.notify('Config name is required', type='warning')
             return
-            
+
         content_type = config_type_select.value
         if content_type == 'application/json':
             if editor_errors:
@@ -225,7 +261,9 @@ def render(instance_name: str, agent_identity: str):
                 overwrite=overwrite,
             )
             selected_config = config_name
+            is_dirty = False
             delete_button.enable()
+            refresh_save_button()
             status_label.set_text(f'Editing {config_name}')
             ui.notify('Config saved', type='positive')
             await load_configs()
@@ -321,17 +359,25 @@ def render(instance_name: str, agent_identity: str):
                     ui.label('Templates').classes('font-bold')
                     
                     def apply_template(template_name):
+                        nonlocal selected_config, is_dirty
                         if not template_name:
                             return
                         template = TEMPLATES[template_name]
+                        # Applying a template starts a new entry — clear any existing selection
+                        selected_config = None
+                        is_dirty = False
                         config_name_input.value = template["name"]
                         config_type_select.value = template["type"]
-                        
+
                         import json
-                        content_str = json.dumps(template["content"], indent=2)
+                        content = template["content"]
+                        content_str = content if isinstance(content, str) else json.dumps(content, indent=2)
                         set_editor_value(content_str, template["type"])
                         update_editor_visibility(template["type"])
-                        
+                        delete_button.disable()
+                        refresh_save_button()
+                        status_label.set_text('Creating new config')
+
                         template_select.value = None
                         ui.notify(f"Applied template: {template_name}", type="info")
 
@@ -373,15 +419,23 @@ def render(instance_name: str, agent_identity: str):
                     
                     with ui.column().classes('w-full flex-auto min-h-96') as editor_container:
                         def handle_json_change(e):
-                            nonlocal editor_errors
+                            nonlocal editor_errors, current_json_content, is_dirty
                             editor_errors = e.errors
-                        
+                            current_json_content = e.content   # live content from browser
+                            is_dirty = True
+                            refresh_save_button()
+
                         json_editor = ui.json_editor(
                             properties={'content': {'json': {}}, 'mode': 'tree'},
                             on_change=handle_json_change,
                         ).classes('w-full flex-auto min-h-96')
-                        
-                        text_editor = ui.textarea('Content', value='').props('outlined').classes('w-full flex-auto min-h-96 font-mono')
+
+                        def handle_text_change(_=None):
+                            nonlocal is_dirty
+                            is_dirty = True
+                            refresh_save_button()
+
+                        text_editor = ui.textarea('Content', value='', on_change=handle_text_change).props('outlined').classes('w-full flex-auto min-h-96 font-mono')
                         text_editor.set_visibility(False)
 
     ui.timer(0.1, load_configs, once=True)

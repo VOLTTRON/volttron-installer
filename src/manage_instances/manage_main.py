@@ -547,7 +547,11 @@ def render(instance_name: str):
                     ui.button(
                         icon='storage',
                         on_click=lambda: ui.navigate.to(f'/manage/{instance_name}/database'),
-                    ).props('flat round color="primary"').tooltip('Database viewer')
+                    ).props('flat round color="primary"').tooltip('SQLite viewer')
+                    ui.button(
+                        icon='dataset',
+                        on_click=lambda: ui.navigate.to(f'/manage/{instance_name}/postgres'),
+                    ).props('flat round color="primary"').tooltip('PostgreSQL viewer')
                     ui.button(
                         icon='content_copy',
                         on_click=lambda: ui.navigate.to(f'/deploy/copy/{instance_name}'),
@@ -807,6 +811,12 @@ def render(instance_name: str):
             ui.label('Install Agent').classes('text-xl font-bold')
             ui.label('Install from a PyPI package, local agent directory, wheel, or git URL.').classes(theme.muted())
             agent_source_input = ui.input('Agent Source', placeholder='volttron-listener or /path/to/agent').props('outlined dense').classes('w-full')
+            ui.select(
+                options={name: f"{name} — {desc}" for name, desc in agent_management.KNOWN_AGENTS},
+                label='Common Agents',
+                with_input=True,
+                on_change=lambda e: agent_source_input.set_value(e.value),
+            ).props('outlined dense clearable').classes('w-full')
             agent_identity_input = ui.input('VIP Identity', placeholder='listener').props('outlined dense').classes('w-full')
             agent_config_input = ui.input('Agent Config Path', placeholder='Optional path to config file').props('outlined dense').classes('w-full')
             agent_start_switch = ui.switch('Start after install', value=True).props('color="positive"')
@@ -817,7 +827,13 @@ def render(instance_name: str):
         with ui.dialog() as install_library_dialog, ui.card().classes('p-6 gap-4 w-full max-w-xl'):
             ui.label('Install Library').classes('text-xl font-bold')
             ui.label('Install a VOLTTRON library package into this platform environment.').classes(theme.muted())
-            library_source_input = ui.input('Library Source', placeholder='volttron-lib-web or /path/to/library.whl').props('outlined dense').classes('w-full')
+            library_source_input = ui.input('Library Source', placeholder='volttron-lib-bacnet-driver or /path/to/library.whl').props('outlined dense').classes('w-full')
+            ui.select(
+                options={name: f"{name} — {desc}" for name, desc in agent_management.KNOWN_LIBRARIES},
+                label='Common Libraries',
+                with_input=True,
+                on_change=lambda e: library_source_input.set_value(e.value),
+            ).props('outlined dense clearable').classes('w-full')
             library_force_switch = ui.switch('Force reinstall', value=False).props('color="warning"')
             library_prerelease_switch = ui.switch('Allow prereleases', value=False).props('color="primary"')
             with ui.row().classes('justify-end w-full gap-2'):
