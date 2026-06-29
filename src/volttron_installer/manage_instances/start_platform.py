@@ -2,7 +2,7 @@ import os
 import asyncio
 import shlex
 
-from src import ssh_remote
+from volttron_installer import ssh_remote
 
 
 async def _start_ansible_service(instance: dict, sudo_password: str = "") -> bool:

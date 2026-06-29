@@ -1,12 +1,12 @@
 from nicegui import ui
-from src.dark import dark_mode_control
+from volttron_installer.dark import dark_mode_control
 import json
 from urllib.parse import quote
 
-import src.db as db
-from src import ssh_remote
-from src.manage_instances import agent_management
-from src.manage_instances.log_parser import push_logs_to_ui
+import volttron_installer.db as db
+from volttron_installer import ssh_remote
+from volttron_installer.manage_instances import agent_management
+from volttron_installer.manage_instances.log_parser import push_logs_to_ui
 
 DEFAULT_LIBRARY_NAMES = {
     'volttron-lib-auth',
@@ -556,7 +556,7 @@ def render(instance_name: str):
                     theme_btn.bind_icon_from(dark, 'value', backward=lambda v: 'light_mode' if v else 'dark_mode')
                 
             async def check_status():
-                from src.manage_instances.status_check import check_volttron_rest_status, is_port_bound
+                from volttron_installer.manage_instances.status_check import check_volttron_rest_status, is_port_bound
                 import re
                 
                 rest_result = await check_volttron_rest_status(instance)
@@ -593,7 +593,7 @@ def render(instance_name: str):
                 ui.timer(5.0, check_status)
             
             async def handle_start():
-                from src.manage_instances.start_platform import start_platform_command
+                from volttron_installer.manage_instances.start_platform import start_platform_command
                 ui.notify(f'Starting {instance_name}...', type='info')
 
                 async def run_start(sudo_password: str = ''):

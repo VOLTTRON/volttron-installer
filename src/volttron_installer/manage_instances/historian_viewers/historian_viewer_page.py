@@ -1,5 +1,5 @@
 from nicegui import ui
-from src.manage_instances.historian_viewers import sqlite_viewer_page, postgresql_viewer_page
+from volttron_installer.manage_instances.historian_viewers import sqlite_viewer_page, postgresql_viewer_page
 
 
 def show_page(instance_name: str):

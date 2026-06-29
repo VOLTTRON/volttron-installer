@@ -5,8 +5,8 @@ import asyncio
 import subprocess
 from urllib.parse import urlparse, urlunparse
 
-import src.db as db
-from src.dark import dark_mode_control
+import volttron_installer.db as db
+from volttron_installer.dark import dark_mode_control
 
 def generate_instance_name():
     return 'volttron-' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
@@ -113,7 +113,7 @@ def render(copy_from: str | None = None):
             status_label = ui.label('Initializing...')
         dialog.open()
         
-        from src.deploy_platforms.port_allocator import allocate_remote_web_bind_address, allocate_web_bind_address
+        from volttron_installer.deploy_platforms.port_allocator import allocate_remote_web_bind_address, allocate_web_bind_address
         
         try:
             ssh_instance = None
@@ -143,7 +143,7 @@ def render(copy_from: str | None = None):
                     **ssh_instance,
                     'ssh_password': sudo_setup_password,
                 }
-                from src import ssh_remote
+                from volttron_installer import ssh_remote
                 status_label.set_text('Testing SSH key access...')
                 try:
                     await ssh_remote.test_connection(ssh_instance)
@@ -204,7 +204,7 @@ def render(copy_from: str | None = None):
                         can_probe_socket=True,
                     )
                 else:
-                    from src import ssh_remote
+                    from volttron_installer import ssh_remote
                     web_bind_address, port_messages = await allocate_remote_web_bind_address(
                         web_bind_address,
                         host,
@@ -253,7 +253,7 @@ def render(copy_from: str | None = None):
             status_label.set_text('Running Ansible deployment...')
             ssl_cert = (web_ssl_cert_input.value or '').strip()
             ssl_key = (web_ssl_key_input.value or '').strip()
-            from src.deploy_platforms.ansible_deploy import deploy_with_ansible
+            from volttron_installer.deploy_platforms.ansible_deploy import deploy_with_ansible
             ansible_result = await deploy_with_ansible(
                 instance_name=instance_name_input.value,
                 is_local=is_local_install,

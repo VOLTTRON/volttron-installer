@@ -15,7 +15,7 @@ import yaml
 
 
 ANSIBLE_COLLECTION_URL = "git+https://github.com/riley206-pnnl/volttron-ansible.git,develop"
-ANSIBLE_ROOT = Path("ansible_deployments")
+ANSIBLE_ROOT = Path(os.environ.get('VOLTTRON_INSTALLER_DATA_DIR', os.getcwd())) / "ansible_deployments"
 AUTO_PYTHON_INTERPRETER = "auto"
 BOOTSTRAPPED_PYTHON_PATH = "{{ ansible_env.HOME }}/.local/bin/volttron-python3.10"
 SUPPORTED_LOCAL_PYTHON = (3, 10)
@@ -56,7 +56,7 @@ def _find_executable(name: str) -> str | None:
 
 
 def _local_volttron_ansible_collection_path() -> str | None:
-    candidate = Path(__file__).resolve().parents[3] / "volttron-ansible"
+    candidate = Path(__file__).resolve().parents[4] / "volttron-ansible"
     if (candidate / "galaxy.yml").exists() and (candidate / "playbooks" / "install_platform.yml").exists():
         return str(candidate)
     return None

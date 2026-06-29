@@ -1,9 +1,9 @@
 import csv
 import io
 from nicegui import ui
-from src.dark import dark_mode_control
-from src import db
-from src.manage_instances.historian_viewers import sqlite_historian
+from volttron_installer.dark import dark_mode_control
+from volttron_installer import db
+from volttron_installer.manage_instances.historian_viewers import sqlite_historian
 
 def show_page(instance_name: str):
     dark = dark_mode_control()

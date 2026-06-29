@@ -2,7 +2,7 @@ import socket
 from collections.abc import Awaitable, Callable
 from urllib.parse import urlparse, urlunparse
 
-import src.db as db
+import volttron_installer.db as db
 
 
 def _normalize_host(host: str) -> str:

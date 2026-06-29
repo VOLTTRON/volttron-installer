@@ -2,7 +2,7 @@ import json
 import os
 import glob
 
-DB_DIR = 'instances_data'
+DB_DIR = os.path.join(os.environ.get('VOLTTRON_INSTALLER_DATA_DIR', os.getcwd()), 'instances_data')
 
 def get_instances():
     if not os.path.exists(DB_DIR):

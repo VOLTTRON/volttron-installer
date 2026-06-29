@@ -1,11 +1,11 @@
 import asyncio
 
 from nicegui import ui, app
-from src.dark import dark_mode_control
-import src.db as db
-from src.manage_instances import agent_management
-from src.manage_instances.status_check import check_volttron_rest_status
-from src.manage_instances.start_platform import start_platform_command
+from volttron_installer.dark import dark_mode_control
+import volttron_installer.db as db
+from volttron_installer.manage_instances import agent_management
+from volttron_installer.manage_instances.status_check import check_volttron_rest_status
+from volttron_installer.manage_instances.start_platform import start_platform_command
 
 def render():
     dark = dark_mode_control()

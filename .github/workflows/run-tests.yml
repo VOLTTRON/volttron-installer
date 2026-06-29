@@ -1,0 +1,29 @@
+name: Run Pytests
+
+on:
+  push:
+    paths:
+      - '**.py'
+      - '**.toml'
+      - '**.yaml'
+      - '**.yml'
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - '**.py'
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  LANG: en_US.utf-8
+  LC_ALL: en_US.utf-8
+
+jobs:
+  test-with-latest-volttron:
+    uses: eclipse-volttron/github-tooling/.github/workflows/run-tests.yml@main

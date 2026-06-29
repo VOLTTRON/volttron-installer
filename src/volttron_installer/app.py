@@ -2,17 +2,19 @@ import os
 from pathlib import Path
 
 from nicegui import ui, app
-import src.home as home
-import src.deploy_platforms.deploy_platform_ui as deploy_platform
-import src.manage_instances.instances as instances
-import src.manage_instances.manage_main as manage_main
-import src.manage_instances.config_store_page as config_store_page
-import src.manage_instances.historian_viewers.historian_viewer_page as historian_viewer_page
-import src.bacnet_scan.bacnet_scan_ui as bacnet_scan_ui
+import volttron_installer.home as home
+import volttron_installer.deploy_platforms.deploy_platform_ui as deploy_platform
+import volttron_installer.manage_instances.instances as instances
+import volttron_installer.manage_instances.manage_main as manage_main
+import volttron_installer.manage_instances.config_store_page as config_store_page
+import volttron_installer.manage_instances.historian_viewers.historian_viewer_page as historian_viewer_page
+import volttron_installer.bacnet_scan.bacnet_scan_ui as bacnet_scan_ui
 from bacnet_scan_api.main import app as bacnet_app
 
+ASSETS_DIR = Path(__file__).parent / 'assets'
+
 app.mount('/bacnet_api', bacnet_app)
-app.add_static_files('/assets', 'assets')
+app.add_static_files('/assets', str(ASSETS_DIR))
 
 
 PAGE_HEAD = '''
@@ -20,10 +22,10 @@ PAGE_HEAD = '''
 '''
 
 
-def ssl_options() -> dict[str, str]:
-    certfile = os.environ.get('VOLTTRON_INSTALLER_SSL_CERTFILE', '').strip()
-    keyfile = os.environ.get('VOLTTRON_INSTALLER_SSL_KEYFILE', '').strip()
-    keyfile_password = os.environ.get('VOLTTRON_INSTALLER_SSL_KEYFILE_PASSWORD', '').strip()
+def ssl_options(certfile=None, keyfile=None, keyfile_password=None) -> dict[str, str]:
+    certfile = (certfile or os.environ.get('VOLTTRON_INSTALLER_SSL_CERTFILE', '')).strip()
+    keyfile = (keyfile or os.environ.get('VOLTTRON_INSTALLER_SSL_KEYFILE', '')).strip()
+    keyfile_password = (keyfile_password or os.environ.get('VOLTTRON_INSTALLER_SSL_KEYFILE_PASSWORD', '')).strip()
 
     if not certfile and not keyfile:
         return {}
@@ -89,13 +91,3 @@ def bacnet_scan_page():
     ui.add_head_html(PAGE_HEAD)
     bacnet_scan_ui.render()
 
-if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(
-        title='VOLTTRON Installer',
-        dark=False,
-        show=False,
-        favicon='assets/favicon.ico',
-        reload=False,
-        storage_secret=os.environ.get('VOLTTRON_INSTALLER_STORAGE_SECRET', 'volttron-installer-secret'),
-        **ssl_options(),
-    )

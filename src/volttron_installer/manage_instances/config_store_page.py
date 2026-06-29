@@ -2,11 +2,11 @@ import io
 import zipfile
 
 from nicegui import ui
-from src.dark import dark_mode_control
+from volttron_installer.dark import dark_mode_control
 
-import src.db as db
-from src.manage_instances import config_store
-from src.manage_instances.config_templates import TEMPLATES
+import volttron_installer.db as db
+from volttron_installer.manage_instances import config_store
+from volttron_installer.manage_instances.config_templates import TEMPLATES
 
 def _uploaded_config_type(filename: str) -> str:
     lower_name = filename.lower()

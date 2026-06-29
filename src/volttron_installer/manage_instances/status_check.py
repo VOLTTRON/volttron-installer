@@ -5,7 +5,7 @@ import shlex
 import socket
 from urllib.parse import urlparse
 
-from src import ssh_remote
+from volttron_installer import ssh_remote
 
 for logger_name in ("httpcore", "httpx"):
     logging.getLogger(logger_name).setLevel(logging.WARNING)

@@ -6,7 +6,7 @@ import shlex
 import sqlite3
 import tempfile
 
-from src import ssh_remote
+from volttron_installer import ssh_remote
 
 
 # ---------------------------------------------------------------------------

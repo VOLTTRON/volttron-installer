@@ -1,5 +1,5 @@
 from nicegui import ui
-from src.dark import dark_mode_control
+from volttron_installer.dark import dark_mode_control
 
 
 # ---------------------------------------------------------------------------

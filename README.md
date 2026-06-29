@@ -14,30 +14,47 @@ It is recommended to use a virtual environment for installing this application.
 ```shell
 python -m venv env
 source env/bin/activate
-
-pip install -r requirements.txt
 ```
 
-Until these supporting packages are published to PyPI, install them from GitHub:
+Install the package and its dependencies (BACnet stack is pulled from GitHub forks until published to PyPI):
+
+```bash
+pip install "git+https://github.com/eclipse-volttron/volttron-installer.git@main"
+```
+
+Or, for local development from a cloned repo:
+
+```bash
+pip install -e .
+```
+
+The Ansible collection for platform deployments must be installed separately (it is a Galaxy collection, not a pip package):
 
 ```bash
 ansible-galaxy collection install -f git+https://github.com/riley206-pnnl/volttron-ansible.git,develop
-```
-
-```bash
-pip install \
-  "git+https://github.com/riley206-pnnl/eclipse-bacnet-scan-tool.git@develop" \
-  "git+https://github.com/riley206-pnnl/lib-protocol-proxy-bacnet-fixed.git@new_merge_of_rileys_discovery_work" \
-  "git+https://github.com/riley206-pnnl/lib-protocol-proxy.git@develop"
 ```
 
 ### Quick Start
 
 1. Start the web interface:
    ```bash
-   python main.py
+   volttron-installer
    ```
    The interface will be available at `http://localhost:8080` (or `http://<your-server-ip>:8080`).
+
+   Available options:
+   ```
+   volttron-installer --help
+
+   --host HOST              Bind address (default: 0.0.0.0)
+   --port PORT              Port to listen on (default: 8080)
+   --ssl-cert PATH          PEM certificate file for HTTPS
+   --ssl-key PATH           PEM private key file for HTTPS
+   --ssl-key-password PW    Password for encrypted private key
+   --storage-secret SECRET  NiceGUI session storage secret
+   --data-dir PATH          Directory for runtime data (instances, Ansible configs)
+   --show / --no-show       Open a browser on startup (default: no-show)
+   ```
 
 2. Create a new platform deployment through the UI and fill in the target host details.
 
@@ -47,19 +64,21 @@ pip install \
 
 ### Optional HTTPS
 
-HTTP is used by default. To start the installer with HTTPS, provide a PEM-encoded certificate and private key:
+HTTP is used by default. To start the installer with HTTPS, provide a PEM-encoded certificate and private key via CLI flags:
+
+```bash
+volttron-installer --ssl-cert /path/to/domain.crt --ssl-key /path/to/domain.key
+```
+
+Or via environment variables (back-compatible with earlier installs):
 
 ```bash
 export VOLTTRON_INSTALLER_SSL_CERTFILE=/path/to/domain.crt
 export VOLTTRON_INSTALLER_SSL_KEYFILE=/path/to/domain.key
-python main.py
+volttron-installer
 ```
 
-Set `VOLTTRON_INSTALLER_SSL_KEYFILE_PASSWORD` when the private key is encrypted:
-
-```bash
-export VOLTTRON_INSTALLER_SSL_KEYFILE_PASSWORD='key-password'
-```
+For an encrypted private key, pass the password with `--ssl-key-password` or set `VOLTTRON_INSTALLER_SSL_KEYFILE_PASSWORD`.
 
 To generate a self-signed certificate for testing:
 

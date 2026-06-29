@@ -4,7 +4,7 @@ import os
 import shlex
 import sys
 import subprocess
-from src import ssh_remote
+from volttron_installer import ssh_remote
 
 async def execute_python_code(instance: dict, code: str, python_executable: str | None = None) -> str:
     """

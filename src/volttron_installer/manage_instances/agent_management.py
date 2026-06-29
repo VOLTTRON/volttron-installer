@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 import httpx
 
-from src import ssh_remote
+from volttron_installer import ssh_remote
 
 
 COMMAND_TIMEOUT = 600
@@ -516,7 +516,7 @@ async def shutdown_platform(instance: dict, sudo_password: str = "") -> str:
         if not instance.get("is_local"):
             raise
 
-        from src.manage_instances.status_check import is_local_volttron_process_running
+        from volttron_installer.manage_instances.status_check import is_local_volttron_process_running
 
         for _ in range(10):
             if not is_local_volttron_process_running(instance.get("volttron_home")):

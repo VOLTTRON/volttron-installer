@@ -2,7 +2,7 @@ import json
 import secrets
 import shlex
 
-from src import ssh_remote
+from volttron_installer import ssh_remote
 
 
 async def create_remote_venv(instance: dict, venv_path: str) -> str:

@@ -1,6 +1,6 @@
 import asyncio
 import json
-from src.manage_instances import config_store
+from volttron_installer.manage_instances import config_store
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,10 @@
 import csv
 import io
 from nicegui import ui
-from src.dark import dark_mode_control
-from src import db
-from src.manage_instances.historian_viewers import postgresql_historian
-from src.manage_instances import agent_management
+from volttron_installer.dark import dark_mode_control
+from volttron_installer import db
+from volttron_installer.manage_instances.historian_viewers import postgresql_historian
+from volttron_installer.manage_instances import agent_management
 
 # Default connection params matching the PostgreSQL Historian config template
 _DEFAULT_PARAMS = {
