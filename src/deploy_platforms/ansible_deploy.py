@@ -249,6 +249,12 @@ def _inventory_host_vars(
     return host_vars
 
 
+def _with_https_scheme(address: str) -> str:
+    """Return address with the scheme replaced by https://."""
+    parsed = urlparse(address)
+    return urlunparse(parsed._replace(scheme="https"))
+
+
 def _platform_config(
     *,
     instance_name: str,
@@ -257,6 +263,8 @@ def _platform_config(
     web_secret: str,
     web_admin_user: str,
     web_admin_password: str,
+    web_ssl_cert: str = "",
+    web_ssl_key: str = "",
 ) -> dict[str, Any]:
     config: dict[str, Any] = {
         "instance-name": instance_name,
@@ -269,15 +277,24 @@ def _platform_config(
         "web-enabled": web_enabled,
     }
     if web_enabled:
+        # Auto-switch to https:// when cert + key are both provided.
+        effective_bind = (
+            _with_https_scheme(web_bind_address)
+            if (web_ssl_cert and web_ssl_key)
+            else web_bind_address
+        )
         config.update(
             {
-                "bind-web-address": web_bind_address,
+                "bind-web-address": effective_bind,
                 "web-secret-key": web_secret,
                 "web-admin-user": web_admin_user,
                 "web-admin-password": web_admin_password,
                 "web-admin-groups": ["admin", "vui"],
             }
         )
+        if web_ssl_cert and web_ssl_key:
+            config["web-ssl-cert"] = web_ssl_cert
+            config["web-ssl-key"] = web_ssl_key
     return {"config": config, "agents": {}}
 
 
@@ -294,6 +311,8 @@ def prepare_ansible_files(
     volttron_venv: str,
     web_enabled: bool,
     web_bind_address: str,
+    web_ssl_cert: str = "",
+    web_ssl_key: str = "",
     http_proxy: str = "",
     https_proxy: str = "",
     python_interpreter: str = "python3",
@@ -343,6 +362,8 @@ def prepare_ansible_files(
             web_secret=web_secret,
             web_admin_user=web_admin_user,
             web_admin_password=web_admin_password,
+            web_ssl_cert=web_ssl_cert,
+            web_ssl_key=web_ssl_key,
         ),
     )
     _write_yaml(deployment_dir / "install_extra_packages.yml", _extra_packages_playbook())
@@ -567,6 +588,8 @@ async def deploy_with_ansible(
     volttron_venv: str,
     web_enabled: bool,
     web_bind_address: str,
+    web_ssl_cert: str = "",
+    web_ssl_key: str = "",
     extra_packages: list[str],
     become_password: str = "",
     http_proxy: str = "",
@@ -581,11 +604,16 @@ async def deploy_with_ansible(
     if web_enabled:
         web_admin_user = "volttron-installer"
         web_admin_password = secrets.token_urlsafe(16)
+        effective_bind = (
+            _with_https_scheme(web_bind_address)
+            if (web_ssl_cert and web_ssl_key)
+            else web_bind_address
+        )
         web_credentials = {
             "web_admin_user": web_admin_user,
             "web_admin_pass": web_admin_password,
-            "web_bind_address": _normalize_web_address(web_bind_address, host, is_local),
-            "web_listen_address": web_bind_address,
+            "web_bind_address": _normalize_web_address(effective_bind, host, is_local),
+            "web_listen_address": effective_bind,
         }
 
     inventory_path, config_root, host_alias, _ = prepare_ansible_files(
@@ -600,6 +628,8 @@ async def deploy_with_ansible(
         volttron_venv=volttron_venv,
         web_enabled=web_enabled,
         web_bind_address=web_bind_address,
+        web_ssl_cert=web_ssl_cert,
+        web_ssl_key=web_ssl_key,
         http_proxy=http_proxy,
         https_proxy=https_proxy,
         python_interpreter=python_interpreter,

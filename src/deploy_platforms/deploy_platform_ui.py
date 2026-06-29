@@ -56,6 +56,8 @@ def _copy_defaults(copy_from: str | None) -> tuple[dict, dict | None]:
         'venv': f'~/.{default_name}.venv',
         'web_enabled': True,
         'web_bind_address': 'http://127.0.0.1:8443',
+        'web_ssl_cert': '',
+        'web_ssl_key': '',
         'package_source': 'Automatic',
         'http_proxy': '',
         'https_proxy': '',
@@ -80,6 +82,8 @@ def _copy_defaults(copy_from: str | None) -> tuple[dict, dict | None]:
         'vip': _next_vip_address(source.get('vip', '')),
         'web_enabled': source.get('web_enabled', bool(source.get('web_bind_address'))),
         'web_bind_address': source.get('web_listen_address') or source.get('web_bind_address') or defaults['web_bind_address'],
+        'web_ssl_cert': source.get('web_ssl_cert', ''),
+        'web_ssl_key': source.get('web_ssl_key', ''),
         'package_source': source.get('package_source', 'Automatic'),
         'http_proxy': source.get('http_proxy', ''),
         'https_proxy': source.get('https_proxy', ''),
@@ -247,6 +251,8 @@ def render(copy_from: str | None = None):
                         extra_packages.append(f"git+https://github.com/{web_pkg_input.value}")
 
             status_label.set_text('Running Ansible deployment...')
+            ssl_cert = (web_ssl_cert_input.value or '').strip()
+            ssl_key = (web_ssl_key_input.value or '').strip()
             from src.deploy_platforms.ansible_deploy import deploy_with_ansible
             ansible_result = await deploy_with_ansible(
                 instance_name=instance_name_input.value,
@@ -260,6 +266,8 @@ def render(copy_from: str | None = None):
                 volttron_venv=venv_path,
                 web_enabled=web_interface_toggle.value,
                 web_bind_address=web_bind_address,
+                web_ssl_cert=ssl_cert,
+                web_ssl_key=ssl_key,
                 extra_packages=extra_packages,
                 become_password=sudo_password_input.value or temporary_password_input.value or '',
                 http_proxy=http_proxy_input.value or '',
@@ -283,6 +291,8 @@ def render(copy_from: str | None = None):
                 'ansible_inventory': str(ansible_result.inventory_path),
                 'ansible_host_alias': ansible_result.host_alias,
                 'web_enabled': bool(web_interface_toggle.value),
+                'web_ssl_cert': ssl_cert,
+                'web_ssl_key': ssl_key,
                 'package_source': package_source.value,
                 'http_proxy': http_proxy_input.value or '',
                 'https_proxy': https_proxy_input.value or '',
@@ -435,7 +445,22 @@ def render(copy_from: str | None = None):
                     if not defaults['is_local'] and initial_bind == 'http://127.0.0.1:8443':
                         initial_bind = 'http://0.0.0.0:8443'
                     web_bind_address_input = ui.input('Web Bind Address', value=initial_bind).props('outlined rounded color="primary"').classes('w-full')
-                        
+
+                    with ui.column().classes('w-full gap-3').bind_visibility_from(web_interface_toggle, 'value'):
+                        ui.label('Web Interface Encryption (HTTPS)').classes(theme.small_muted('font-medium'))
+                        web_ssl_cert_input = ui.input('SSL Certificate Path (on target host)', value=defaults['web_ssl_cert']).props('outlined rounded color="primary"').classes('w-full')
+                        web_ssl_key_input = ui.input('SSL Key Path (on target host)', value=defaults['web_ssl_key']).props('outlined rounded color="primary"').classes('w-full')
+                        ui.label('Leave blank to use HTTP. When both paths are set, the bind address scheme is automatically switched to https://.').classes(theme.small_muted())
+                        with ui.expansion('How to generate a self-signed certificate', icon='lock').classes('w-full').props('header-class="text-muted"'):
+                            with ui.column().classes('w-full gap-2 p-4 rounded border'):
+                                ui.label('Run this command on the target host to create a self-signed certificate:').classes(theme.small_muted())
+                                ui.code(
+                                    'openssl req -x509 -newkey rsa:4096 -keyout server.key -out server.crt \\\n'
+                                    '  -sha256 -days 365 -nodes -subj "/CN=localhost"',
+                                    language='bash',
+                                ).classes('w-full')
+                                ui.label('Then enter the full paths to server.crt and server.key above. For production use a certificate signed by a trusted CA.').classes(theme.small_muted())
+
                     with ui.row().classes('w-full justify-between items-center p-4 rounded-xl border'):
                         with ui.column().classes('gap-1'):
                             ui.label('Federation').classes('font-semibold')

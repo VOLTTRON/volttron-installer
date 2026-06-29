@@ -29,7 +29,7 @@ def show_page(instance_name: str):
         return
 
     # ── State ────────────────────────────────────────────────────────────────
-    conn_params = {}          # active connection params dict
+    conn_params = {}
     tables = []
     selected_table = None
     table_data = {"columns": [], "rows": [], "total_count": 0}
@@ -37,22 +37,67 @@ def show_page(instance_name: str):
     offset = 0
 
     # ── UI element references ─────────────────────────────────────────────────
-    connection_summary = None   # ui.column shown when params are auto-discovered
-    connection_form = None      # ui.column shown when params need manual entry
     host_input = None
     port_input = None
     dbname_input = None
     user_input = None
     password_input = None
-    connect_btn = None
-    table_tree = None
-    table_select = None
+    table_list_container = None
     grid_container = None
     ag_grid = None
     pagination_label = None
     status_label = None
+    active_table_label = None
 
-    # ── Discovery ────────────────────────────────────────────────────────────
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def show_loading(message: str = "Loading..."):
+        if not grid_container:
+            return
+        grid_container.clear()
+        with grid_container:
+            with ui.column().classes('w-full items-center justify-center py-16 gap-4'):
+                ui.spinner(size='lg')
+                ui.label(message).classes('text-grey-5 text-sm')
+
+    def render_table_list():
+        """Re-render the sidebar table list, highlighting the active table."""
+        if not table_list_container:
+            return
+        table_list_container.clear()
+        with table_list_container:
+            for t in tables:
+                is_active = t == selected_table
+                row_classes = (
+                    'w-full flex items-center gap-2 px-3 py-2 rounded cursor-pointer '
+                    + ('bg-primary text-white' if is_active else 'hover:bg-grey-2 dark:hover:bg-grey-8')
+                )
+                with ui.row().classes(row_classes).on('click', lambda _, name=t: on_table_change(name)):
+                    ui.icon('table_chart').classes('text-sm ' + ('text-white' if is_active else 'text-primary'))
+                    ui.label(t).classes('text-sm font-medium')
+
+    def _populate_form(params: dict):
+        if host_input:
+            host_input.value = str(params.get("host", "127.0.0.1"))
+        if port_input:
+            port_input.value = str(params.get("port", 5432))
+        if dbname_input:
+            dbname_input.value = str(params.get("dbname", ""))
+        if user_input:
+            user_input.value = str(params.get("user", ""))
+        if password_input:
+            password_input.value = str(params.get("password", ""))
+
+    def _params_from_form() -> dict:
+        return {
+            "host": host_input.value.strip() if host_input else "127.0.0.1",
+            "port": int(port_input.value) if port_input and port_input.value else 5432,
+            "dbname": dbname_input.value.strip() if dbname_input else "",
+            "user": user_input.value.strip() if user_input else "",
+            "password": password_input.value if password_input else "",
+        }
+
+    # ── Discovery ─────────────────────────────────────────────────────────────
 
     async def _find_postgres_historian_identity() -> str | None:
         """Try to find a running postgresql historian agent VIP identity."""
@@ -86,105 +131,71 @@ def show_page(instance_name: str):
 
         if discovered:
             conn_params = discovered
-            # Show summary, hide form
             _populate_form(conn_params)
-            if connection_summary:
-                connection_summary.set_visibility(True)
-            if connection_form:
-                connection_form.set_visibility(False)
             if status_label:
                 status_label.text = f"Auto-discovered from agent: {identity}"
             await connect_to_db()
         else:
-            # Fall back to defaults shown in editable form
             conn_params = dict(_DEFAULT_PARAMS)
             _populate_form(conn_params)
-            if connection_summary:
-                connection_summary.set_visibility(False)
-            if connection_form:
-                connection_form.set_visibility(True)
             if status_label:
                 status_label.text = "Enter connection details and click Connect."
-
-    def _populate_form(params: dict):
-        if host_input:
-            host_input.value = str(params.get("host", "127.0.0.1"))
-        if port_input:
-            port_input.value = str(params.get("port", 5432))
-        if dbname_input:
-            dbname_input.value = str(params.get("dbname", ""))
-        if user_input:
-            user_input.value = str(params.get("user", ""))
-        if password_input:
-            password_input.value = str(params.get("password", ""))
-
-    def _params_from_form() -> dict:
-        return {
-            "host": host_input.value.strip() if host_input else "127.0.0.1",
-            "port": int(port_input.value) if port_input and port_input.value else 5432,
-            "dbname": dbname_input.value.strip() if dbname_input else "",
-            "user": user_input.value.strip() if user_input else "",
-            "password": password_input.value if password_input else "",
-        }
 
     # ── Connect / table loading ───────────────────────────────────────────────
 
     async def connect_to_db():
         nonlocal tables, selected_table, conn_params
-        if connection_form and connection_form.visible:
-            conn_params = _params_from_form()
-
+        conn_params = _params_from_form()
         selected_table = None
         tables = []
-        if table_tree:
-            table_tree._props['nodes'] = []
-            table_tree.update()
-        if table_select:
-            table_select.options = []
-            table_select.value = None
+        render_table_list()
+        if active_table_label:
+            active_table_label.text = "No table selected"
+        show_loading("Connecting to database…")
 
         try:
-            tables = await postgresql_historian.list_tables(instance, conn_params)
-            if table_select:
-                table_select.options = tables
-
-            tree_nodes = [
-                {"id": t, "label": t, "icon": "table_chart", "children": []}
-                for t in tables
-            ]
-            if table_tree:
-                table_tree._props['nodes'] = tree_nodes
-                table_tree.update()
+            tables = await postgresql_historian.list_tables(conn_params)
+            render_table_list()
 
             if tables:
                 default_table = next((t for t in tables if t.lower() in ["data", "topics"]), tables[0])
-                if table_select:
-                    table_select.value = default_table
                 await on_table_change(default_table)
             else:
+                if grid_container:
+                    grid_container.clear()
                 ui.notify("Connected — no tables found in public schema.", type="warning")
         except Exception as e:
+            if grid_container:
+                grid_container.clear()
             ui.notify(f"Connection failed: {e}", type="negative")
 
     async def on_table_change(table_name: str):
         nonlocal selected_table, offset
+        if not table_name:
+            return
         selected_table = table_name
         offset = 0
+        render_table_list()
+        if active_table_label:
+            active_table_label.text = table_name
         await load_table_data()
 
     async def load_table_data():
         nonlocal table_data
         if not conn_params or not selected_table:
             return
+        show_loading(f"Loading {selected_table}…")
         try:
             table_data = await postgresql_historian.query_table(
-                instance, conn_params, selected_table, limit=limit, offset=offset
+                conn_params, selected_table, limit=limit, offset=offset
             )
             total_count = table_data["total_count"]
             if pagination_label:
                 pagination_label.text = f"Total: {total_count} rows"
             update_grid()
         except Exception as e:
+            if grid_container:
+                grid_container.clear()
             ui.notify(f"Error loading table data: {e}", type="negative")
 
     def update_grid():
@@ -225,7 +236,6 @@ def show_page(instance_name: str):
 
     # ── Page layout ───────────────────────────────────────────────────────────
     with ui.column().classes(theme.page_container('py-8 px-4')):
-        # Header
         with ui.column().classes('w-full max-w-6xl gap-4 mb-4'):
             with ui.row().classes('w-full justify-between items-center'):
                 with ui.row().classes('items-center gap-3'):
@@ -247,55 +257,34 @@ def show_page(instance_name: str):
                 with ui.column().classes('gap-4 py-2 w-80 min-w-80'):
                     ui.label('Connection').classes('font-bold text-lg')
 
-                    # Status / discovery feedback
                     status_label = ui.label('Connecting…').classes(theme.muted() + ' text-sm')
 
-                    # Auto-discovered summary (shown when params were pulled from config store)
-                    with ui.column().classes('gap-1 w-full') as connection_summary:
-                        connection_summary.set_visibility(False)
-                        ui.label('Auto-discovered params:').classes('text-xs font-semibold ' + theme.muted())
-                        with ui.column().classes('gap-0 pl-2'):
-                            # Labels are filled in by load_connection via _populate_form
-                            pass
-                        edit_btn = ui.button('Edit connection', icon='edit', on_click=lambda: (
-                            connection_summary.set_visibility(False),
-                            connection_form.set_visibility(True),
-                        )).props('flat dense color="primary"').classes('self-start mt-1')
-
-                    # Manual / editable form
-                    with ui.column().classes('gap-2 w-full') as connection_form:
-                        connection_form.set_visibility(False)
+                    with ui.column().classes('gap-2 w-full'):
                         host_input = ui.input('Host', value='127.0.0.1').props('outlined dense').classes('w-full')
                         port_input = ui.input('Port', value='5432').props('outlined dense').classes('w-full')
                         dbname_input = ui.input('Database', value='test_historian').props('outlined dense').classes('w-full')
                         user_input = ui.input('User', value='historian').props('outlined dense').classes('w-full')
                         password_input = ui.input('Password', value='historian').props('outlined dense type=password').classes('w-full')
-                        connect_btn = ui.button('Connect', icon='link', on_click=connect_to_db).props('color="primary"').classes('w-full')
+                        ui.button('Connect', icon='link', on_click=connect_to_db).props('color="primary"').classes('w-full')
 
                     ui.separator()
 
                     ui.label('Tables').classes('font-bold text-lg')
-                    table_tree = ui.tree(
-                        nodes=[],
-                        label_key='label',
-                        on_select=lambda e: on_table_change(e.value) if e.value in tables else None,
-                    ).classes('w-full max-h-96 overflow-y-auto')
+                    table_list_container = ui.column().classes('w-full gap-1 max-h-96 overflow-y-auto')
 
                 ui.separator().props('vertical')
 
                 # ── Main content ──────────────────────────────────────────────
                 with ui.column().classes('gap-4 py-2 flex-grow min-w-0'):
                     with ui.row().classes('w-full items-center gap-3'):
-                        table_select = ui.select(
-                            options=[],
-                            label='Active Table',
-                            on_change=lambda e: on_table_change(e.value) if e.value else None,
-                        ).props('outlined dense').classes('w-64')
+                        with ui.row().classes('items-center gap-2'):
+                            ui.icon('table_chart').classes('text-primary')
+                            active_table_label = ui.label('No table selected').classes('font-bold text-base')
 
                         ui.button(icon='refresh', on_click=load_table_data).props('flat round color="primary"').tooltip('Refresh data')
                         ui.button('Export CSV', icon='download', on_click=export_csv).props('outline color="primary"').tooltip('Export current view to CSV')
                         ui.space()
-                        pagination_label = ui.label('No table selected').classes('text-sm')
+                        pagination_label = ui.label('').classes('text-sm')
 
                     grid_container = ui.column().classes('w-full flex-grow')
 

@@ -28,16 +28,26 @@ def show_page(instance_name: str):
     limit = 500
     offset = 0
 
-    # UI Elements references
+    # UI element references
     db_select = None
-    table_tree = None
+    table_list_container = None
     grid_container = None
     ag_grid = None
     pagination_label = None
-    table_select = None
+    active_table_label = None  # read-only indicator in the toolbar
+
+    def show_loading(message: str = "Loading..."):
+        if not grid_container:
+            return
+        grid_container.clear()
+        with grid_container:
+            with ui.column().classes('w-full items-center justify-center py-16 gap-4'):
+                ui.spinner(size='lg')
+                ui.label(message).classes('text-grey-5 text-sm')
 
     async def load_databases():
         nonlocal db_files, selected_db
+        show_loading("Scanning for databases...")
         try:
             db_files = await sqlite_historian.find_databases(instance)
             if db_files:
@@ -48,50 +58,66 @@ def show_page(instance_name: str):
             else:
                 db_select.options = []
                 db_select.value = None
+                if grid_container:
+                    grid_container.clear()
                 ui.notify("No SQLite databases found in VOLTTRON_HOME.", type="warning")
         except Exception as e:
+            if grid_container:
+                grid_container.clear()
             ui.notify(f"Error finding databases: {e}", type="negative")
+
+    def render_table_list():
+        """Re-render the sidebar table list, highlighting the active table."""
+        if not table_list_container:
+            return
+        table_list_container.clear()
+        with table_list_container:
+            for t in tables:
+                is_active = t == selected_table
+                row_classes = (
+                    'w-full flex items-center gap-2 px-3 py-2 rounded cursor-pointer '
+                    + ('bg-primary text-white' if is_active else 'hover:bg-grey-2 dark:hover:bg-grey-8')
+                )
+                with ui.row().classes(row_classes).on('click', lambda _, name=t: on_table_change(name)):
+                    ui.icon('table_chart').classes('text-sm ' + ('text-white' if is_active else 'text-primary'))
+                    ui.label(t).classes('text-sm font-medium')
 
     async def on_db_change(db_path):
         nonlocal selected_db, tables, selected_table
         selected_db = db_path
         selected_table = None
         tables = []
-        if table_tree:
-            table_tree._props['nodes'] = []
-            table_tree.update()
-        if table_select:
-            table_select.options = []
-            table_select.value = None
+
+        if table_list_container:
+            table_list_container.clear()
+        if active_table_label:
+            active_table_label.text = 'No table selected'
 
         if not db_path:
             return
 
         try:
             tables = await sqlite_historian.list_tables(instance, db_path)
-            if table_select:
-                table_select.options = tables
-
-            tree_nodes = [
-                {"id": t, "label": t, "icon": "table_chart", "children": []}
-                for t in tables
-            ]
-            if table_tree:
-                table_tree._props['nodes'] = tree_nodes
-                table_tree.update()
+            render_table_list()
 
             if tables:
                 default_table = next((t for t in tables if t.lower() in ["data", "topics"]), tables[0])
-                if table_select:
-                    table_select.value = default_table
                 await on_table_change(default_table)
         except Exception as e:
             ui.notify(f"Error loading tables: {e}", type="negative")
 
     async def on_table_change(table_name):
         nonlocal selected_table, offset
+        if not table_name:
+            return
         selected_table = table_name
         offset = 0
+
+        render_table_list()
+
+        if active_table_label:
+            active_table_label.text = table_name
+
         await load_table_data()
 
     async def load_table_data():
@@ -99,6 +125,9 @@ def show_page(instance_name: str):
         if not selected_db or not selected_table:
             return
 
+        is_remote = not instance.get("is_local", True)
+        loading_msg = "Downloading database from remote..." if is_remote else "Loading table data..."
+        show_loading(loading_msg)
         try:
             table_schema = await sqlite_historian.get_table_schema(instance, selected_db, selected_table)
             table_data = await sqlite_historian.query_table(
@@ -109,6 +138,8 @@ def show_page(instance_name: str):
                 pagination_label.text = f"Total: {total_count} rows"
             update_grid()
         except Exception as e:
+            if grid_container:
+                grid_container.clear()
             ui.notify(f"Error loading table data: {e}", type="negative")
 
     def update_grid():
@@ -170,7 +201,7 @@ def show_page(instance_name: str):
             ui.separator()
 
             with ui.row().classes('w-full gap-5 items-stretch no-wrap'):
-                # Sidebar
+                # Sidebar — database + table navigation
                 with ui.column().classes('gap-4 py-2 w-80 min-w-80'):
                     ui.label('Select Database').classes('font-bold text-lg')
                     db_select = ui.select(
@@ -182,27 +213,22 @@ def show_page(instance_name: str):
                     ui.separator()
 
                     ui.label('Tables').classes('font-bold text-lg')
-                    table_tree = ui.tree(
-                        nodes=[],
-                        label_key='label',
-                        on_select=lambda e: on_table_change(e.value) if e.value in tables else None
-                    ).classes('w-full max-h-96 overflow-y-auto')
+                    table_list_container = ui.column().classes('w-full gap-1 max-h-96 overflow-y-auto')
 
                 ui.separator().props('vertical')
 
-                # Main Content Area
+                # Main content area
                 with ui.column().classes('gap-4 py-2 flex-grow min-w-0'):
                     with ui.row().classes('w-full items-center gap-3'):
-                        table_select = ui.select(
-                            options=[],
-                            label='Active Table',
-                            on_change=lambda e: on_table_change(e.value) if e.value else None
-                        ).props('outlined dense').classes('w-64')
+                        # Read-only indicator — shows the active table name
+                        with ui.row().classes('items-center gap-2'):
+                            ui.icon('table_chart').classes('text-primary')
+                            active_table_label = ui.label('No table selected').classes('font-bold text-base')
 
                         ui.button(icon='refresh', on_click=load_table_data).props('flat round color="primary"').tooltip('Refresh data')
                         ui.button('Export CSV', icon='download', on_click=export_csv).props('outline color="primary"').tooltip('Export current view to CSV')
                         ui.space()
-                        pagination_label = ui.label('No table selected').classes('text-sm')
+                        pagination_label = ui.label('').classes('text-sm')
 
                     grid_container = ui.column().classes('w-full flex-grow')
 

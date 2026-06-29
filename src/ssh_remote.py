@@ -324,6 +324,68 @@ async def read_text(instance: dict, remote_path: str) -> str:
     return await asyncio.to_thread(_read_text_sync, instance, remote_path)
 
 
+def _stat_sync(instance: dict, remote_path: str) -> dict:
+    """Return {"size": int, "mtime": float} for a remote file via SFTP stat."""
+    creds = credentials_from_instance(instance)
+    with _host_lock(creds):
+        client = _connect(creds)
+        try:
+            sftp = client.open_sftp()
+            try:
+                # Expand ~ and env vars on the remote side
+                stdin, stdout, stderr = client.exec_command(
+                    f"bash -lc {shlex.quote('python3 -c ' + shlex.quote('import os,sys; print(os.path.abspath(os.path.expanduser(sys.argv[1])))') + ' ' + shlex.quote(remote_path))}",
+                    timeout=30,
+                )
+                expanded_path = stdout.read().decode(errors="replace").strip()
+                error = stderr.read().decode(errors="replace").strip()
+                if stdout.channel.recv_exit_status() != 0:
+                    raise SSHCommandError(error or "Could not expand remote path")
+                attrs = sftp.stat(expanded_path)
+                return {"size": attrs.st_size, "mtime": float(attrs.st_mtime)}
+            finally:
+                sftp.close()
+        finally:
+            client.close()
+
+
+async def stat(instance: dict, remote_path: str) -> dict:
+    """Return {"size": int, "mtime": float} for a remote file. One cheap round trip."""
+    return await asyncio.to_thread(_stat_sync, instance, remote_path)
+
+
+def _download_file_sync(instance: dict, remote_path: str, local_path: str) -> None:
+    """Download a remote file to local_path atomically (*.part → os.replace)."""
+    creds = credentials_from_instance(instance)
+    with _host_lock(creds):
+        client = _connect(creds)
+        try:
+            sftp = client.open_sftp()
+            try:
+                # Expand ~ on the remote side
+                stdin, stdout, stderr = client.exec_command(
+                    f"bash -lc {shlex.quote('python3 -c ' + shlex.quote('import os,sys; print(os.path.abspath(os.path.expanduser(sys.argv[1])))') + ' ' + shlex.quote(remote_path))}",
+                    timeout=30,
+                )
+                expanded_path = stdout.read().decode(errors="replace").strip()
+                error = stderr.read().decode(errors="replace").strip()
+                if stdout.channel.recv_exit_status() != 0:
+                    raise SSHCommandError(error or "Could not expand remote path")
+                part_path = local_path + ".part"
+                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                sftp.get(expanded_path, part_path)
+                os.replace(part_path, local_path)
+            finally:
+                sftp.close()
+        finally:
+            client.close()
+
+
+async def download_file(instance: dict, remote_path: str, local_path: str) -> None:
+    """Download a remote file to local_path atomically via SFTP."""
+    await asyncio.to_thread(_download_file_sync, instance, remote_path, local_path)
+
+
 async def path_exists(instance: dict, remote_path: str) -> bool:
     command = f"test -e {shlex.quote(remote_path)} && printf yes || printf no"
     stdout, _ = await run(instance, command, timeout=30)
