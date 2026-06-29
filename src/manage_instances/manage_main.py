@@ -546,12 +546,8 @@ def render(instance_name: str):
                     status_badge = ui.badge('Checking Status...', color='gray').classes('text-sm px-3 py-2')
                     ui.button(
                         icon='storage',
-                        on_click=lambda: ui.navigate.to(f'/manage/{instance_name}/database'),
-                    ).props('flat round color="primary"').tooltip('SQLite viewer')
-                    ui.button(
-                        icon='dataset',
-                        on_click=lambda: ui.navigate.to(f'/manage/{instance_name}/postgres'),
-                    ).props('flat round color="primary"').tooltip('PostgreSQL viewer')
+                        on_click=lambda: ui.navigate.to(f'/manage/{instance_name}/historian'),
+                    ).props('flat round color="primary"').tooltip('Database viewer')
                     ui.button(
                         icon='content_copy',
                         on_click=lambda: ui.navigate.to(f'/deploy/copy/{instance_name}'),
