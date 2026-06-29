@@ -1,20 +1,20 @@
 import csv
 import io
-from nicegui import ui, binding
-from src import db, theme
+from nicegui import ui
+from src.dark import dark_mode_control
+from src import db
 from src.manage_instances.historian_viewers import sqlite_historian
 
 def show_page(instance_name: str):
-    dark_mode = theme.dark_mode()
+    dark = dark_mode_control()
 
     instances = db.get_instances()
     instance = next((inst for inst in instances if inst.get("name") == instance_name), None)
 
     if not instance:
-        with ui.column().classes(theme.page_container('py-8 px-4')):
+        with ui.column().classes('w-full items-center min-h-screen py-8 px-4'):
             ui.label(f"Instance '{instance_name}' not found.").classes('text-red text-xl font-bold')
             back_btn = ui.button('Back to Instances', icon='arrow_back', on_click=lambda: ui.navigate.to('/instances')).props('outline')
-            binding.bind_from(back_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
         return
 
     # State variables
@@ -183,20 +183,18 @@ def show_page(instance_name: str):
         ui.notify("CSV Exported successfully", type="positive")
 
     # Page Layout
-    with ui.column().classes(theme.page_container('py-8 px-4')):
+    with ui.column().classes('w-full items-center min-h-screen py-8 px-4'):
         with ui.column().classes('w-full max-w-6xl gap-4 mb-4'):
             with ui.row().classes('w-full justify-between items-center'):
                 with ui.row().classes('items-center gap-3'):
                     back_btn = ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to(f'/manage/{instance_name}')).props('flat round')
-                    binding.bind_from(back_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
                     with ui.column().classes('gap-0'):
                         ui.label('SQLite Viewer').classes('text-3xl font-bold')
-                        ui.label(f'Instance: {instance_name}').classes(theme.muted())
+                        ui.label(f'Instance: {instance_name}').classes('text-grey-6')
 
                 with ui.row().classes('items-center gap-3'):
-                    theme_btn = ui.button(on_click=dark_mode.toggle).props('flat round')
-                    theme_btn.bind_icon_from(dark_mode, 'value', backward=lambda val: 'light_mode' if val else 'dark_mode')
-                    binding.bind_from(theme_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'warning' if val else 'primary')
+                    theme_btn = ui.button(on_click=dark.toggle).props('flat round')
+                    theme_btn.bind_icon_from(dark, 'value', backward=lambda v: 'light_mode' if v else 'dark_mode')
 
             ui.separator()
 

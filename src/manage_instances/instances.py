@@ -1,16 +1,16 @@
 import asyncio
 
-from nicegui import ui, binding
+from nicegui import ui, app
+from src.dark import dark_mode_control
 import src.db as db
-from src import theme
 from src.manage_instances import agent_management
 from src.manage_instances.status_check import check_volttron_rest_status
 from src.manage_instances.start_platform import start_platform_command
 
 def render():
-    dark_mode = theme.dark_mode()
+    dark = dark_mode_control()
     instances = db.get_instances()
-    view_mode = 'cards'
+    view_mode = app.storage.user.get('instances_view_mode', 'cards')
     status_results = {
         instance.get('name', ''): {'status': 'checking', 'message': 'Checking platform status'}
         for instance in instances
@@ -80,7 +80,7 @@ def render():
     def request_sudo(instance: dict, action_name: str, action, button_icon: str, button_color: str):
         with ui.dialog() as sudo_dialog, ui.card().classes('p-6 gap-4 w-full max-w-lg'):
             ui.label(f'{action_name} {instance.get("name", "instance")}').classes('text-lg font-bold')
-            ui.label('Local systemd access requires sudo. The password is used once and is not saved.').classes(theme.muted())
+            ui.label('Local systemd access requires sudo. The password is used once and is not saved.').classes('text-grey-6')
             password_input = ui.input('Local sudo password', password=True, password_toggle_button=True).props(
                 'outlined autocomplete="current-password"'
             ).classes('w-full')
@@ -134,7 +134,7 @@ def render():
         def handle_delete():
             with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4 w-full max-w-lg'):
                 ui.label(f'Delete {instance_name}?').classes('text-lg font-bold')
-                ui.label('This removes the systemd service, virtual environment, VOLTTRON_HOME, and installer record.').classes(theme.muted())
+                ui.label('This removes the systemd service, virtual environment, VOLTTRON_HOME, and installer record.').classes('text-grey-6')
                 with ui.row().classes('justify-end w-full gap-2'):
                     ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
 
@@ -165,10 +165,10 @@ def render():
         return badge
 
     def render_card(instance: dict):
-        with ui.card().classes(theme.card('h-full gap-4')):
+        with ui.card().classes('w-full p-6 h-full gap-4'):
             with ui.row().classes('w-full justify-between items-start'):
                 with ui.column().classes('gap-1'):
-                    ui.label(instance.get('name', 'Unknown')).classes(theme.section_title())
+                    ui.label(instance.get('name', 'Unknown')).classes('text-xl font-semibold')
                     ui.label(instance.get('type', 'Unknown Type')).classes('text-xs text-grey-6 uppercase font-medium')
                 render_status(instance)
 
@@ -180,10 +180,10 @@ def render():
                     ui.label(instance.get('host', 'localhost') if not instance.get('is_local') else 'localhost')
                 with ui.row().classes('items-center gap-2'):
                     ui.icon('link', size='sm', color='gray')
-                    ui.label(instance.get('vip') or 'VIP address not recorded').classes(theme.small_muted())
+                    ui.label(instance.get('vip') or 'VIP address not recorded').classes('text-grey-6 text-sm')
                 with ui.row().classes('items-center gap-2'):
                     ui.icon('language', size='sm', color='gray')
-                    ui.label(instance.get('web_bind_address') or 'Web interface disabled').classes(theme.small_muted())
+                    ui.label(instance.get('web_bind_address') or 'Web interface disabled').classes('text-grey-6 text-sm')
 
             with ui.row().classes('w-full gap-2'):
                 ui.button(
@@ -193,25 +193,23 @@ def render():
                 render_instance_menu(instance)
 
     def render_list_item(instance: dict):
-        with ui.item().classes('w-full'):
+        host = instance.get('host', 'localhost') if not instance.get('is_local') else 'localhost'
+        instance_name = instance.get('name', 'Unknown')
+        host_type = instance.get('type', 'Modular')
+        with ui.item(on_click=lambda n=instance_name: ui.navigate.to(f'/manage/{n}')).classes('rounded').props('clickable v-ripple'):
             with ui.item_section().props('avatar'):
                 ui.icon('dns', color='primary')
             with ui.item_section():
-                ui.item_label(instance.get('name', 'Unknown')).classes('font-semibold')
-                host = instance.get('host', 'localhost') if not instance.get('is_local') else 'localhost'
-                ui.item_label(f'{instance.get("type", "Unknown Type")} · {host}').props('caption')
+                ui.item_label(instance_name).classes('font-semibold')
+                ui.item_label(f'{host_type} · {host}').props('caption')
             with ui.item_section():
-                ui.item_label(instance.get('vip') or 'VIP address not recorded')
-                ui.item_label(instance.get('web_bind_address') or 'Web interface disabled').props('caption')
+                ui.item_label(instance.get('vip') or '—').classes('font-mono text-sm')
+                ui.item_label(instance.get('web_bind_address') or '—').props('caption').classes('font-mono')
             with ui.item_section().props('side'):
                 render_status(instance)
             with ui.item_section().props('side'):
-                with ui.row().classes('items-center gap-1'):
-                    ui.button(
-                        icon='settings',
-                        on_click=lambda instance_name=instance.get('name'): ui.navigate.to(f'/manage/{instance_name}'),
-                    ).props('flat round color="primary"').tooltip('Manage')
-                    render_instance_menu(instance)
+                ui.element('div').on('click.stop', lambda: None)
+                render_instance_menu(instance)
 
     @ui.refreshable
     def render_instances():
@@ -230,26 +228,33 @@ def render():
                             for instance in machine_instances:
                                 render_card(instance)
 
-    def change_view(event):
+    def change_view_to(mode: str):
         nonlocal view_mode
-        view_mode = event.value
+        view_mode = mode
+        app.storage.user['instances_view_mode'] = mode
+        cards_btn.props('color="primary"' if mode == 'cards' else 'color="grey"')
+        list_btn.props('color="primary"' if mode == 'list' else 'color="grey"')
         render_instances.refresh()
     
-    with ui.column().classes(theme.page_container('py-10 px-4')):
+    with ui.column().classes('w-full items-center min-h-screen py-10 px-4'):
         # Header
         with ui.row().classes('w-full max-w-5xl justify-between items-center mb-8'):
             with ui.row().classes('items-center gap-4'):
                 back_btn = ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/')).props('flat round')
-                binding.bind_from(back_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
-                ui.label('Instances').classes(theme.title())
+                ui.label('Instances').classes('text-4xl font-bold')
             
             with ui.row().classes('items-center gap-3'):
-                ui.toggle({'cards': 'Cards', 'list': 'List'}, value=view_mode, on_change=change_view).props(
-                    'unelevated no-caps toggle-color="primary"'
-                )
-                theme_btn = ui.button(on_click=dark_mode.toggle).props('flat round')
-                theme_btn.bind_icon_from(dark_mode, 'value', backward=lambda val: 'light_mode' if val else 'dark_mode')
-                binding.bind_from(theme_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'warning' if val else 'primary')
+                with ui.button_group().props('outline rounded'):
+                    cards_btn = ui.button(icon='grid_view', on_click=lambda: change_view_to('cards')).props(
+                        'flat padding="xs sm"'
+                    ).tooltip('Card view')
+                    list_btn = ui.button(icon='format_list_bulleted', on_click=lambda: change_view_to('list')).props(
+                        'flat padding="xs sm"'
+                    ).tooltip('List view')
+                    cards_btn.props('color="primary"' if view_mode == 'cards' else 'color="grey"')
+                    list_btn.props('color="primary"' if view_mode == 'list' else 'color="grey"')
+                theme_btn = ui.button(on_click=dark.toggle).props('flat round')
+                theme_btn.bind_icon_from(dark, 'value', backward=lambda v: 'light_mode' if v else 'dark_mode')
                 ui.button('Deploy New Platform', icon='add', on_click=lambda: ui.navigate.to('/deploy')).props('color="primary" rounded')
             
         if not instances:

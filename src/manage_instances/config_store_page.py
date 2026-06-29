@@ -1,13 +1,12 @@
 import io
 import zipfile
 
-from nicegui import binding, ui
+from nicegui import ui
+from src.dark import dark_mode_control
 
 import src.db as db
-from src import theme
 from src.manage_instances import config_store
 from src.manage_instances.config_templates import TEMPLATES
-
 
 def _uploaded_config_type(filename: str) -> str:
     lower_name = filename.lower()
@@ -17,14 +16,12 @@ def _uploaded_config_type(filename: str) -> str:
         return 'text/csv'
     return 'text/plain'
 
-
 def _uploaded_config_name(filename: str, agent_identity: str) -> str:
     clean_name = filename.replace('\\', '/').split('/')[-1]
     lower_name = clean_name.lower()
     if agent_identity == 'platform.driver' and lower_name.endswith('.config'):
         return f"devices/{clean_name.rsplit('.', 1)[0]}"
     return clean_name
-
 
 def _uploaded_config_entries(filename: str, content: bytes, agent_identity: str) -> list[tuple[str, str, str]]:
     lower_name = filename.lower()
@@ -50,9 +47,8 @@ def _uploaded_config_entries(filename: str, content: bytes, agent_identity: str)
         _uploaded_config_type(filename),
     )]
 
-
 def render(instance_name: str, agent_identity: str):
-    dark_mode = theme.dark_mode()
+    dark = dark_mode_control()
     instances = db.get_instances()
     instance = next((i for i in instances if i.get('name') == instance_name), None)
 
@@ -60,7 +56,6 @@ def render(instance_name: str, agent_identity: str):
         with ui.column().classes('w-full items-center py-20'):
             ui.label(f'Instance "{instance_name}" not found').classes('text-red-500 text-2xl font-bold mb-4')
             back_btn = ui.button('Back to Instances', icon='arrow_back', on_click=lambda: ui.navigate.to('/instances')).props('outline')
-            binding.bind_from(back_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
         return
 
     selected_config = None
@@ -330,14 +325,12 @@ def render(instance_name: str, agent_identity: str):
             with ui.row().classes('w-full justify-between items-center'):
                 with ui.row().classes('items-center gap-3'):
                     back_btn = ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to(f'/manage/{instance_name}')).props('flat round')
-                    binding.bind_from(back_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
                     with ui.column().classes('gap-0'):
                         ui.label('Config Store').classes('text-3xl font-bold')
                         ui.label(f'{instance_name} / {agent_identity}').classes('text-grey-6')
 
-                theme_btn = ui.button(on_click=dark_mode.toggle).props('flat round')
-                theme_btn.bind_icon_from(dark_mode, 'value', backward=lambda val: 'light_mode' if val else 'dark_mode')
-                binding.bind_from(theme_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'warning' if val else 'primary')
+                theme_btn = ui.button(on_click=dark.toggle).props('flat round')
+                theme_btn.bind_icon_from(dark, 'value', backward=lambda v: 'light_mode' if v else 'dark_mode')
 
             ui.separator()
 

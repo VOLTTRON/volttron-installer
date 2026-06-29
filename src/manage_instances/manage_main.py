@@ -1,10 +1,10 @@
-from nicegui import ui, binding
+from nicegui import ui
+from src.dark import dark_mode_control
 import json
 from urllib.parse import quote
 
 import src.db as db
 from src import ssh_remote
-from src import theme
 from src.manage_instances import agent_management
 from src.manage_instances.log_parser import push_logs_to_ui
 
@@ -17,7 +17,7 @@ DEFAULT_LIBRARY_NAMES = {
 }
 
 def render(instance_name: str):
-    dark_mode = theme.dark_mode()
+    dark = dark_mode_control()
     instances = db.get_instances()
     instance = next((i for i in instances if i.get('name') == instance_name), None)
     
@@ -25,7 +25,7 @@ def render(instance_name: str):
         with ui.column().classes('w-full items-center py-20'):
             ui.label(f'Instance "{instance_name}" not found').classes('text-red-500 text-2xl font-bold mb-4')
             back_btn = ui.button('Back to Instances', on_click=lambda: ui.navigate.to('/instances')).props('outline')
-            binding.bind_from(back_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
+
         return
 
     agents_container = None
@@ -67,7 +67,7 @@ def render(instance_name: str):
         with container:
             with ui.column().classes('w-full min-h-24 items-center justify-center gap-2 border border-dashed rounded-md'):
                 ui.icon('key', size='sm', color='gray')
-                ui.label(message).classes(theme.muted())
+                ui.label(message).classes('text-grey-6')
 
     def set_platform_status(text: str, color: str, state: str = 'unknown'):
         nonlocal current_platform_state
@@ -361,7 +361,7 @@ def render(instance_name: str):
     async def handle_clear_log():
         with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4'):
             ui.label(f'Clear {active_log_name}?').classes('text-lg font-bold')
-            ui.label('This truncates the current log file for this instance. New log entries will still appear here.').classes(theme.muted())
+            ui.label('This truncates the current log file for this instance. New log entries will still appear here.').classes('text-grey-6')
             with ui.row().classes('justify-end w-full gap-2'):
                 ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
 
@@ -394,7 +394,7 @@ def render(instance_name: str):
         with ui.dialog() as progress_dialog, ui.card().classes('p-8 items-center gap-4'):
             ui.label('Installing Agent').classes('text-xl font-bold')
             ui.spinner(size='lg')
-            ui.label(source).classes(theme.muted())
+            ui.label(source).classes('text-grey-6')
         progress_dialog.open()
         try:
             await agent_management.install_agent(instance, source, identity, start, config)
@@ -420,7 +420,7 @@ def render(instance_name: str):
         with ui.dialog() as progress_dialog, ui.card().classes('p-8 items-center gap-4'):
             ui.label('Installing Library').classes('text-xl font-bold')
             ui.spinner(size='lg')
-            ui.label(source).classes(theme.muted())
+            ui.label(source).classes('text-grey-6')
         progress_dialog.open()
         try:
             await agent_management.install_library(instance, source, force, allow_prerelease)
@@ -454,7 +454,7 @@ def render(instance_name: str):
                 ):
                     with ui.dialog() as sudo_dialog, ui.card().classes('p-6 gap-4 w-full max-w-lg'):
                         ui.label('Sudo Password Required').classes('text-lg font-bold')
-                        ui.label(f'Stopping {instance_name} uses systemd and needs sudo on this machine. The password is used once and is not saved.').classes(theme.muted())
+                        ui.label(f'Stopping {instance_name} uses systemd and needs sudo on this machine. The password is used once and is not saved.').classes('text-grey-6')
                         sudo_password_input = ui.input('Local sudo password', password=True, password_toggle_button=True).props('outlined autocomplete="current-password"').classes('w-full')
                         with ui.row().classes('justify-end w-full gap-2'):
                             ui.button('Cancel', on_click=sudo_dialog.close).props('flat color="gray"')
@@ -477,7 +477,7 @@ def render(instance_name: str):
 
         with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4'):
             ui.label(f'Shut down {instance_name}?').classes('text-lg font-bold')
-            ui.label('This stops the selected platform. Ansible deployments use the systemd service.').classes(theme.muted())
+            ui.label('This stops the selected platform. Ansible deployments use the systemd service.').classes('text-grey-6')
             with ui.row().classes('justify-end w-full gap-2'):
                 ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
                 async def confirm_shutdown():
@@ -493,15 +493,15 @@ def render(instance_name: str):
         needs_local_sudo = instance.get('is_local', True)
         with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4 w-full max-w-xl'):
             ui.label(f'Delete {instance_name}?').classes('text-lg font-bold text-red-400')
-            ui.label('This will stop and remove its systemd service, delete its virtual environment, delete VOLTTRON_HOME, and remove it from this installer.').classes(theme.muted())
+            ui.label('This will stop and remove its systemd service, delete its virtual environment, delete VOLTTRON_HOME, and remove it from this installer.').classes('text-grey-6')
             with ui.column().classes('w-full gap-1 p-3 border rounded-md'):
-                ui.label(f'Systemd Service: {service_name}').classes(theme.small_muted())
-                ui.label(f'Virtual Env: {venv_path}').classes(theme.small_muted())
-                ui.label(f'VOLTTRON Home: {volttron_home}').classes(theme.small_muted())
-                ui.label(f'Instance Record: instances_data/{instance_name}.json').classes(theme.small_muted())
+                ui.label(f'Systemd Service: {service_name}').classes('text-grey-6 text-sm')
+                ui.label(f'Virtual Env: {venv_path}').classes('text-grey-6 text-sm')
+                ui.label(f'VOLTTRON Home: {volttron_home}').classes('text-grey-6 text-sm')
+                ui.label(f'Instance Record: instances_data/{instance_name}.json').classes('text-grey-6 text-sm')
             sudo_password_input = None
             if needs_local_sudo:
-                ui.label('Local sudo is required to remove the systemd service. The password is used once and is not saved.').classes(theme.small_muted())
+                ui.label('Local sudo is required to remove the systemd service. The password is used once and is not saved.').classes('text-grey-6 text-sm')
                 sudo_password_input = ui.input('Local sudo password', password=True, password_toggle_button=True).props('outlined autocomplete="current-password"').classes('w-full')
             with ui.row().classes('justify-end w-full gap-2'):
                 ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
@@ -515,7 +515,7 @@ def render(instance_name: str):
                     with ui.dialog() as progress_dialog, ui.card().classes('p-8 items-center gap-4'):
                         ui.label('Deleting Platform').classes('text-xl font-bold')
                         ui.spinner(size='lg')
-                        ui.label(instance_name).classes(theme.muted())
+                        ui.label(instance_name).classes('text-grey-6')
                     progress_dialog.open()
                     try:
                         messages = await agent_management.delete_platform_files(instance, sudo_password=sudo_password)
@@ -533,13 +533,13 @@ def render(instance_name: str):
                 ui.button('Delete Platform', icon='delete_forever', on_click=confirm_delete).props('color="negative"')
         confirm_dialog.open()
 
-    with ui.column().classes(theme.page_container('py-8 px-4')):
+    with ui.column().classes('w-full items-center min-h-screen py-8 px-4'):
         # Header
         with ui.column().classes('w-full max-w-6xl gap-4 mb-8'):
             with ui.row().classes('w-full justify-between items-center'):
                 with ui.row().classes('items-center gap-3'):
                     back_btn = ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/instances')).props('flat round')
-                    binding.bind_from(back_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
+
                     ui.label(instance_name).classes('text-3xl font-bold')
                 
                 with ui.row().classes('items-center gap-3'):
@@ -552,9 +552,8 @@ def render(instance_name: str):
                         icon='content_copy',
                         on_click=lambda: ui.navigate.to(f'/deploy/copy/{instance_name}'),
                     ).props('flat round color="primary"').tooltip('Copy platform')
-                    theme_btn = ui.button(on_click=dark_mode.toggle).props('flat round')
-                    theme_btn.bind_icon_from(dark_mode, 'value', backward=lambda val: 'light_mode' if val else 'dark_mode')
-                    binding.bind_from(theme_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'warning' if val else 'primary')
+                    theme_btn = ui.button(on_click=dark.toggle).props('flat round')
+                    theme_btn.bind_icon_from(dark, 'value', backward=lambda v: 'light_mode' if v else 'dark_mode')
                 
             async def check_status():
                 from src.manage_instances.status_check import check_volttron_rest_status, is_port_bound
@@ -624,7 +623,7 @@ def render(instance_name: str):
                         ):
                             with ui.dialog() as sudo_dialog, ui.card().classes('p-6 gap-4 w-full max-w-lg'):
                                 ui.label('Sudo Password Required').classes('text-lg font-bold')
-                                ui.label(f'Starting {instance_name} uses systemd and needs sudo on this machine. The password is used once and is not saved.').classes(theme.muted())
+                                ui.label(f'Starting {instance_name} uses systemd and needs sudo on this machine. The password is used once and is not saved.').classes('text-grey-6')
                                 sudo_password_input = ui.input('Local sudo password', password=True, password_toggle_button=True).props('outlined autocomplete="current-password"').classes('w-full')
                                 with ui.row().classes('justify-end w-full gap-2'):
                                     ui.button('Cancel', on_click=sudo_dialog.close).props('flat color="gray"')
@@ -761,7 +760,7 @@ def render(instance_name: str):
 
                 with ui.row().classes('items-center gap-2'):
                     refresh_lib_btn = ui.button(icon='refresh', on_click=refresh_libraries).props('flat round').tooltip('Refresh libraries')
-                    binding.bind_from(refresh_lib_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
+
                     install_library_button = ui.button('Install Library', icon='add', on_click=lambda: install_library_dialog.open()).props('outline color="primary"')
                     install_library_button.disable()
 
@@ -772,11 +771,11 @@ def render(instance_name: str):
             if instance.get('is_local', True):
                 ui.timer(20.0, refresh_libraries)
 
-        with ui.card().classes(theme.card('max-w-6xl mt-5')):
+        with ui.card().classes('w-full p-6 max-w-6xl mt-5'):
             with ui.row().classes('items-center justify-between w-full mb-4'):
                 with ui.row().classes('items-center gap-2'):
                     ui.icon('article', size='sm', color='positive')
-                    ui.label('Live Log Tail').classes(theme.section_title())
+                    ui.label('Live Log Tail').classes('text-xl font-semibold')
                 with ui.row().classes('items-center gap-2'):
                     ui.toggle(
                         {'volttron.log': 'VOLTTRON', 'driver.log': 'Driver'},
@@ -785,7 +784,7 @@ def render(instance_name: str):
                     ).props('dense no-caps toggle-color="primary"')
                     log_follow_switch = ui.switch('Follow', value=True, on_change=lambda e: refresh_log() if getattr(e, 'value', False) else None).props('dense color="positive"')
                     refresh_log_btn = ui.button(icon='refresh', on_click=refresh_log).props('flat round').tooltip('Refresh log')
-                    binding.bind_from(refresh_log_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
+
                     ui.button('Clear Log', icon='delete_sweep', on_click=handle_clear_log).props('flat color="negative"').classes('font-bold')
             log_container = ui.column().classes('w-full')
             with log_container:
@@ -805,7 +804,7 @@ def render(instance_name: str):
 
         with ui.dialog() as install_dialog, ui.card().classes('p-6 gap-4 w-full max-w-xl'):
             ui.label('Install Agent').classes('text-xl font-bold')
-            ui.label('Install from a PyPI package, local agent directory, wheel, or git URL.').classes(theme.muted())
+            ui.label('Install from a PyPI package, local agent directory, wheel, or git URL.').classes('text-grey-6')
             agent_source_input = ui.input('Agent Source', placeholder='volttron-listener or /path/to/agent').props('outlined dense').classes('w-full')
             ui.select(
                 options={name: f"{name} — {desc}" for name, desc in agent_management.KNOWN_AGENTS},
@@ -822,7 +821,7 @@ def render(instance_name: str):
 
         with ui.dialog() as install_library_dialog, ui.card().classes('p-6 gap-4 w-full max-w-xl'):
             ui.label('Install Library').classes('text-xl font-bold')
-            ui.label('Install a VOLTTRON library package into this platform environment.').classes(theme.muted())
+            ui.label('Install a VOLTTRON library package into this platform environment.').classes('text-grey-6')
             library_source_input = ui.input('Library Source', placeholder='volttron-lib-bacnet-driver or /path/to/library.whl').props('outlined dense').classes('w-full')
             ui.select(
                 options={name: f"{name} — {desc}" for name, desc in agent_management.KNOWN_LIBRARIES},

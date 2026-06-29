@@ -1,4 +1,4 @@
-from nicegui import ui, binding
+from nicegui import ui
 import random
 import string
 import asyncio
@@ -6,7 +6,7 @@ import subprocess
 from urllib.parse import urlparse, urlunparse
 
 import src.db as db
-from src import theme
+from src.dark import dark_mode_control
 
 def generate_instance_name():
     return 'volttron-' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
@@ -98,7 +98,7 @@ def _copy_defaults(copy_from: str | None) -> tuple[dict, dict | None]:
 
 
 def render(copy_from: str | None = None):
-    dark_mode = theme.dark_mode()
+    dark = dark_mode_control()
     defaults, source_instance = _copy_defaults(copy_from)
     default_name = defaults['name']
 
@@ -322,32 +322,30 @@ def render(copy_from: str | None = None):
             dialog.close()
             ui.notify(f"Installation failed: {str(e)}", type='negative')
 
-    with ui.column().classes(theme.page_container('py-10 px-4')):
+    with ui.column().classes('w-full items-center min-h-screen py-10 px-4'):
         # Header
         with ui.row().classes('w-full max-w-4xl justify-between items-center mb-8'):
             with ui.row().classes('items-center gap-4'):
-                back_btn = ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/')).props('flat round')
-                binding.bind_from(back_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
-                ui.label('Copy Platform' if source_instance else 'New Platform').classes(theme.title())
-            
+                ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/')).props('flat round')
+                ui.label('Copy Platform' if source_instance else 'New Platform').classes('text-4xl font-bold')
+
             with ui.row().classes('items-center gap-2'):
-                theme_btn = ui.button(on_click=dark_mode.toggle).props('flat round')
-                theme_btn.bind_icon_from(dark_mode, 'value', backward=lambda val: 'light_mode' if val else 'dark_mode')
-                binding.bind_from(theme_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'warning' if val else 'primary')
+                theme_btn = ui.button(on_click=dark.toggle).props('flat round')
+                theme_btn.bind_icon_from(dark, 'value', backward=lambda v: 'light_mode' if v else 'dark_mode')
                 ui.button('Help', icon='help_outline').props('flat color="gray"')
         
         # Main Form Container
         with ui.column().classes('w-full max-w-4xl gap-8'):
             
             # Connection Section
-            with ui.card().classes(theme.card('p-8')):
+            with ui.card().classes('w-full p-8'):
                 with ui.row().classes('items-center gap-3 mb-6'):
                     ui.icon('lan', size='md', color='primary')
                     ui.label('Connection').classes('text-2xl font-semibold')
                 
                 with ui.column().classes('w-full gap-5'):
                     with ui.column().classes('w-full gap-2'):
-                        ui.label('Install Target').classes(theme.small_muted('font-medium'))
+                        ui.label('Install Target').classes('text-grey-6 text-sm font-medium')
                         
                         def handle_install_target_change(e):
                             try:
@@ -368,21 +366,21 @@ def render(copy_from: str | None = None):
                         ssh_port_input = ui.input('SSH Port', value=defaults['ssh_port']).props('outlined rounded color="primary"').classes('w-24')
 
                     with ui.column().classes('w-full gap-3').bind_visibility_from(install_target_toggle, 'value', backward=lambda v: v == 'Remote'):
-                        ui.label('SSH Authentication').classes(theme.small_muted('font-medium'))
+                        ui.label('SSH Authentication').classes('text-grey-6 text-sm font-medium')
                         key_path_input = ui.input('Private Key Path', value=defaults['ssh_key_path']).props('outlined rounded color="primary"').classes('w-full')
                         temporary_password_input = ui.input('Temporary SSH/Sudo Password', password=True, password_toggle_button=True).props('outlined rounded color="primary" autocomplete="current-password"').classes('w-full')
-                        ui.label('Used only during this deployment to install the SSH key on a fresh host and, if needed, configure non-interactive sudo for apt and systemd. It is not saved.').classes(theme.small_muted())
-                        ui.label('After setup, deployment continues with key-based SSH and passwordless sudo. Leave blank when both are already configured.').classes(theme.small_muted())
+                        ui.label('Used only during this deployment to install the SSH key on a fresh host and, if needed, configure non-interactive sudo for apt and systemd. It is not saved.').classes('text-grey-6 text-sm')
+                        ui.label('After setup, deployment continues with key-based SSH and passwordless sudo. Leave blank when both are already configured.').classes('text-grey-6 text-sm')
                         with ui.expansion('How to create an SSH key', icon='key').classes('w-full').props('header-class="text-muted"'):
                             with ui.column().classes('w-full gap-2 p-4 rounded border'):
-                                ui.label('Run these commands on the machine running this installer:').classes(theme.small_muted())
+                                ui.label('Run these commands on the machine running this installer:').classes('text-grey-6 text-sm')
                                 ui.code(
                                     'ssh-keygen -t ed25519 -f ~/.ssh/volttron_installer -C volttron-installer\n'
                                     'ssh-copy-id -i ~/.ssh/volttron_installer.pub USER@REMOTE_HOST\n'
                                     'ssh -i ~/.ssh/volttron_installer USER@REMOTE_HOST',
                                     language='bash',
                                 ).classes('w-full')
-                                ui.label('After the test SSH command works, use ~/.ssh/volttron_installer as the private key path above.').classes(theme.small_muted())
+                                ui.label('After the test SSH command works, use ~/.ssh/volttron_installer as the private key path above.').classes('text-grey-6 text-sm')
                     
                     with ui.expansion('Advanced Settings', icon='settings').classes('w-full').props('header-class="text-muted"'):
                          with ui.column().classes('w-full gap-4 p-4'):
@@ -393,13 +391,13 @@ def render(copy_from: str | None = None):
                                 volttron_home_input = ui.input('VOLTTRON Home', value=defaults['volttron_home']).props('outlined dense color="primary"').classes('flex-grow')
                                 venv_input = ui.input('VOLTTRON venv', value=defaults['venv']).props('outlined dense color="primary"').classes('flex-grow')
                             python_path_input = ui.input('VOLTTRON Python Override', value=defaults['python_interpreter']).props('outlined dense color="primary"').classes('w-full')
-                            ui.label('Leave auto unless debugging. Auto uses the installer runtime for local Ansible control and creates the VOLTTRON venv with Python 3.10 when needed. This field never changes Ansible’s control Python.').classes(theme.small_muted())
+                            ui.label('Leave auto unless debugging. Auto uses the installer runtime for local Ansible control and creates the VOLTTRON venv with Python 3.10 when needed. This field never changes Ansible’s control Python.').classes('text-grey-6 text-sm')
                             sudo_password_input = ui.input('Sudo Password', password=True, password_toggle_button=True).props('outlined dense color="primary" autocomplete="current-password"').classes('w-full')
-                            ui.label('Optional. Used for local system package/service setup, or when remote sudo uses a different password than SSH. This is not saved.').classes(theme.small_muted())
+                            ui.label('Optional. Used for local system package/service setup, or when remote sudo uses a different password than SSH. This is not saved.').classes('text-grey-6 text-sm')
                             ignore_host_keys_checkbox = ui.checkbox('Ignore Host Keys (StrictHostKeyChecking=no)', value=defaults['ssh_ignore_host_keys']).props('color="primary"')
  
             # Instance Configuration Section
-            with ui.card().classes(theme.card('p-8')):
+            with ui.card().classes('w-full p-8'):
                 with ui.row().classes('items-center gap-3 mb-6'):
                     ui.icon('tune', size='md', color='secondary')
                     ui.label('Instance Configuration').classes('text-2xl font-semibold')
@@ -417,12 +415,12 @@ def render(copy_from: str | None = None):
                     instance_name_input = ui.input('Instance Name', value=default_name, on_change=update_paths).props('outlined rounded color="primary"').classes('w-full')
                     
                     with ui.column().classes('w-full gap-2'):
-                        ui.label('VOLTTRON Type').classes(theme.small_muted('font-medium'))
+                        ui.label('VOLTTRON Type').classes('text-grey-6 text-sm font-medium')
                         type_toggle = ui.toggle(['Modular', 'Monolithic'], value=defaults['type'], on_change=handle_type_change).props('unelevated no-caps spread toggle-color="primary" text-color="grey-7"').classes('w-full')
-                        ui.label('Modular: Agents are pip packages (recommended). Monolithic: Bundled all-in-one.').classes(theme.small_muted())
+                        ui.label('Modular: Agents are pip packages (recommended). Monolithic: Bundled all-in-one.').classes('text-grey-6 text-sm')
                     
                     with ui.column().classes('w-full gap-2'):
-                        ui.label('Package Source').classes(theme.small_muted('font-medium'))
+                        ui.label('Package Source').classes('text-grey-6 text-sm font-medium')
                         package_source = ui.toggle(['Automatic', 'Manual'], value=defaults['package_source']).props('unelevated no-caps spread toggle-color="primary" text-color="grey-7"').classes('w-full')
                         
                         with ui.column().classes('w-full gap-4 p-4 border rounded-lg mt-2').bind_visibility_from(package_source, 'value', backward=lambda v: v == 'Manual'):
@@ -438,7 +436,7 @@ def render(copy_from: str | None = None):
                     with ui.row().classes('w-full justify-between items-center p-4 rounded-xl border'):
                         with ui.column().classes('gap-1'):
                             ui.label('Web Interface').classes('font-semibold')
-                            ui.label('Browser-based platform management and monitoring').classes(theme.small_muted())
+                            ui.label('Browser-based platform management and monitoring').classes('text-grey-6 text-sm')
                         web_interface_toggle = ui.switch(value=defaults['web_enabled']).props('color="primary"')
                     
                     initial_bind = defaults['web_bind_address']
@@ -447,32 +445,32 @@ def render(copy_from: str | None = None):
                     web_bind_address_input = ui.input('Web Bind Address', value=initial_bind).props('outlined rounded color="primary"').classes('w-full')
 
                     with ui.column().classes('w-full gap-3').bind_visibility_from(web_interface_toggle, 'value'):
-                        ui.label('Web Interface Encryption (HTTPS)').classes(theme.small_muted('font-medium'))
+                        ui.label('Web Interface Encryption (HTTPS)').classes('text-grey-6 text-sm font-medium')
                         web_ssl_cert_input = ui.input('SSL Certificate Path (on target host)', value=defaults['web_ssl_cert']).props('outlined rounded color="primary"').classes('w-full')
                         web_ssl_key_input = ui.input('SSL Key Path (on target host)', value=defaults['web_ssl_key']).props('outlined rounded color="primary"').classes('w-full')
-                        ui.label('Leave blank to use HTTP. When both paths are set, the bind address scheme is automatically switched to https://.').classes(theme.small_muted())
+                        ui.label('Leave blank to use HTTP. When both paths are set, the bind address scheme is automatically switched to https://.').classes('text-grey-6 text-sm')
                         with ui.expansion('How to generate a self-signed certificate', icon='lock').classes('w-full').props('header-class="text-muted"'):
                             with ui.column().classes('w-full gap-2 p-4 rounded border'):
-                                ui.label('Run this command on the target host to create a self-signed certificate:').classes(theme.small_muted())
+                                ui.label('Run this command on the target host to create a self-signed certificate:').classes('text-grey-6 text-sm')
                                 ui.code(
                                     'openssl req -x509 -newkey rsa:4096 -keyout server.key -out server.crt \\\n'
                                     '  -sha256 -days 365 -nodes -subj "/CN=localhost"',
                                     language='bash',
                                 ).classes('w-full')
-                                ui.label('Then enter the full paths to server.crt and server.key above. For production use a certificate signed by a trusted CA.').classes(theme.small_muted())
+                                ui.label('Then enter the full paths to server.crt and server.key above. For production use a certificate signed by a trusted CA.').classes('text-grey-6 text-sm')
 
                     with ui.row().classes('w-full justify-between items-center p-4 rounded-xl border'):
                         with ui.column().classes('gap-1'):
                             ui.label('Federation').classes('font-semibold')
-                            ui.label('Connect this platform to a multi-platform VOLTTRON federation').classes(theme.small_muted())
+                            ui.label('Connect this platform to a multi-platform VOLTTRON federation').classes('text-grey-6 text-sm')
                         ui.switch(value=False).props('color="primary"')
  
             # Pre-Deployment Agents Section
-            with ui.card().classes(theme.card('p-8')):
+            with ui.card().classes('w-full p-8'):
                 with ui.row().classes('items-center gap-3 mb-2'):
                     ui.icon('smart_toy', size='md', color='accent')
                     ui.label('Pre-Deployment Agents').classes('text-2xl font-semibold')
-                ui.label('Select agents to install during deployment.').classes(theme.muted('mb-6'))
+                ui.label('Select agents to install during deployment.').classes('text-grey-6 mb-6')
                 
                 with ui.row().classes('w-full gap-8'):
                     with ui.column().classes('flex-1 gap-3'):
@@ -487,11 +485,10 @@ def render(copy_from: str | None = None):
                     with ui.column().classes('flex-1 gap-3'):
                         ui.label('Selected').classes('font-semibold border-b pb-2 w-full')
                         with ui.row().classes('w-full justify-center p-6 border border-dashed border-gray-700 rounded-lg'):
-                            ui.label('No agents selected').classes(theme.muted('italic'))
+                            ui.label('No agents selected').classes('text-grey-6 italic')
  
             # Action Buttons
             with ui.row().classes('w-full justify-end gap-4 mt-4'):
-                cancel_btn = ui.button('Cancel', on_click=lambda: ui.navigate.to('/')).props('outline rounded size="lg"')
-                binding.bind_from(cancel_btn._props, 'color', dark_mode, 'value', backward=lambda val: 'white' if val else 'primary')
+                ui.button('Cancel', on_click=lambda: ui.navigate.to('/')).props('outline rounded size="lg"')
                 
                 ui.button('Save & Deploy', on_click=perform_install).props('color="positive" rounded size="lg" icon="rocket_launch"')

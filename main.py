@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from nicegui import ui
+from nicegui import ui, app
 import src.home as home
 import src.deploy_platforms.deploy_platform_ui as deploy_platform
 import src.manage_instances.instances as instances
@@ -9,12 +9,11 @@ import src.manage_instances.manage_main as manage_main
 import src.manage_instances.config_store_page as config_store_page
 import src.manage_instances.historian_viewers.historian_viewer_page as historian_viewer_page
 import src.bacnet_scan.bacnet_scan_ui as bacnet_scan_ui
-from nicegui import app
 from bacnet_scan_api.main import app as bacnet_app
-from src import theme
 
 app.mount('/bacnet_api', bacnet_app)
 app.add_static_files('/assets', 'assets')
+
 
 PAGE_HEAD = '''
 <link rel="icon" type="image/x-icon" href="/assets/favicon.ico">
@@ -97,5 +96,6 @@ if __name__ in {"__main__", "__mp_main__"}:
         show=False,
         favicon='assets/favicon.ico',
         reload=False,
+        storage_secret=os.environ.get('VOLTTRON_INSTALLER_STORAGE_SECRET', 'volttron-installer-secret'),
         **ssl_options(),
     )

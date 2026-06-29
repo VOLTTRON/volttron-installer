@@ -1,5 +1,5 @@
-from nicegui import ui, binding
-from src import theme
+from nicegui import ui
+from src.dark import dark_mode_control
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@ def _hero() -> None:
         )
 
 
-def _feature_cards(dark_mode) -> None:
+def _feature_cards() -> None:
     """One card per major feature area."""
     ui.label('What you can do').classes('text-2xl font-bold text-center mt-4')
 
@@ -191,19 +191,12 @@ def _doc_links() -> None:
 # ---------------------------------------------------------------------------
 
 def render():
-    dark_mode = theme.dark_mode()
+    dark = dark_mode_control()
 
     # Dark-mode toggle — top-right corner
     with ui.row().classes('absolute top-4 right-4 items-center gap-2'):
-        theme_btn = ui.button(on_click=dark_mode.toggle).props('flat round')
-        theme_btn.bind_icon_from(
-            dark_mode, 'value',
-            backward=lambda val: 'light_mode' if val else 'dark_mode',
-        )
-        binding.bind_from(
-            theme_btn._props, 'color', dark_mode, 'value',
-            backward=lambda val: 'warning' if val else 'primary',
-        )
+        theme_btn = ui.button(on_click=dark.toggle).props('flat round')
+        theme_btn.bind_icon_from(dark, 'value', backward=lambda v: 'light_mode' if v else 'dark_mode')
 
     # Page body — vertically centered, constrained width
     with ui.column().classes(
@@ -211,6 +204,6 @@ def render():
     ):
         with ui.column().classes('items-center gap-10 w-full max-w-5xl'):
             _hero()
-            _feature_cards(dark_mode)
+            _feature_cards()
             _getting_started()
             _doc_links()

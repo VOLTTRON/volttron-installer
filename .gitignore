@@ -155,3 +155,12 @@ Thumbs.db
 *.log
 instances_data/
 ansible_deployments/
+.nicegui/
+
+# VS Code workspace files
+*.code-workspace
+
+# SSL keys/certs
+*.crt
+*.key
+*.pem
