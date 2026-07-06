@@ -8,6 +8,7 @@ import volttron_installer.manage_instances.instances as instances
 import volttron_installer.manage_instances.manage_main as manage_main
 import volttron_installer.manage_instances.config_store_page as config_store_page
 import volttron_installer.manage_instances.historian_viewers.historian_viewer_page as historian_viewer_page
+import volttron_installer.manage_instances.historian_viewers.weather_viewer as weather_viewer
 import volttron_installer.bacnet_scan.bacnet_scan_ui as bacnet_scan_ui
 from bacnet_scan_api.main import app as bacnet_app
 
@@ -80,6 +81,11 @@ def config_store(instance_name: str, agent_identity: str):
 def historian_viewer(instance_name: str):
     ui.add_head_html(PAGE_HEAD)
     historian_viewer_page.show_page(instance_name)
+
+@ui.page('/manage/{instance_name}/weather')
+def weather_viewer_page(instance_name: str):
+    ui.add_head_html(PAGE_HEAD)
+    weather_viewer.show_page(instance_name)
 
 @ui.page('/manage/{instance_name}')
 def manage_page(instance_name: str):

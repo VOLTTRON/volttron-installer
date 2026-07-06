@@ -1,5 +1,6 @@
 from nicegui import ui
 from volttron_installer.dark import dark_mode_control
+import asyncio
 import json
 from urllib.parse import quote
 
@@ -391,11 +392,13 @@ def render(instance_name: str):
             return
 
         install_dialog.close()
+        ui.notify(f'Installing {source}...', type='info')
         with ui.dialog() as progress_dialog, ui.card().classes('p-8 items-center gap-4'):
             ui.label('Installing Agent').classes('text-xl font-bold')
             ui.spinner(size='lg')
             ui.label(source).classes('text-grey-6')
         progress_dialog.open()
+        await asyncio.sleep(0.1)
         try:
             await agent_management.install_agent(instance, source, identity, start, config)
             progress_dialog.close()
@@ -417,11 +420,13 @@ def render(instance_name: str):
             return
 
         install_library_dialog.close()
+        ui.notify(f'Installing {source}...', type='info')
         with ui.dialog() as progress_dialog, ui.card().classes('p-8 items-center gap-4'):
             ui.label('Installing Library').classes('text-xl font-bold')
             ui.spinner(size='lg')
             ui.label(source).classes('text-grey-6')
         progress_dialog.open()
+        await asyncio.sleep(0.1)
         try:
             await agent_management.install_library(instance, source, force, allow_prerelease)
             progress_dialog.close()
@@ -548,6 +553,10 @@ def render(instance_name: str):
                         icon='storage',
                         on_click=lambda: ui.navigate.to(f'/manage/{instance_name}/historian'),
                     ).props('flat round color="primary"').tooltip('Database viewer')
+                    ui.button(
+                        icon='cloud',
+                        on_click=lambda: ui.navigate.to(f'/manage/{instance_name}/weather'),
+                    ).props('flat round color="primary"').tooltip('Weather viewer')
                     ui.button(
                         icon='content_copy',
                         on_click=lambda: ui.navigate.to(f'/deploy/copy/{instance_name}'),
