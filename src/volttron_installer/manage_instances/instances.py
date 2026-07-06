@@ -88,7 +88,7 @@ def render():
                 ui.button('Cancel', on_click=sudo_dialog.close).props('flat color="gray"')
 
                 async def confirm():
-                    password = password_input.value or ''
+                    password = password_input.value.strip()
                     if not password:
                         ui.notify('Enter your sudo password.', type='warning')
                         return
@@ -115,8 +115,11 @@ def render():
             await agent_management.shutdown_platform(instance, sudo_password=sudo_password)
 
         async def delete(sudo_password: str = ''):
-            await agent_management.delete_platform_files(instance, sudo_password=sudo_password)
+            messages = await agent_management.delete_platform_files(instance, sudo_password=sudo_password)
             db.delete_instance(instance_name)
+            warnings = [m for m in messages if m.startswith("Warning:")]
+            if warnings:
+                ui.notify(f'Deleted with warnings: {"; ".join(warnings)}', type='warning', timeout=8000)
             ui.navigate.to('/instances')
 
         async def handle_start():
@@ -134,7 +137,7 @@ def render():
         def handle_delete():
             with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4 w-full max-w-lg'):
                 ui.label(f'Delete {instance_name}?').classes('text-lg font-bold')
-                ui.label('This removes the systemd service, virtual environment, VOLTTRON_HOME, and installer record.').classes('text-grey-6')
+                ui.label('This removes the systemd service, virtual environment, VOLTTRON_HOME, ansible deployment files, and installer record.').classes('text-grey-6')
                 with ui.row().classes('justify-end w-full gap-2'):
                     ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
 

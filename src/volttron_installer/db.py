@@ -2,7 +2,14 @@ import json
 import os
 import glob
 
-DB_DIR = os.path.join(os.environ.get('VOLTTRON_INSTALLER_DATA_DIR', os.getcwd()), 'instances_data')
+# Resolve the installer data directory once at import time, using an absolute
+# path that does NOT float with the process cwd.  The env-var override still
+# works; the fallback is a stable home-relative directory.
+_DATA_DIR_BASE = os.environ.get(
+    'VOLTTRON_INSTALLER_DATA_DIR',
+    os.path.join(os.path.expanduser('~'), '.volttron_installer_data'),
+)
+DB_DIR = os.path.join(_DATA_DIR_BASE, 'instances_data')
 
 def get_instances():
     if not os.path.exists(DB_DIR):

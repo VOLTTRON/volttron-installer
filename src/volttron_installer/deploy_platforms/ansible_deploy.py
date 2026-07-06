@@ -15,7 +15,13 @@ import yaml
 
 
 ANSIBLE_COLLECTION_URL = "git+https://github.com/riley206-pnnl/volttron-ansible.git,develop"
-ANSIBLE_ROOT = Path(os.environ.get('VOLTTRON_INSTALLER_DATA_DIR', os.getcwd())) / "ansible_deployments"
+# Must match the base path used in db.py so instance records and their
+# ansible deployment trees are always colocated regardless of launch cwd.
+_DATA_DIR_BASE = os.environ.get(
+    'VOLTTRON_INSTALLER_DATA_DIR',
+    os.path.join(os.path.expanduser('~'), '.volttron_installer_data'),
+)
+ANSIBLE_ROOT = Path(_DATA_DIR_BASE) / "ansible_deployments"
 AUTO_PYTHON_INTERPRETER = "auto"
 BOOTSTRAPPED_PYTHON_PATH = "{{ ansible_env.HOME }}/.local/bin/volttron-python3.10"
 SUPPORTED_LOCAL_PYTHON = (3, 10)

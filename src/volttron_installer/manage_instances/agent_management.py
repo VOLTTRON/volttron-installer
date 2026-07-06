@@ -663,16 +663,40 @@ def _safe_rmtree(path_value: str | None) -> str:
     return f"Deleted {path}"
 
 
+def _delete_activate_helper(instance_name: str) -> str:
+    """Remove the ~/activate-volttron-<name>-env convenience script if it exists."""
+    path = Path.home() / f"activate-volttron-{instance_name}-env"
+    if path.exists():
+        path.unlink()
+        return f"Deleted activate helper {path}"
+    return f"Skipped missing activate helper: {path}"
+
+
 async def delete_platform_files(instance: dict, sudo_password: str = "") -> list[str]:
     """
-    Shut down the platform if possible, then remove its venv and VOLTTRON_HOME.
+    Stop the platform and remove all files created for this instance:
+    systemd unit, venv, VOLTTRON_HOME, ansible deployment tree, and the
+    activate-env convenience script.
 
-    The instance record is intentionally deleted by db.delete_instance after this
-    cleanup succeeds, so a failed filesystem cleanup does not orphan a UI record.
+    Each cleanup step is attempted independently so that a failure in one
+    step (e.g. a missing path) does not abort the remaining steps.  The only
+    step that can propagate a hard error and abort the whole sequence is
+    systemd service removal — if the service cannot be disabled/removed we
+    refuse to continue because the platform would restart and re-create the
+    files we are about to delete.
+
+    The instance record (db.delete_instance) is intentionally called by the
+    caller *after* this function returns, so a failed filesystem cleanup does
+    not leave a dangling UI record while still allowing repeated retry.
     """
+    from volttron_installer.deploy_platforms.ansible_deploy import ANSIBLE_ROOT
+
     messages: list[str] = []
 
+    # --- 1. Systemd service: hard failure aborts the delete ---
     messages.extend(await remove_platform_service(instance, sudo_password=sudo_password))
+
+    # --- 2. vctl shutdown (non-ansible only; best-effort) ---
     if instance.get("deployment_method") != "ansible":
         try:
             await shutdown_platform(instance, sudo_password=sudo_password)
@@ -685,11 +709,38 @@ async def delete_platform_files(instance: dict, sudo_password: str = "") -> list
             else:
                 messages.append(f"Shutdown warning: {exc}")
 
+    # --- 3. Filesystem cleanup: each step is independent ---
+    # venv and VOLTTRON_HOME directories
     for path_value in (instance.get("venv"), instance.get("volttron_home")):
-        if ssh_remote.is_remote_instance(instance):
-            messages.append(await ssh_remote.safe_rmtree(instance, path_value))
-        else:
-            messages.append(_safe_rmtree(path_value))
+        try:
+            if ssh_remote.is_remote_instance(instance):
+                messages.append(await ssh_remote.safe_rmtree(instance, path_value))
+            else:
+                messages.append(_safe_rmtree(path_value))
+        except PlatformCommandError as exc:
+            messages.append(f"Warning: could not remove {path_value}: {exc}")
+
+    # Ansible deployment tree (inventory, config, playbooks)
+    host_alias = instance.get("ansible_host_alias")
+    if host_alias:
+        ansible_tree = ANSIBLE_ROOT / host_alias
+        try:
+            if ssh_remote.is_remote_instance(instance):
+                messages.append(await ssh_remote.safe_rmtree(instance, str(ansible_tree)))
+            else:
+                messages.append(_safe_rmtree(str(ansible_tree)))
+        except PlatformCommandError as exc:
+            messages.append(f"Warning: could not remove ansible deployment tree {ansible_tree}: {exc}")
+    else:
+        messages.append("Skipped ansible deployment tree: no host_alias on instance")
+
+    # ~/activate-volttron-<name>-env convenience script
+    instance_name = instance.get("name", "")
+    if instance_name:
+        try:
+            messages.append(_delete_activate_helper(instance_name))
+        except OSError as exc:
+            messages.append(f"Warning: could not remove activate helper: {exc}")
 
     return messages
 
