@@ -554,10 +554,6 @@ def render(instance_name: str):
                         on_click=lambda: ui.navigate.to(f'/manage/{instance_name}/historian'),
                     ).props('flat round color="primary"').tooltip('Database viewer')
                     ui.button(
-                        icon='cloud',
-                        on_click=lambda: ui.navigate.to(f'/manage/{instance_name}/weather'),
-                    ).props('flat round color="primary"').tooltip('Weather viewer')
-                    ui.button(
                         icon='content_copy',
                         on_click=lambda: ui.navigate.to(f'/deploy/copy/{instance_name}'),
                     ).props('flat round color="primary"').tooltip('Copy platform')
