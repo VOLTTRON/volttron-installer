@@ -13,6 +13,7 @@ from volttron_installer import ssh_remote
 
 
 COMMAND_TIMEOUT = 600
+_vui_log_tokens: dict[tuple[str, str, str], str] = {}
 
 # Curated list of commonly installed Eclipse VOLTTRON agents.
 # Each entry is (pypi_package_name, short_description).
@@ -745,44 +746,72 @@ async def delete_platform_files(instance: dict, sudo_password: str = "") -> list
     return messages
 
 
-def _log_filename(log_name: str) -> str:
-    allowed_logs = {"volttron.log", "driver.log"}
-    if log_name not in allowed_logs:
-        raise PlatformCommandError(f"Unsupported log file: {log_name}")
-    return log_name
+async def _call_vui_logs(instance: dict, path: str, params: dict | None = None) -> dict:
+    web_address = instance.get("web_bind_address", "")
+    if not web_address:
+        raise PlatformCommandError("No web API address is configured for this instance.")
+
+    platform = quote(instance.get("name", ""), safe="")
+    token_key = (
+        web_address.rstrip('/'),
+        instance.get("web_admin_user", ""),
+        instance.get("web_admin_pass", ""),
+    )
+    timeout = httpx.Timeout(10.0, connect=2.0)
+    async with httpx.AsyncClient(verify=False, timeout=timeout) as client:
+        token = _vui_log_tokens.get(token_key)
+        if not token:
+            token = await _web_access_token(instance, client)
+            _vui_log_tokens[token_key] = token
+        response = await client.get(
+            f"{web_address.rstrip('/')}/vui/platforms/{platform}/logs/{path.lstrip('/')}",
+            headers={"Authorization": f"BEARER {token}"},
+            params=params,
+        )
+        if response.status_code == 401:
+            token = await _web_access_token(instance, client)
+            _vui_log_tokens[token_key] = token
+            response = await client.get(
+                f"{web_address.rstrip('/')}/vui/platforms/{platform}/logs/{path.lstrip('/')}",
+                headers={"Authorization": f"BEARER {token}"},
+                params=params,
+            )
+    if response.status_code >= 400:
+        raise PlatformCommandError(f"VUI log request failed: HTTP {response.status_code} {response.text}")
+    return response.json()
 
 
-async def read_log_tail(instance: dict, line_count: int = 200, log_name: str = "volttron.log") -> str:
-    log_filename = _log_filename(log_name)
-    if ssh_remote.is_remote_instance(instance):
-        expanded_home = await _remote_expanded_path(instance, "volttron_home")
-        return await ssh_remote.tail_file(instance, f"{expanded_home}/{log_filename}", line_count)
-
-    log_path = Path(_expand(instance.get("volttron_home"))) / log_filename
-    if not log_path.exists():
-        return f"Log file not found at {log_path}"
-
-    try:
-        with log_path.open("r", errors="replace") as file:
-            lines = file.readlines()
-    except OSError as exc:
-        return f"Could not read log file: {exc}"
-    return "".join(lines[-line_count:]) or "Log file is empty."
+async def list_logs(instance: dict) -> list[dict]:
+    return (await list_log_info(instance))["logs"]
 
 
-async def clear_log(instance: dict, log_name: str = "volttron.log") -> str:
-    log_filename = _log_filename(log_name)
-    if ssh_remote.is_remote_instance(instance):
-        expanded_home = await _remote_expanded_path(instance, "volttron_home")
-        return await ssh_remote.truncate_file(instance, f"{expanded_home}/{log_filename}")
+async def list_log_info(instance: dict) -> dict:
+    result = await _call_vui_logs(instance, "")
+    logs = result.get("logs", [])
+    if not isinstance(logs, list):
+        raise PlatformCommandError("VUI log response did not include a log list.")
+    return {"logs": logs, "retention": result.get("retention")}
 
-    log_path = Path(_expand(instance.get("volttron_home"))) / log_filename
-    if not log_path.parent.exists():
-        raise PlatformCommandError(f"VOLTTRON_HOME does not exist at {log_path.parent}")
 
-    try:
-        with log_path.open("w"):
-            pass
-    except OSError as exc:
-        raise PlatformCommandError(f"Could not clear log file: {exc}") from exc
-    return f"Cleared {log_path}"
+async def read_log_tail(instance: dict, log_name: str, line_count: int = 200, max_bytes: int = 65536) -> dict:
+    return await _call_vui_logs(
+        instance,
+        quote(log_name, safe=""),
+        params={"tail": min(max(1, line_count), 10000), "bytes": min(max(1, max_bytes), 1048576)},
+    )
+
+
+async def read_log_after(instance: dict, log_name: str, offset: int, max_bytes: int = 65536) -> dict:
+    return await _call_vui_logs(
+        instance,
+        quote(log_name, safe=""),
+        params={"offset": max(0, offset), "bytes": min(max(1, max_bytes), 1048576)},
+    )
+
+
+async def read_log_before(instance: dict, log_name: str, before: int, max_bytes: int = 262144) -> dict:
+    return await _call_vui_logs(
+        instance,
+        quote(log_name, safe=""),
+        params={"before": max(0, before), "bytes": min(max(1, max_bytes), 1048576)},
+    )

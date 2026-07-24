@@ -15,6 +15,9 @@ import yaml
 
 
 ANSIBLE_COLLECTION_URL = "git+https://github.com/riley206-pnnl/volttron-ansible.git,develop"
+ANSIBLE_SOURCE_AUTOMATIC = "Automatic"
+ANSIBLE_SOURCE_PATH = "Local Path"
+ANSIBLE_SOURCE_GIT = "Git Repository"
 # Must match the base path used in db.py so instance records and their
 # ansible deployment trees are always colocated regardless of launch cwd.
 _DATA_DIR_BASE = os.environ.get(
@@ -66,6 +69,40 @@ def _local_volttron_ansible_collection_path() -> str | None:
     if (candidate / "galaxy.yml").exists() and (candidate / "playbooks" / "install_platform.yml").exists():
         return str(candidate)
     return None
+
+
+def _resolve_ansible_collection_source(source_type: str = ANSIBLE_SOURCE_AUTOMATIC, source_value: str = "") -> str:
+    """Resolve the Ansible collection source selected by the installer UI."""
+    source_type = (source_type or ANSIBLE_SOURCE_AUTOMATIC).strip()
+    source_value = (source_value or "").strip()
+
+    # A single source field is the normal UI path. Existing callers may still
+    # pass an explicit source type, so retain that behavior as well.
+    if source_type == ANSIBLE_SOURCE_AUTOMATIC and source_value:
+        expanded_path = Path(_expand(source_value))
+        if expanded_path.is_dir() or source_value.startswith((".", "~", "/")):
+            source_type = ANSIBLE_SOURCE_PATH
+        else:
+            source_type = ANSIBLE_SOURCE_GIT
+
+    if source_type == ANSIBLE_SOURCE_PATH:
+        if not source_value:
+            raise AnsibleDeployError("A local VOLTTRON Ansible path is required.")
+        path = Path(_expand(source_value))
+        if not (path / "galaxy.yml").is_file() or not (path / "playbooks" / "install_platform.yml").is_file():
+            raise AnsibleDeployError(
+                f"Invalid VOLTTRON Ansible path: {path}. Expected galaxy.yml and playbooks/install_platform.yml."
+            )
+        return str(path)
+
+    if source_type == ANSIBLE_SOURCE_GIT:
+        if not source_value:
+            raise AnsibleDeployError("A VOLTTRON Ansible Git repository is required.")
+        return source_value
+
+    if source_type != ANSIBLE_SOURCE_AUTOMATIC:
+        raise AnsibleDeployError(f"Unsupported VOLTTRON Ansible source: {source_type}")
+    return _local_volttron_ansible_collection_path() or ANSIBLE_COLLECTION_URL
 
 
 def _expand(path_value: str) -> str:
@@ -151,7 +188,10 @@ async def _run_command(
     return stdout_text, stderr_text
 
 
-async def ensure_ansible_ready() -> None:
+async def ensure_ansible_ready(
+    ansible_source_type: str = ANSIBLE_SOURCE_AUTOMATIC,
+    ansible_source: str = "",
+) -> None:
     missing = [name for name in ("ansible-playbook", "ansible-galaxy") if _find_executable(name) is None]
     if missing:
         raise AnsibleDeployError(
@@ -163,7 +203,7 @@ async def ensure_ansible_ready() -> None:
     if not ansible_galaxy:
         raise AnsibleDeployError("Unable to locate ansible-galaxy.")
 
-    collection_source = _local_volttron_ansible_collection_path() or ANSIBLE_COLLECTION_URL
+    collection_source = _resolve_ansible_collection_source(ansible_source_type, ansible_source)
     await _run_command(
         [
             ansible_galaxy,
@@ -216,7 +256,7 @@ def _inventory_host_vars(
     host_vars: dict[str, Any] = {
         "volttron_home": volttron_home,
         "volttron_venv": volttron_venv,
-        "volttron_log_file": f"{volttron_home.rstrip('/')}/volttron.log",
+        "volttron_log_file": f"{_expand(volttron_home).rstrip('/')}/volttron.log",
         "python_interpreter": resolved_python_interpreter,
         "volttron_bootstrap_python": use_managed_python,
         "volttron_python_version": "3.10",
@@ -601,8 +641,10 @@ async def deploy_with_ansible(
     http_proxy: str = "",
     https_proxy: str = "",
     python_interpreter: str = "python3",
+    ansible_source_type: str = ANSIBLE_SOURCE_AUTOMATIC,
+    ansible_source: str = "",
 ) -> AnsibleDeploymentResult:
-    await ensure_ansible_ready()
+    await ensure_ansible_ready(ansible_source_type, ansible_source)
 
     web_credentials: dict[str, str] = {}
     web_admin_user = ""

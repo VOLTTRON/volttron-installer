@@ -6,6 +6,7 @@ import volttron_installer.home as home
 import volttron_installer.deploy_platforms.deploy_platform_ui as deploy_platform
 import volttron_installer.manage_instances.instances as instances
 import volttron_installer.manage_instances.manage_main as manage_main
+import volttron_installer.manage_instances.logs_page as logs_page
 import volttron_installer.manage_instances.config_store_page as config_store_page
 import volttron_installer.manage_instances.historian_viewers.historian_viewer_page as historian_viewer_page
 import volttron_installer.bacnet_scan.bacnet_scan_ui as bacnet_scan_ui
@@ -81,6 +82,11 @@ def historian_viewer(instance_name: str):
     ui.add_head_html(PAGE_HEAD)
     historian_viewer_page.show_page(instance_name)
 
+@ui.page('/manage/{instance_name}/logs')
+def logs(instance_name: str):
+    ui.add_head_html(PAGE_HEAD)
+    logs_page.render(instance_name)
+
 @ui.page('/manage/{instance_name}')
 def manage_page(instance_name: str):
     ui.add_head_html(PAGE_HEAD)
@@ -90,4 +96,3 @@ def manage_page(instance_name: str):
 def bacnet_scan_page():
     ui.add_head_html(PAGE_HEAD)
     bacnet_scan_ui.render()
-

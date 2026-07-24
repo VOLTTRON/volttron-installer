@@ -48,8 +48,9 @@ def render(instance_name: str):
     install_agent_button = None
     install_library_button = None
     current_platform_state = 'unknown'
-    active_log_name = 'volttron.log'
+    active_log_name = None
     last_log_content = None
+    log_next_offset = None
     last_agents_signature = None
     last_libraries_signature = None
     agent_refresh_in_progress = False
@@ -331,55 +332,56 @@ def render(instance_name: str):
                             render_library_row(library, removable=False)
 
     async def refresh_log():
-        nonlocal last_log_content, ssh_refresh_in_progress
+        nonlocal last_log_content, ssh_refresh_in_progress, log_next_offset
         if log_view is None:
             return
         if ssh_refresh_in_progress:
             return
-        if remote_password_needed():
-            content = 'Configure an SSH key path to view the remote log.'
-        else:
-            try:
-                ssh_refresh_in_progress = True
-                content = await agent_management.read_log_tail(instance, 300, active_log_name)
-            except ssh_remote.SSHCommandError as exc:
-                content = f"SSH unavailable: {exc}"
-            except Exception as exc:
-                content = f"Could not read log: {exc}"
-            finally:
-                ssh_refresh_in_progress = False
+        if not active_log_name:
+            return
+        try:
+            ssh_refresh_in_progress = True
+            if log_next_offset is None:
+                result = await agent_management.read_log_tail(instance, active_log_name, 300, 65536)
+                content = '\n'.join(result.get('lines', [])) or 'Log is empty.'
+            else:
+                result = await agent_management.read_log_after(instance, active_log_name, log_next_offset, 65536)
+                if result.get('total_bytes', 0) < log_next_offset:
+                    result = await agent_management.read_log_tail(instance, active_log_name, 300, 65536)
+                    content = '\n'.join(result.get('lines', [])) or 'Log is empty.'
+                else:
+                    additions = result.get('lines', [])
+                    content = '\n'.join((last_log_content or '').splitlines()[-300:] + additions) or 'Log is empty.'
+            log_next_offset = result.get('next_offset')
+        except Exception as exc:
+            content = f"Could not read log: {exc}"
+        finally:
+            ssh_refresh_in_progress = False
         if content == last_log_content:
             return
         last_log_content = content
         render_log_entries(content)
 
     async def handle_log_selection(event):
-        nonlocal active_log_name, last_log_content
-        active_log_name = event.value or 'volttron.log'
+        nonlocal active_log_name, last_log_content, log_next_offset
+        active_log_name = event.value
         last_log_content = None
+        log_next_offset = None
         await refresh_log()
 
-    async def handle_clear_log():
-        with ui.dialog() as confirm_dialog, ui.card().classes('p-6 gap-4'):
-            ui.label(f'Clear {active_log_name}?').classes('text-lg font-bold')
-            ui.label('This truncates the current log file for this instance. New log entries will still appear here.').classes('text-grey-6')
-            with ui.row().classes('justify-end w-full gap-2'):
-                ui.button('Cancel', on_click=confirm_dialog.close).props('flat color="gray"')
-
-                async def confirm_clear():
-                    nonlocal last_log_content
-                    confirm_dialog.close()
-                    try:
-                        await agent_management.clear_log(instance, active_log_name)
-                        last_log_content = None
-                        await refresh_log()
-                        ui.notify(f'{active_log_name} cleared', type='positive')
-                    except Exception as e:
-                        ui.notify(f'Failed to clear log: {e}', type='negative')
-                        show_command_error('Clear Log Error', e)
-
-                ui.button('Clear Log', icon='delete_sweep', on_click=confirm_clear).props('color="negative"')
-        confirm_dialog.open()
+    async def load_logs():
+        nonlocal active_log_name, log_next_offset
+        try:
+            logs = await agent_management.list_logs(instance)
+        except Exception as exc:
+            ui.notify(f'Could not discover logs: {exc}', type='negative')
+            return
+        options = {log['id']: log['id'] for log in logs if log.get('id')}
+        log_selector.set_options(options)
+        active_log_name = next((log_id for log_id in options if log_id == 'volttron.log'), next(iter(options), None))
+        log_next_offset = None
+        log_selector.set_value(active_log_name)
+        await refresh_log()
 
     async def handle_install_agent():
         source = (agent_source_input.value or '').strip()
@@ -650,7 +652,8 @@ def render(instance_name: str):
 
                         log_content = f"Error: {str(e)}\n\n"
                         try:
-                            log_content += await agent_management.read_log_tail(instance, 20)
+                            result = await agent_management.read_log_tail(instance, 'volttron.log', 20)
+                            log_content += '\n'.join(result.get('lines', []))
                         except Exception as log_err:
                             log_content += f"Could not read log file: {log_err}"
 
@@ -782,15 +785,14 @@ def render(instance_name: str):
                     ui.icon('article', size='sm', color='positive')
                     ui.label('Live Log Tail').classes('text-xl font-semibold')
                 with ui.row().classes('items-center gap-2'):
-                    ui.toggle(
-                        {'volttron.log': 'VOLTTRON', 'driver.log': 'Driver'},
-                        value=active_log_name,
-                        on_change=handle_log_selection,
-                    ).props('dense no-caps toggle-color="primary"')
+                    logs_path = f'/manage/{quote(instance_name, safe="")}/logs'
+                    ui.link('Open Full Log', logs_path, new_tab=True).classes(
+                        'text-primary font-bold no-underline px-2 py-1'
+                    )
+                    log_selector = ui.select({}, label='Log file', on_change=handle_log_selection).props('dense outlined').classes('min-w-48')
                     log_follow_switch = ui.switch('Follow', value=True, on_change=lambda e: refresh_log() if getattr(e, 'value', False) else None).props('dense color="positive"')
                     refresh_log_btn = ui.button(icon='refresh', on_click=refresh_log).props('flat round').tooltip('Refresh log')
 
-                    ui.button('Clear Log', icon='delete_sweep', on_click=handle_clear_log).props('flat color="negative"').classes('font-bold')
             log_container = ui.column().classes('w-full')
             with log_container:
                 log_view = ui.log(max_lines=1000).classes('w-full h-96 border rounded-md font-mono text-sm p-2')
@@ -799,9 +801,8 @@ def render(instance_name: str):
                 if log_follow_switch is not None and log_follow_switch.value:
                     await refresh_log()
                     
-            ui.timer(0.1, refresh_log, once=True)
-            if instance.get('is_local', True):
-                ui.timer(3.0, live_refresh_log)
+            ui.timer(0.1, load_logs, once=True)
+            ui.timer(3.0, live_refresh_log)
 
         # Error Log Container
         error_log_container = ui.column().classes('w-full max-w-6xl mt-5 p-4 border border-negative rounded-md')

@@ -62,6 +62,7 @@ def _copy_defaults(copy_from: str | None) -> tuple[dict, dict | None]:
         'http_proxy': '',
         'https_proxy': '',
         'python_interpreter': 'auto',
+        'ansible_source': '',
         'manual_core_package': '',
         'manual_auth_package': '',
         'manual_zmq_package': '',
@@ -88,6 +89,7 @@ def _copy_defaults(copy_from: str | None) -> tuple[dict, dict | None]:
         'http_proxy': source.get('http_proxy', ''),
         'https_proxy': source.get('https_proxy', ''),
         'python_interpreter': source.get('python_interpreter', 'auto'),
+        'ansible_source': source.get('ansible_source', ''),
         'manual_core_package': source.get('manual_core_package', ''),
         'manual_auth_package': source.get('manual_auth_package', ''),
         'manual_zmq_package': source.get('manual_zmq_package', ''),
@@ -273,6 +275,8 @@ def render(copy_from: str | None = None):
                 http_proxy=http_proxy_input.value or '',
                 https_proxy=https_proxy_input.value or '',
                 python_interpreter=python_path_input.value or 'auto',
+                ansible_source_type='Automatic',
+                ansible_source=ansible_source_input.value or '',
             )
             web_creds = ansible_result.web_credentials
             
@@ -297,6 +301,7 @@ def render(copy_from: str | None = None):
                 'http_proxy': http_proxy_input.value or '',
                 'https_proxy': https_proxy_input.value or '',
                 'python_interpreter': python_path_input.value or 'auto',
+                'ansible_source': ansible_source_input.value or '',
                 'manual_core_package': core_pkg_input.value or '',
                 'manual_auth_package': auth_pkg_input.value or '',
                 'manual_zmq_package': zmq_pkg_input.value or '',
@@ -392,6 +397,12 @@ def render(copy_from: str | None = None):
                                 venv_input = ui.input('VOLTTRON venv', value=defaults['venv']).props('outlined dense color="primary"').classes('flex-grow')
                             python_path_input = ui.input('VOLTTRON Python Override', value=defaults['python_interpreter']).props('outlined dense color="primary"').classes('w-full')
                             ui.label('Leave auto unless debugging. Auto uses the installer runtime for local Ansible control and creates the VOLTTRON venv with Python 3.10 when needed. This field never changes Ansible’s control Python.').classes('text-grey-6 text-sm')
+                            ansible_source_input = ui.input(
+                                'VOLTTRON Ansible Source (optional)',
+                                value=defaults['ansible_source'],
+                                placeholder='~/src/volttron-ansible or git+https://github.com/org/volttron-ansible.git,main',
+                            ).props('outlined dense color="primary"').classes('w-full')
+                            ui.label('Leave blank to use the bundled/default Ansible collection. Enter a local path or Git URL to use a custom collection. Git URLs may include an Ansible ref after a comma.').classes('text-grey-6 text-sm')
                             sudo_password_input = ui.input('Sudo Password', password=True, password_toggle_button=True).props('outlined dense color="primary" autocomplete="current-password"').classes('w-full')
                             ui.label('Optional. Used for local system package/service setup, or when remote sudo uses a different password than SSH. This is not saved.').classes('text-grey-6 text-sm')
                             ignore_host_keys_checkbox = ui.checkbox('Ignore Host Keys (StrictHostKeyChecking=no)', value=defaults['ssh_ignore_host_keys']).props('color="primary"')
