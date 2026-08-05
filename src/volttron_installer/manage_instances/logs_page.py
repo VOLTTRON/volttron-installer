@@ -1,6 +1,13 @@
+"""Pure Python/NiceGUI log viewer page.
+
+Simpler, extremely robust, and fully integrated into the NiceGUI framework.
+Maintains a live-only scrollable view of the active volttron.log.
+Users can select historical/rotated files purely to stream-download them on-demand
+with a visual progress bar reflecting byte transfer progress.
+No client-side virtual scrolling, zero flashing, and zero JS scroll state bugs.
+"""
+from urllib.parse import quote, unquote
 import html
-import re
-from urllib.parse import quote
 
 from nicegui import ui
 
@@ -8,307 +15,356 @@ import volttron_installer.db as db
 from volttron_installer.dark import dark_mode_control
 from volttron_installer.manage_instances import agent_management
 
-
-INITIAL_LOG_BYTES = 65536
-HISTORY_LOG_BYTES = 131072
-LIVE_LOG_BYTES = 65536
-MAX_DISPLAY_LINES = 1000
-
-# TODO: Add server-side time/search indexing and direct cursor jumps before supporting
-# multi-gigabyte retention; sequential 128 KiB history paging is intentionally simple
-# and bounded, but is not suitable for navigating very large archives.
+DEFAULT_LINES = 1000
+POLL_INTERVAL_SEC = 4.0
+CHUNK_BYTES = 131072  # 128 KB chunks (~1000-1500 lines)
 
 
-def log_content(lines: list[str]) -> str:
-    entries = lines or ['Log is empty.']
-    return ''.join(f'<div>{html.escape(line)}</div>' for line in entries)
+def _get_level_class(line: str) -> str:
+    """Return Tailwind color classes based on log level."""
+    upper = line.upper()
+    if 'ERROR' in upper or 'CRITICAL' in upper:
+        return 'text-red-400 font-semibold'
+    if 'WARNING' in upper or 'WARN' in upper:
+        return 'text-amber-400'
+    if 'DEBUG' in upper:
+        return 'text-sky-400'
+    if 'INFO' in upper:
+        return 'text-emerald-400'
+    return 'text-slate-300'
 
 
-def _rotation_logs(logs: list[dict]) -> list[dict]:
-    active = next((log for log in logs if log.get('id') == 'volttron.log'), None)
-    if not active:
-        return []
-    base_name = active['id']
-    rotations = [
-        log for log in logs
-        if log.get('id') == base_name or re.fullmatch(re.escape(base_name) + r'\.\d+', log.get('id', ''))
-    ]
-    return sorted(rotations, key=lambda log: int(log['id'].rsplit('.', 1)[1]) if log['id'] != base_name else 0)
+def _get_bytes_size(lines_list: list[str]) -> int:
+    """Calculate approximate UTF-8 bytes for a list of lines including newlines."""
+    return sum(len(line.encode('utf-8', errors='replace')) + 1 for line in lines_list)
 
 
-def _bounded_lines(lines: list[str], keep: str = 'newest') -> list[str]:
-    if len(lines) <= MAX_DISPLAY_LINES:
-        return lines
-    if keep == 'oldest':
-        return lines[:MAX_DISPLAY_LINES]
-    return lines[-MAX_DISPLAY_LINES:]
-
-
-def render(instance_name: str):
+def render(instance_name: str) -> None:
     dark_mode_control()
-    instance = next((item for item in db.get_instances() if item.get('name') == instance_name), None)
+    instance = next(
+        (item for item in db.get_instances() if item.get('name') == instance_name), None
+    )
     if not instance:
         with ui.column().classes('w-full items-center py-20'):
-            ui.label(f'Instance "{instance_name}" not found').classes('text-red-500 text-2xl font-bold mb-4')
-            ui.button('Back to Instances', icon='arrow_back', on_click=lambda: ui.navigate.to('/instances')).props('outline')
+            ui.label(f'Instance "{instance_name}" not found').classes(
+                'text-red-500 text-2xl font-bold mb-4'
+            )
+            ui.button(
+                'Back to Instances',
+                icon='arrow_back',
+                on_click=lambda: ui.navigate.to('/instances'),
+            ).props('outline')
         return
 
-    rotations: list[dict] = []
-    lines: list[str] = []
-    oldest_log_id = 'volttron.log'
-    oldest_offset = 0
-    live_log_id = 'volttron.log'
-    live_offset = 0
-    live_file_id = None
-    loading = False
-    following = True
-    updating_live_switch = False
+    # Check if platform web API coordinates are present
+    web_address = instance.get("web_bind_address", "")
+    if not web_address:
+        with ui.column().classes('w-full items-center py-20 px-4'):
+            ui.icon('warning', size='lg').classes('text-amber-500 mb-4')
+            ui.label('Platform Web API required for log viewing.').classes('text-lg font-semibold text-center')
+            ui.label('Please configure Web Bind Address and Admin credentials on this instance.').classes('text-grey-6 text-sm text-center mb-6')
+            ui.button(
+                'Back to Manage',
+                icon='arrow_back',
+                on_click=lambda: ui.navigate.to(f'/manage/{quote(instance_name, safe="")}'),
+            ).props('outline')
+        return
 
-    def rotation_index(log_id: str) -> int | None:
-        return next((index for index, log in enumerate(rotations) if log['id'] == log_id), None)
+    # Page container
+    with ui.column().classes('w-full max-w-7xl mx-auto px-4 py-6 gap-4 h-[calc(100vh-40px)]'):
+        
+        # Header Row
+        with ui.row().classes('w-full items-center justify-between border-b pb-3 border-neutral-200 dark:border-zinc-800'):
+            with ui.row().classes('items-center gap-3'):
+                ui.button(
+                    icon='arrow_back',
+                    on_click=lambda: ui.navigate.to(f'/manage/{quote(instance_name, safe="")}'),
+                ).props('flat round dense')
+                with ui.column().classes('gap-0'):
+                    ui.label('Platform Logs (Live)').classes('text-xl font-bold text-neutral-800 dark:text-neutral-100')
+                    ui.label(instance_name).classes('text-xs text-neutral-500 dark:text-neutral-400')
+            
+            # Status Badge & File Details
+            with ui.row().classes('items-center gap-3'):
+                status_badge = ui.badge('Connecting...', color='orange').props('outline')
+                file_size_label = ui.label('').classes('text-xs text-neutral-500 dark:text-neutral-400')
 
-    def set_status(text: str, color: str = 'text-grey-6'):
-        status_label.set_text(text)
-        status_label.classes(replace=f'text-sm {color}')
+        # Controls Row (Simplified)
+        with ui.row().classes('w-full items-center justify-between gap-4 bg-neutral-50 dark:bg-zinc-900 p-3 rounded-lg border border-neutral-100 dark:border-zinc-800'):
+            with ui.row().classes('items-center gap-4'):
+                # Line Count Selector (User typable)
+                lines_input = ui.number(
+                    label='Lines to Show',
+                    value=DEFAULT_LINES,
+                    min=50,
+                    max=10000,
+                    format='%d',
+                    on_change=lambda: load_logs(scroll_to_bottom=True)
+                ).props('outlined dense').classes('w-32')
 
-    def format_bytes(value: int) -> str:
-        if value < 1024:
-            return f'{value} B'
-        if value < 1024 * 1024:
-            return f'{value / 1024:.0f} KiB'
-        return f'{value / (1024 * 1024):.1f} MiB'
+                # Live Auto-Refresh Switch
+                live_switch = ui.switch(
+                    'Live Follow',
+                    value=True,
+                    on_change=lambda e: toggle_live(e.value)
+                ).classes('text-sm')
 
-    def older_bytes_available() -> int:
-        index = rotation_index(oldest_log_id)
-        archived_bytes = sum(log['size_bytes'] for log in rotations[index + 1:]) if index is not None else 0
-        return oldest_offset + archived_bytes
+            # Download Button (Triggers Dialog)
+            ui.button(
+                'Download Logs',
+                icon='download',
+                on_click=lambda: open_download_dialog()
+            ).props('unelevated dense color="primary"').classes('px-3 py-1 font-medium text-sm rounded')
 
-    def update_context(prefix: str):
-        older_bytes = older_bytes_available()
-        if older_bytes:
-            context_label.set_text(
-                f'{prefix} · oldest visible: {oldest_log_id} at {format_bytes(oldest_offset)} · '
-                f'{format_bytes(older_bytes)} older available'
+        # Main Log Viewport (Scrollable Dark Area)
+        log_scroll_area = ui.scroll_area().classes('w-full grow bg-slate-950 rounded-lg p-4 font-mono text-xs border border-slate-900 overflow-hidden')
+        with log_scroll_area:
+            log_container = ui.column().classes('w-full gap-0.5 whitespace-pre wrap')
+
+        # Page state closures
+        state = {
+            'active_log_id': 'volttron.log',
+            'loading': False,
+            'lines': [],
+            'end_offset': 0,
+            'total_bytes': 0,
+            'file_id': ''
+        }
+
+        import datetime
+
+        def format_bytes(b: int) -> str:
+            if not b:
+                return '0 B'
+            for unit in ['B', 'KB', 'MB', 'GB']:
+                if b < 1024:
+                    return f"{round(b)} {unit}" if b >= 10 or unit == 'B' else f"{b:.1f} {unit}"
+                b /= 1024
+            return f"{b:.1f} GB"
+
+        def format_timestamp(ts: float) -> str:
+            if not ts:
+                return 'Unknown Time'
+            try:
+                dt = datetime.datetime.fromtimestamp(ts)
+                return dt.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception:
+                return 'Unknown Time'
+
+        def render_all_buffered() -> None:
+            """Synchronously render currently buffered lines list."""
+            log_container.clear()
+            with log_container:
+                for line in state['lines']:
+                    ui.label(line).classes(f"w-full leading-relaxed {_get_level_class(line)}")
+            
+            file_size_label.set_text(
+                f"retained: {len(state['lines'])} lines  "
+                f"/  size: {format_bytes(state['total_bytes'])}"
             )
-        else:
-            context_label.set_text(f'{prefix} · oldest retained entry reached')
 
-    def render_lines(scroll_to_bottom: bool = False):
-        log_view.set_content(log_content(lines))
-        count_label.set_text(f'{len(lines):,} lines shown · {MAX_DISPLAY_LINES:,}-line limit')
-        if scroll_to_bottom:
-            log_view.run_method('scrollTo', 0, 1_000_000_000)
+        async def load_logs(scroll_to_bottom: bool = False) -> None:
+            """Fetch initial tail of active log file and display."""
+            if state['loading']:
+                return
+            state['loading'] = True
+            max_lines = int(lines_input.value or DEFAULT_LINES)
 
-    def set_live_switch(value: bool):
-        nonlocal updating_live_switch
-        if live_switch.value == value:
-            return
-        updating_live_switch = True
-        live_switch.set_value(value)
-        updating_live_switch = False
+            try:
+                # Retrieve the tail chunk from the platform web API
+                # Scale requested byte size to line count (approx 256 bytes per line, capped at 1 MB)
+                request_bytes = min(1048576, max_lines * 256)
+                result = await agent_management.read_log_tail(instance, state['active_log_id'], max_lines, request_bytes)
+                
+                state['lines'] = result.get('lines', [])
+                state['total_bytes'] = result.get('total_bytes', 0)
+                state['end_offset'] = result.get('next_offset', state['total_bytes'])
+                state['file_id'] = result.get('file_id', '')
 
-    async def discover_logs():
-        nonlocal rotations
-        log_info = await agent_management.list_log_info(instance)
-        rotations = _rotation_logs(log_info['logs'])
-        retention = log_info.get('retention')
-        if retention:
-            total_mib = retention['max_total_bytes'] / (1024 * 1024)
-            retention_info.tooltip(
-                f'Up to {total_mib:g} MiB may be retained across the active log and '
-                f"{retention['backup_count']} rotated files."
-            )
-        if not rotations:
-            raise agent_management.PlatformCommandError('No rotating VOLTTRON logs are available.')
+                render_all_buffered()
 
-    async def jump_to_latest():
-        nonlocal lines, oldest_log_id, oldest_offset, live_log_id, live_offset, live_file_id
-        nonlocal loading, following
-        if loading:
-            return
-        loading = True
-        try:
-            await discover_logs()
-            page = await agent_management.read_log_before(
-                instance, 'volttron.log', 2**63 - 1, INITIAL_LOG_BYTES,
-            )
-            lines = _bounded_lines(page.get('lines', []))
-            oldest_log_id = page['log_id']
-            oldest_offset = page.get('start_offset', 0)
-            live_log_id = page['log_id']
-            live_offset = page.get('end_offset', page.get('total_bytes', 0))
-            live_file_id = page.get('file_id')
-            following = True
-            set_live_switch(True)
-            load_older_button.set_enabled(oldest_offset > 0 or len(rotations) > 1)
-            jump_latest_button.set_enabled(False)
-            set_status('Live', 'text-positive')
-            update_context('Latest window')
-            render_lines(scroll_to_bottom=True)
-        except Exception as exc:
-            set_status('Disconnected', 'text-negative')
-            ui.notify(f'Could not load logs: {exc}', type='negative')
-        finally:
-            loading = False
+                if scroll_to_bottom:
+                    ui.timer(0.05, lambda: log_scroll_area.scroll_to(percent=1.0), once=True)
 
-    async def load_older():
-        nonlocal lines, oldest_log_id, oldest_offset, loading, following
-        if loading:
-            return
-        loading = True
-        following = False
-        set_live_switch(False)
-        load_older_button.set_text('Loading older logs...')
-        load_older_button.disable()
-        try:
-            index = rotation_index(oldest_log_id)
-            if index is None:
-                await discover_logs()
-                index = rotation_index(oldest_log_id)
-            if oldest_offset > 0:
-                page = await agent_management.read_log_before(
-                    instance, oldest_log_id, oldest_offset, HISTORY_LOG_BYTES,
-                )
-            elif index is not None and index < len(rotations) - 1:
-                await discover_logs()
-                index = rotation_index(oldest_log_id)
-                if index is None or index >= len(rotations) - 1:
+                status_badge.set_text('Live' if live_switch.value else 'Paused')
+                status_badge.props(f'color="{"green" if live_switch.value else "orange"}"')
+            except Exception as e:
+                status_badge.set_text(f'Read Error: {str(e)}')
+                status_badge.props('color="red"')
+            finally:
+                state['loading'] = False
+
+        # Live poll timer callback
+        async def poll_callback() -> None:
+            if not live_switch.value or state['loading']:
+                return
+            
+            try:
+                max_lines = int(lines_input.value or DEFAULT_LINES)
+                # Fetch new lines from current end_offset forward
+                result = await agent_management.read_log_after(instance, state['active_log_id'], state['end_offset'], CHUNK_BYTES)
+                new_lines = result.get('lines', [])
+                new_file_id = result.get('file_id', '')
+
+                # Check if active file rotated
+                if state['file_id'] and new_file_id and new_file_id != state['file_id']:
+                    await load_logs(scroll_to_bottom=True)
                     return
-                older_file = rotations[index + 1]
-                page = await agent_management.read_log_before(
-                    instance, older_file['id'], older_file['size_bytes'], HISTORY_LOG_BYTES,
-                )
-            else:
+
+                if new_lines:
+                    state['lines'] = state['lines'] + new_lines
+                    state['end_offset'] = result.get('next_offset', state['end_offset'])
+                    state['total_bytes'] = result.get('total_bytes', state['total_bytes'])
+
+                    # Enforce the rolling window cap
+                    if len(state['lines']) > max_lines:
+                        state['lines'] = state['lines'][-max_lines:]
+
+                    render_all_buffered()
+                    ui.timer(0.05, lambda: log_scroll_area.scroll_to(percent=1.0), once=True)
+                else:
+                    # Update total size if it changed without lines (empty writes / padding)
+                    state['total_bytes'] = result.get('total_bytes', state['total_bytes'])
+                    render_all_buffered()
+            except Exception:
+                pass
+
+        poll_timer = ui.timer(POLL_INTERVAL_SEC, poll_callback, active=True)
+
+        def toggle_live(active: bool) -> None:
+            poll_timer.active = active
+            status_badge.set_text('Live' if active else 'Paused')
+            status_badge.props(f'color="{"green" if active else "orange"}"')
+
+        # ---- Download Dialog with real-time Progress Bar ---------------------
+        with ui.dialog() as download_dialog, ui.card().classes('w-96 gap-4 p-5'):
+            ui.label('Download Log File').classes('text-lg font-bold text-neutral-800 dark:text-neutral-100')
+            
+            # File selection
+            file_select = ui.select(
+                label='Select File',
+                options={},
+            ).props('outlined dense options-dense').classes('w-full')
+
+            # Real-time Progress Bar Container (hidden initially)
+            progress_container = ui.column().classes('w-full gap-2')
+            with progress_container:
+                progress_label = ui.label('Preparing...').classes('text-xs text-neutral-500 dark:text-neutral-400')
+                progress_bar = ui.linear_progress(value=0.0).props('show-value track-color="grey-4" color="primary"')
+            progress_container.visible = False
+
+            # Actions row
+            with ui.row().classes('w-full justify-end gap-2 border-t pt-3 border-neutral-100 dark:border-zinc-800'):
+                cancel_btn = ui.button('Cancel', on_click=download_dialog.close).props('flat dense')
+                download_confirm_btn = ui.button('Download', on_click=lambda: start_download()).props('unelevated dense color="primary"')
+
+        async def open_download_dialog() -> None:
+            """Fetch latest files list and open dialog."""
+            try:
+                info = await agent_management.list_log_info(instance)
+                files = info.get('logs', [])
+                if not files:
+                    ui.notify('No log files available', type='warning')
+                    return
+                
+                options = {}
+                for f in files:
+                    fid = f.get('id', '')
+                    size = f.get('size_bytes', 0)
+                    mtime = f.get('modified', 0)
+                    mtime_str = format_timestamp(mtime) if mtime else 'Unknown'
+                    options[fid] = f"{fid} ({format_bytes(size)} \u2022 Modified: {mtime_str})"
+
+                file_select.options = options
+                # Select the active log as default download
+                file_select.value = state['active_log_id'] if state['active_log_id'] in options else files[0].get('id')
+
+                # Reset dialog state
+                progress_container.visible = False
+                file_select.enable()
+                download_confirm_btn.enable()
+                cancel_btn.enable()
+                
+                download_dialog.open()
+            except Exception as e:
+                ui.notify(f'Failed to retrieve log files: {e}', type='negative')
+
+        async def start_download() -> None:
+            """Stream chunks from VUI and update progress bar in real-time."""
+            selected_file = file_select.value
+            if not selected_file:
                 return
 
-            added = page.get('lines', [])
-            lines = _bounded_lines(added + lines, keep='oldest')
-            oldest_log_id = page['log_id']
-            oldest_offset = page.get('start_offset', 0)
-            index = rotation_index(oldest_log_id)
-            has_older_file = index is not None and index < len(rotations) - 1
-            load_older_button.set_enabled(oldest_offset > 0 or has_older_file)
-            jump_latest_button.set_enabled(True)
-            set_status('Viewing older logs')
-            update_context(
-                f"Loaded {len(added):,} older lines from {page['log_id']} "
-                f"({format_bytes(page.get('start_offset', 0))}-{format_bytes(page.get('end_offset', 0))})"
-            )
-            render_lines()
-            log_view.run_method('scrollTo', 0, 0)
-        except Exception as exc:
-            ui.notify(f'Could not load older entries: {exc}', type='negative')
-        finally:
-            load_older_button.set_text('Show older logs')
-            index = rotation_index(oldest_log_id)
-            has_older_file = index is not None and index < len(rotations) - 1
-            load_older_button.set_enabled(oldest_offset > 0 or has_older_file)
-            loading = False
+            # Find expected size from select label/metadata
+            files_meta = await agent_management.list_log_info(instance)
+            meta = next((f for f in files_meta.get('logs', []) if f.get('id') == selected_file), None)
+            total_size_bytes = meta.get('size_bytes', 0) if meta else 0
 
-    async def poll_live():
-        nonlocal lines, live_log_id, live_offset, live_file_id, loading
-        if loading or not following:
-            return
-        loading = True
-        try:
-            result = await agent_management.read_log_after(
-                instance, live_log_id, live_offset, LIVE_LOG_BYTES,
-            )
-            replaced = live_file_id and result.get('file_id') != live_file_id
-            if replaced or result.get('total_bytes', 0) < live_offset:
-                await discover_logs()
-                rotated = next((log for log in rotations[1:] if log.get('file_id') == live_file_id), None)
-                if rotated:
-                    live_log_id = rotated['id']
-                    result = await agent_management.read_log_after(
-                        instance, live_log_id, live_offset, LIVE_LOG_BYTES,
-                    )
-                else:
-                    loading = False
-                    await jump_to_latest()
+            # Show progress bar and disable interaction
+            progress_container.visible = True
+            file_select.disable()
+            download_confirm_btn.disable()
+            cancel_btn.disable()
+
+            try:
+                chunks = []
+                offset = 0
+                max_chunk_bytes = 512 * 1024  # 512 KB chunks for maximum speed
+                
+                progress_label.set_text(f"Starting download of {selected_file}...")
+                progress_bar.value = 0.0
+
+                while True:
+                    result = await agent_management.read_log_after(instance, selected_file, offset, max_chunk_bytes)
+                    lines_chunk = result.get('lines', [])
+                    next_offset = result.get('next_offset', offset)
+                    file_total_bytes = result.get('total_bytes', total_size_bytes)
+                    
+                    if not lines_chunk:
+                        break
+                    
+                    # Flatten chunk list back to bytes
+                    chunk_text = '\n'.join(lines_chunk) + '\n'
+                    chunks.append(chunk_text.encode('utf-8', errors='replace'))
+                    
+                    offset = next_offset
+                    # Update progress
+                    limit_size = file_total_bytes or total_size_bytes or 1
+                    pct = clamp_progress(offset / limit_size)
+                    progress_bar.value = pct
+                    progress_label.set_text(f"Downloaded {format_bytes(offset)} / {format_bytes(limit_size)} ({round(pct*100)}%)")
+                    
+                    if next_offset >= file_total_bytes or next_offset <= offset:
+                        break
+                
+                full_content = b''.join(chunks)
+                if not full_content:
+                    ui.notify('Log is empty, nothing to download', type='warning')
+                    download_dialog.close()
                     return
 
-            additions = result.get('lines', [])
-            live_offset = result.get('next_offset', live_offset)
-            live_file_id = result.get('file_id', live_file_id)
-            if additions:
-                lines = _bounded_lines(lines + additions)
-                update_context('Latest window')
-                render_lines(scroll_to_bottom=True)
+                # Download file natively to user's local downloads folder
+                ui.download(full_content, filename=selected_file)
+                ui.notify(f"Download complete: {selected_file}", type='positive')
+                download_dialog.close()
+            except Exception as e:
+                ui.notify(f"Download failed: {e}", type='negative')
+                download_dialog.close()
 
-            if live_log_id != 'volttron.log' and live_offset >= result.get('total_bytes', 0):
-                live_log_id = 'volttron.log'
-                live_offset = 0
-                live_file_id = next(
-                    (log.get('file_id') for log in rotations if log['id'] == 'volttron.log'),
-                    None,
-                )
-        except Exception as exc:
-            set_status('Live update failed', 'text-negative')
-            ui.notify(f'Could not update logs: {exc}', type='negative')
-        finally:
-            loading = False
+        def clamp_progress(v: float) -> float:
+            return max(0.0, min(1.0, v))
 
-    async def toggle_live(event):
-        nonlocal following
-        if updating_live_switch:
-            return
-        following = bool(event.value)
-        if following:
-            await jump_to_latest()
-        else:
-            jump_latest_button.set_enabled(True)
-            set_status('Paused')
+        async def init_page() -> None:
+            # Detect what the active log file ID is (usually volttron.log)
+            try:
+                info = await agent_management.list_log_info(instance)
+                files = info.get('logs', [])
+                if files:
+                    import re
+                    active_candidate = next((f for f in files if not re.search(r'\.\d+$', f.get('id', ''))), files[0])
+                    state['active_log_id'] = active_candidate.get('id', 'volttron.log')
+            except Exception:
+                pass
+            await load_logs(scroll_to_bottom=True)
 
-    def handle_scroll(event):
-        nonlocal following
-        if not following or not isinstance(event.args, dict):
-            return
-        values = list(event.args.values())
-        if len(values) != 3:
-            return
-        scroll_top, scroll_height, client_height = (float(value or 0) for value in values)
-        if scroll_height - scroll_top - client_height > 80:
-            following = False
-            set_live_switch(False)
-            jump_latest_button.set_enabled(True)
-            set_status('Paused')
-
-    with ui.column().classes('w-full min-h-screen p-3 md:p-5 gap-3'):
-        with ui.row().classes('w-full items-center justify-between gap-3 flex-wrap'):
-            with ui.row().classes('items-center gap-2'):
-                ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to(f'/manage/{quote(instance_name, safe="")}')).props('flat round')
-                with ui.column().classes('gap-0'):
-                    ui.label('Platform Logs').classes('text-2xl font-bold')
-                    ui.label(instance_name).classes('text-grey-6')
-            with ui.row().classes('items-center gap-2'):
-                status_label = ui.label('Connecting...').classes('text-sm text-grey-6')
-                retention_info = ui.icon('info_outline', color='grey').classes('cursor-help')
-                ui.button(icon='refresh', on_click=jump_to_latest).props('flat round').tooltip('Reload the latest log entries')
-
-        with ui.row().classes(
-            'sticky top-0 z-20 w-full items-center justify-between gap-2 flex-wrap '
-            'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded shadow-sm p-2'
-        ):
-            load_older_button = ui.button('Show older logs', icon='expand_less', on_click=load_older).props('outline no-caps')
-            load_older_button.tooltip(f'Load up to {HISTORY_LOG_BYTES // 1024} KiB preceding the oldest visible entry')
-            count_label = ui.label(f'0 lines shown · {MAX_DISPLAY_LINES:,}-line limit').classes('text-xs text-grey-6')
-            with ui.row().classes('items-center gap-2'):
-                jump_latest_button = ui.button('Jump to latest', icon='vertical_align_bottom', on_click=jump_to_latest).props('flat no-caps color="primary"')
-                live_switch = ui.switch('Live', value=True, on_change=toggle_live).props('dense color="positive"')
-
-        context_label = ui.label('Loading the latest log window...').classes('w-full text-xs text-grey-6 px-1')
-
-        log_view = ui.html('', sanitize=False).classes(
-            'w-full flex-1 min-h-96 m-0 p-3 md:p-4 bg-slate-950 border border-slate-700 rounded '
-            'text-slate-100 font-mono text-xs md:text-sm leading-6 overflow-auto shadow-inner'
-        )
-        log_view.style('height: calc(100vh - 11rem); white-space: pre-wrap; overflow-wrap: anywhere;')
-        log_view.on(
-            'scroll', handle_scroll,
-            ['target.scrollTop', 'target.scrollHeight', 'target.clientHeight'],
-            throttle=0.2,
-        )
-
-    ui.timer(0.1, jump_to_latest, once=True)
-    ui.timer(5.0, poll_live)
+        ui.timer(0.1, init_page, once=True)

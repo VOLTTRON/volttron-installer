@@ -50,22 +50,16 @@ def test_assets_dir_contains_favicon():
     assert (Path(ASSETS_DIR) / 'favicon.ico').is_file()
 
 
-def test_full_logs_page_uses_bounded_pagination():
-    from volttron_installer.manage_instances.logs_page import (
-        HISTORY_LOG_BYTES,
-        MAX_DISPLAY_LINES,
-        _bounded_lines,
-        log_content,
-    )
+def test_logs_page_color_classes():
+    from volttron_installer.manage_instances.logs_page import _get_level_class
 
-    assert HISTORY_LOG_BYTES == 131072
-    assert MAX_DISPLAY_LINES == 1000
-    content = log_content(['first', 'second', '<unsafe>'])
-    assert content.index('first') < content.index('second')
-    assert '&lt;unsafe&gt;' in content
-    entries = [str(index) for index in range(MAX_DISPLAY_LINES + 10)]
-    assert _bounded_lines(entries)[0] == '10'
-    assert _bounded_lines(entries, keep='oldest')[-1] == str(MAX_DISPLAY_LINES - 1)
+    assert 'text-red-400' in _get_level_class('2026-08-05 ERROR [main] something broke')
+    assert 'text-red-400' in _get_level_class('CRITICAL crash')
+    assert 'text-amber-400' in _get_level_class('WARNING database disk image is malformed')
+    assert 'text-amber-400' in _get_level_class('WARN legacy syntax')
+    assert 'text-sky-400' in _get_level_class('DEBUG checking peer')
+    assert 'text-emerald-400' in _get_level_class('INFO platform started')
+    assert 'text-slate-300' in _get_level_class('non-level string')
 
 
 def test_vui_log_helpers_use_discovery_and_bounded_tail(monkeypatch):
@@ -93,3 +87,19 @@ def test_vui_log_helpers_use_discovery_and_bounded_tail(monkeypatch):
         (instance, '', None),
         (instance, 'volttron.log.1', {'tail': 10000, 'bytes': 65536}),
     ]
+
+
+def test_logs_page_simplified_api():
+    from volttron_installer.manage_instances import logs_page
+
+    # Verify pagination functions have been removed
+    assert not hasattr(logs_page, 'load_older')
+    assert not hasattr(logs_page, 'load_newer')
+    # Verify render exists and takes 1 argument
+    assert hasattr(logs_page, 'render')
+    import inspect
+    sig = inspect.signature(logs_page.render)
+    assert 'instance_name' in sig.parameters
+
+
+

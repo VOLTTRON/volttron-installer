@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from fastapi import HTTPException, Query
 from nicegui import ui, app
 import volttron_installer.home as home
 import volttron_installer.deploy_platforms.deploy_platform_ui as deploy_platform
@@ -96,3 +97,6 @@ def manage_page(instance_name: str):
 def bacnet_scan_page():
     ui.add_head_html(PAGE_HEAD)
     bacnet_scan_ui.render()
+
+
+
