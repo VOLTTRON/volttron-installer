@@ -155,8 +155,15 @@ def render(instance_name: str) -> None:
             """Synchronously render currently buffered lines list."""
             log_container.clear()
             with log_container:
-                for line in state['lines']:
-                    ui.label(line).classes(f"w-full leading-relaxed {_get_level_class(line)}")
+                for i, line in enumerate(state['lines']):
+                    escaped = html.escape(line)
+                    level_class = _get_level_class(line)
+                    # Lightweight, unselectable line gutter combined with level-colored text
+                    row_html = (
+                        f'<span class="text-slate-500 dark:text-zinc-500 select-none inline-block w-12 text-right mr-4 font-semibold font-mono">{i + 1}</span>'
+                        f'<span class="{level_class}">{escaped}</span>'
+                    )
+                    ui.html(row_html).classes('w-full leading-relaxed')
             
             file_size_label.set_text(
                 f"retained: {len(state['lines'])} lines  "
