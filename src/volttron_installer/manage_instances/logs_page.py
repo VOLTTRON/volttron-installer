@@ -70,60 +70,55 @@ def render(instance_name: str) -> None:
             ).props('outline')
         return
 
-    # Page container
-    with ui.column().classes('w-full max-w-7xl mx-auto px-4 py-6 gap-4 h-[calc(100vh-40px)]'):
+    # Full viewport container with absolute layout
+    with ui.column().classes('w-full h-screen gap-0 p-0 m-0 overflow-hidden relative bg-slate-950'):
         
-        # Header Row
-        with ui.row().classes('w-full items-center justify-between border-b pb-3 border-neutral-200 dark:border-zinc-800'):
-            with ui.row().classes('items-center gap-3'):
-                ui.button(
-                    icon='arrow_back',
-                    on_click=lambda: ui.navigate.to(f'/manage/{quote(instance_name, safe="")}'),
-                ).props('flat round dense')
-                with ui.column().classes('gap-0'):
-                    ui.label('Platform Logs (Live)').classes('text-xl font-bold text-neutral-800 dark:text-neutral-100')
-                    ui.label(instance_name).classes('text-xs text-neutral-500 dark:text-neutral-400')
-            
-            # Status Badge & File Details
-            with ui.row().classes('items-center gap-3'):
-                status_badge = ui.badge('Connecting...', color='orange').props('outline')
-                file_size_label = ui.label('').classes('text-xs text-neutral-500 dark:text-neutral-400')
+        # Floating Header & Back Button Overlay (top-left)
+        with ui.row().classes('fixed top-4 left-4 z-50 items-center gap-2 bg-slate-900/85 dark:bg-zinc-900/85 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 dark:border-zinc-800 shadow-lg'):
+            ui.button(
+                icon='arrow_back',
+                on_click=lambda: ui.navigate.to(f'/manage/{quote(instance_name, safe="")}'),
+            ).props('flat round dense color="white"').classes('text-white')
+            ui.label('Logs').classes('text-white text-xs font-bold font-mono tracking-wider uppercase select-none')
+            status_badge = ui.badge('Connecting...', color='orange').props('outline dense')
 
-        # Controls Row (Simplified)
-        with ui.row().classes('w-full items-center justify-between gap-4 bg-neutral-50 dark:bg-zinc-900 p-3 rounded-lg border border-neutral-100 dark:border-zinc-800'):
-            with ui.row().classes('items-center gap-4'):
-                # Line Count Selector (User typable)
-                lines_input = ui.number(
-                    label='Lines to Show',
-                    value=DEFAULT_LINES,
-                    min=50,
-                    max=10000,
-                    format='%d',
-                    on_change=lambda: load_logs(scroll_to_bottom=True)
-                ).props('outlined dense').classes('w-32')
-                with lines_input:
-                    ui.tooltip('Loads the latest N lines of the active log. Adjusting this re-tails the file instantly.')
+        # Floating Controls Overlay (top-right)
+        with ui.row().classes('fixed top-4 right-4 z-50 items-center gap-4 bg-slate-900/85 dark:bg-zinc-900/85 backdrop-blur-md px-4 py-2 rounded-lg border border-slate-800 dark:border-zinc-800 shadow-lg'):
+            # Line Count Selector (Custom dark number input)
+            lines_input = ui.number(
+                label='Lines',
+                value=DEFAULT_LINES,
+                min=50,
+                max=10000,
+                format='%d',
+                on_change=lambda: load_logs(scroll_to_bottom=True)
+            ).props('outlined dense dark').classes('w-20')
+            with lines_input:
+                ui.tooltip('Lines to show')
 
-                # Live Auto-Refresh Switch
-                live_switch = ui.switch(
-                    'Live Follow',
-                    value=True,
-                    on_change=lambda e: toggle_live(e.value)
-                ).classes('text-sm')
-                with live_switch:
-                    ui.tooltip('Automatically scrolls to the bottom and appends new log lines as they are written in real-time.')
+            # Live Switch
+            live_switch = ui.switch(
+                'Live',
+                value=True,
+                on_change=lambda e: toggle_live(e.value)
+            ).classes('text-xs text-slate-100 font-medium')
+            with live_switch:
+                ui.tooltip('Real-time live follow')
 
             # Download Button (Triggers Dialog)
-            ui.button(
-                'Download Logs',
+            download_btn = ui.button(
                 icon='download',
                 on_click=lambda: open_download_dialog()
-            ).props('unelevated dense color="primary"').classes('px-3 py-1 font-medium text-sm rounded')
+            ).props('flat round color="white"').classes('text-white')
+            with download_btn:
+                ui.tooltip('Download log files')
 
-        # Main Log Viewport (Scrollable Dark Area)
-        log_scroll_area = ui.scroll_area().classes('w-full grow bg-slate-950 rounded-lg p-4 font-mono text-xs border border-slate-900 overflow-hidden')
+        # Main Log Viewport (Native scrollbars on vertical and horizontal axes)
+        log_scroll_area = ui.column().classes('w-full h-full bg-slate-950 p-4 font-mono text-xs overflow-auto flex-nowrap scrollbar-thin')
         with log_scroll_area:
-            log_container = ui.column().classes('w-full gap-0.5 whitespace-pre wrap')
+            # pt-24 spacing ensures log content starts below the floating overlay headers!
+            # w-max & min-w-full prevents row-wrapping and enables horizontal scrollbars perfectly.
+            log_container = ui.column().classes('w-max min-w-full pt-24 pb-6 gap-0.5 whitespace-pre')
 
         # Page state closures
         state = {
@@ -195,7 +190,7 @@ def render(instance_name: str) -> None:
                 render_all_buffered()
 
                 if scroll_to_bottom:
-                    ui.timer(0.05, lambda: log_scroll_area.scroll_to(percent=1.0), once=True)
+                    ui.timer(0.05, lambda: log_scroll_area.run_method('scrollTo', {'top': 99999999}), once=True)
 
                 status_badge.set_text('Live' if live_switch.value else 'Paused')
                 status_badge.props(f'color="{"green" if live_switch.value else "orange"}"')
@@ -232,7 +227,7 @@ def render(instance_name: str) -> None:
                         state['lines'] = state['lines'][-max_lines:]
 
                     render_all_buffered()
-                    ui.timer(0.05, lambda: log_scroll_area.scroll_to(percent=1.0), once=True)
+                    ui.timer(0.05, lambda: log_scroll_area.run_method('scrollTo', {'top': 99999999}), once=True)
                 else:
                     # Update total size if it changed without lines (empty writes / padding)
                     state['total_bytes'] = result.get('total_bytes', state['total_bytes'])
