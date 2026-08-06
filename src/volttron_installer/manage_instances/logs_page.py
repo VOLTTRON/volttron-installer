@@ -163,7 +163,7 @@ def render(instance_name: str) -> None:
                         f'<span class="text-slate-500 dark:text-zinc-500 select-none inline-block w-12 text-right mr-4 font-semibold font-mono">{i + 1}</span>'
                         f'<span class="{level_class}">{escaped}</span>'
                     )
-                    ui.html(row_html).classes('w-full leading-relaxed')
+                    ui.html(row_html, sanitize=False).classes('w-full leading-relaxed')
             
             file_size_label.set_text(
                 f"retained: {len(state['lines'])} lines  "
