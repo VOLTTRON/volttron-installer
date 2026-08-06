@@ -122,7 +122,7 @@ def render(instance_name: str) -> None:
                 min=50,
                 max=10000,
                 format='%d',
-                on_change=lambda: load_logs(scroll_to_bottom=True)
+                on_change=lambda e: handle_lines_change(e.value)
             ).props('outlined dense dark').classes('w-20')
             with lines_input:
                 ui.tooltip('Lines to show')
@@ -174,8 +174,45 @@ def render(instance_name: str) -> None:
             'lines': [],
             'end_offset': 0,
             'total_bytes': 0,
-            'file_id': ''
+            'file_id': '',
+            'confirmed_large_lines_cap': 2000,
+            'pending_large_lines': 2000
         }
+
+        # ---- Performance Warning Dialog for high line counts -----------------
+        with ui.dialog() as confirm_dialog, ui.card().classes('w-96 p-5 gap-4'):
+            ui.label('Performance Warning').classes('text-lg font-bold text-amber-500')
+            ui.label(
+                'Loading more than 2,000 lines directly in the browser can cause significant UI lag '
+                'depending on your system. Are you sure you want to proceed?'
+            ).classes('text-sm text-slate-600 dark:text-slate-300')
+            with ui.row().classes('w-full justify-end gap-2 border-t pt-3 border-neutral-100 dark:border-zinc-800'):
+                ui.button('No, cancel', on_click=lambda: cancel_large_lines()).props('flat dense')
+                ui.button('Yes, proceed', on_click=lambda: accept_large_lines()).props('unelevated dense color="warning"')
+
+        def handle_lines_change(value: float | None) -> None:
+            """Inspect line input changes and prompt warning dialog if over 2000."""
+            if value is None:
+                return
+            val = int(value)
+            if val > 2000 and state.get('confirmed_large_lines_cap', 2000) < val:
+                state['pending_large_lines'] = val
+                confirm_dialog.open()
+            else:
+                load_logs(scroll_to_bottom=True)
+
+        def cancel_large_lines() -> None:
+            """Revert line input to 2,000 and load logs."""
+            confirm_dialog.close()
+            lines_input.value = 2000
+            load_logs(scroll_to_bottom=True)
+
+        def accept_large_lines() -> None:
+            """Proceed with high line count and update verified cap."""
+            confirm_dialog.close()
+            val = state.get('pending_large_lines', 2000)
+            state['confirmed_large_lines_cap'] = val
+            load_logs(scroll_to_bottom=True)
 
         import datetime
 
