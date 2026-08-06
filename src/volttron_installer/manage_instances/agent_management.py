@@ -763,6 +763,22 @@ async def _call_vui_logs(instance: dict, path: str, params: dict | None = None) 
         if not token:
             token = await _web_access_token(instance, client)
             _vui_log_tokens[token_key] = token
+
+        # Discover the platform's true internal core name dynamically
+        # to prevent 404 Not Found errors when the installer's custom database 
+        # instance name differs from the actual VOLTTRON core instance-name.
+        try:
+            p_resp = await client.get(
+                f"{web_address.rstrip('/')}/vui/platforms",
+                headers={"Authorization": f"BEARER {token}"}
+            )
+            if p_resp.status_code == 200:
+                links = p_resp.json().get('links', {})
+                if links:
+                    platform = quote(list(links.keys())[0], safe="")
+        except Exception:
+            pass
+
         response = await client.get(
             f"{web_address.rstrip('/')}/vui/platforms/{platform}/logs/{path.lstrip('/')}",
             headers={"Authorization": f"BEARER {token}"},
@@ -771,6 +787,19 @@ async def _call_vui_logs(instance: dict, path: str, params: dict | None = None) 
         if response.status_code == 401:
             token = await _web_access_token(instance, client)
             _vui_log_tokens[token_key] = token
+
+            try:
+                p_resp = await client.get(
+                    f"{web_address.rstrip('/')}/vui/platforms",
+                    headers={"Authorization": f"BEARER {token}"}
+                )
+                if p_resp.status_code == 200:
+                    links = p_resp.json().get('links', {})
+                    if links:
+                        platform = quote(list(links.keys())[0], safe="")
+            except Exception:
+                pass
+
             response = await client.get(
                 f"{web_address.rstrip('/')}/vui/platforms/{platform}/logs/{path.lstrip('/')}",
                 headers={"Authorization": f"BEARER {token}"},
