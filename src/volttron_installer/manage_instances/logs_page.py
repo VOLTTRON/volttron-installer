@@ -70,6 +70,33 @@ def render(instance_name: str) -> None:
             ).props('outline')
         return
 
+    # Inject CSS for beautiful custom dark scrollbars matching our slate-955 terminal theme
+    ui.add_head_html("""
+    <style>
+      /* Style scrollbars for all scroll containers */
+      ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #020617; /* Slate 950 */
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #1e293b; /* Slate 800 */
+        border-radius: 5px;
+        border: 2px solid #020617;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #334155; /* Slate 700 */
+      }
+      /* Firefox scrollbar styling */
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: #1e293b #020617;
+      }
+    </style>
+    """)
+
     # Reset the default NiceGUI page container to be 100% full-width, full-height and zero padding
     ui.query('.nicegui-content').classes('p-0 gap-0 w-full max-w-none h-screen overflow-hidden')
 
@@ -84,6 +111,7 @@ def render(instance_name: str) -> None:
             ).props('flat round dense color="white"').classes('text-white')
             ui.label('Logs').classes('text-white text-xs font-bold font-mono tracking-wider uppercase select-none')
             status_badge = ui.badge('Connecting...', color='orange').props('outline dense')
+            file_size_label = ui.label('').classes('text-[10px] text-slate-400 font-mono select-none')
 
         # Floating Controls Overlay (top-right)
         with ui.row().classes('fixed top-4 right-4 z-50 items-center gap-4 bg-slate-900/85 dark:bg-zinc-900/85 backdrop-blur-md px-4 py-2 rounded-lg border border-slate-800 dark:border-zinc-800 shadow-lg'):
@@ -108,6 +136,15 @@ def render(instance_name: str) -> None:
             with live_switch:
                 ui.tooltip('Real-time live follow')
 
+            # Wrap Switch (User selectable text-wrapping option)
+            wrap_switch = ui.switch(
+                'Wrap',
+                value=False,
+                on_change=lambda e: toggle_wrap(e.value)
+            ).classes('text-xs text-slate-100 font-medium')
+            with wrap_switch:
+                ui.tooltip('Wrap long log lines')
+
             # Download Button (Triggers Dialog)
             download_btn = ui.button(
                 icon='download',
@@ -122,6 +159,13 @@ def render(instance_name: str) -> None:
             # pt-24 spacing ensures log content starts below the floating overlay headers!
             # w-max & min-w-full prevents row-wrapping and enables horizontal scrollbars perfectly.
             log_container = ui.column().classes('w-max min-w-full pt-24 pb-6 gap-0.5 whitespace-pre')
+
+        def toggle_wrap(wrap_active: bool) -> None:
+            """Toggle between horizontal scroll (whitespace-pre) and text-wrapping (whitespace-pre-wrap)."""
+            if wrap_active:
+                log_container.classes('w-full whitespace-pre-wrap', remove='w-max min-w-full whitespace-pre')
+            else:
+                log_container.classes('w-max min-w-full whitespace-pre', remove='w-full whitespace-pre-wrap')
 
         # Page state closures
         state = {
