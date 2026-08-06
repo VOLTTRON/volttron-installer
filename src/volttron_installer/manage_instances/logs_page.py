@@ -70,8 +70,11 @@ def render(instance_name: str) -> None:
             ).props('outline')
         return
 
+    # Reset the default NiceGUI page container to be 100% full-width, full-height and zero padding
+    ui.query('.nicegui-content').classes('p-0 gap-0 w-full max-w-none h-screen overflow-hidden')
+
     # Full viewport container with absolute layout
-    with ui.column().classes('w-full h-screen gap-0 p-0 m-0 overflow-hidden relative bg-slate-950'):
+    with ui.column().classes('w-full h-full gap-0 p-0 m-0 overflow-hidden relative bg-slate-950'):
         
         # Floating Header & Back Button Overlay (top-left)
         with ui.row().classes('fixed top-4 left-4 z-50 items-center gap-2 bg-slate-900/85 dark:bg-zinc-900/85 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 dark:border-zinc-800 shadow-lg'):
