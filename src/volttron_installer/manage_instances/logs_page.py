@@ -200,16 +200,22 @@ def render(instance_name: str) -> None:
         def render_all_buffered() -> None:
             """Synchronously render currently buffered lines list."""
             log_container.clear()
+            total_lines = len(state['lines'])
             with log_container:
                 for i, line in enumerate(state['lines']):
                     escaped = html.escape(line)
                     level_class = _get_level_class(line)
-                    # Lightweight, unselectable line gutter combined with level-colored text
-                    row_html = (
-                        f'<span class="text-slate-500 dark:text-zinc-500 select-none inline-block w-12 text-right mr-4 font-semibold font-mono">{i + 1}</span>'
-                        f'<span class="{level_class}">{escaped}</span>'
-                    )
-                    ui.html(row_html, sanitize=False).classes('w-full leading-relaxed')
+                    
+                    # If this is the very last line, show a bright green "LATEST" indicator in the gutter
+                    if i == total_lines - 1:
+                        num_span = '<span class="text-emerald-400 dark:text-emerald-400 select-none inline-block w-12 text-right mr-4 font-bold font-mono text-[9px] tracking-wider uppercase">LATEST</span>'
+                        row_classes = 'w-full leading-relaxed bg-emerald-950/15 border-y border-emerald-900/30'
+                    else:
+                        num_span = f'<span class="text-slate-500 dark:text-zinc-500 select-none inline-block w-12 text-right mr-4 font-semibold font-mono">{i + 1}</span>'
+                        row_classes = 'w-full leading-relaxed'
+
+                    row_html = f'{num_span}<span class="{level_class}">{escaped}</span>'
+                    ui.html(row_html, sanitize=False).classes(row_classes)
             
             file_size_label.set_text(
                 f"retained: {len(state['lines'])} lines  "
