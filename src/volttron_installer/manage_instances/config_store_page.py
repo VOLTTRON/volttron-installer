@@ -1,12 +1,13 @@
 import io
+import json
 import zipfile
 
 from nicegui import ui
 from volttron_installer.dark import dark_mode_control
+from volttron_installer.theme import bento_card, bento_list_item
 
 import volttron_installer.db as db
 from volttron_installer.manage_instances import config_store
-from volttron_installer.manage_instances.config_templates import TEMPLATES
 
 def _uploaded_config_type(filename: str) -> str:
     lower_name = filename.lower()
@@ -59,6 +60,7 @@ def render(instance_name: str, agent_identity: str):
         return
 
     selected_config = None
+    available_templates = {}
     config_names_container = None
     config_name_input = None
     config_type_select = None
@@ -72,6 +74,21 @@ def render(instance_name: str, agent_identity: str):
     save_button = None
     delete_button = None
     status_label = None
+
+    editor_panel = None
+    placeholder_panel = None
+
+    def show_editor():
+        if editor_panel:
+            editor_panel.set_visibility(True)
+        if placeholder_panel:
+            placeholder_panel.set_visibility(False)
+
+    def hide_editor():
+        if editor_panel:
+            editor_panel.set_visibility(False)
+        if placeholder_panel:
+            placeholder_panel.set_visibility(True)
 
     def refresh_save_button():
         """Update the save button's label and enabled state based on mode and dirty flag."""
@@ -125,10 +142,15 @@ def render(instance_name: str, agent_identity: str):
                         delete_button.enable()
                         refresh_save_button()
                         status_label.set_text(f'Editing {config_name}')
+                        show_editor()
                     except Exception as e:
                         ui.notify(f'Failed to load config: {e}', type='negative')
 
-                ui.button(name, icon='description', on_click=select_config).props('flat align="left"').classes('w-full justify-start')
+                with ui.item(on_click=select_config).classes('w-full rounded-md hover:bg-neutral-200/50 dark:hover:bg-zinc-800 transition-colors py-1 px-2 mb-0.5 cursor-pointer').props('clickable v-ripple'):
+                    with ui.row().classes('items-center gap-2 w-full flex-nowrap'):
+                        ui.icon('insert_drive_file', color='primary', size='xs')
+                        ui.label(name).classes('truncate text-xs font-medium flex-grow')
+                        ui.tooltip(name)
 
     def get_editor_value() -> str:
         if config_type_select.value == 'application/json':
@@ -222,6 +244,7 @@ def render(instance_name: str, agent_identity: str):
         delete_button.disable()
         refresh_save_button()
         status_label.set_text('Creating new config')
+        show_editor()
 
     async def save_config():
         nonlocal selected_config, is_dirty
@@ -296,6 +319,7 @@ def render(instance_name: str, agent_identity: str):
             await config_store.delete_config(instance, agent_identity, selected_config)
             ui.notify(f'Deleted {selected_config}', type='positive')
             clear_editor()
+            hide_editor()
             await load_configs()
         except Exception as e:
             ui.notify(f'Failed to delete config: {e}', type='negative')
@@ -321,7 +345,7 @@ def render(instance_name: str, agent_identity: str):
         confirm_dialog.open()
 
     with ui.column().classes('w-full items-center py-8 px-4 gap-5'):
-        with ui.column().classes('w-full max-w-6xl gap-4'):
+        with ui.column().classes('w-full max-w-7xl gap-4'):
             with ui.row().classes('w-full justify-between items-center'):
                 with ui.row().classes('items-center gap-3'):
                     back_btn = ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to(f'/manage/{instance_name}')).props('flat round')
@@ -334,8 +358,8 @@ def render(instance_name: str, agent_identity: str):
 
             ui.separator()
 
-            with ui.row().classes('w-full gap-5 items-stretch no-wrap'):
-                with ui.column().classes('gap-3 py-2 w-80 min-w-80'):
+            with ui.row().classes('w-full gap-5 items-stretch no-wrap h-[650px]'):
+                with bento_card(padding='p-6', extra_classes='w-96 min-w-96 gap-3 h-full'):
                     ui.label('Add Configs').classes('font-bold')
                     ui.button('Blank Config', icon='add', on_click=clear_editor).props('outline color="primary"').classes('w-full')
                     import_upload = ui.upload(
@@ -355,14 +379,13 @@ def render(instance_name: str, agent_identity: str):
                         nonlocal selected_config, is_dirty
                         if not template_name:
                             return
-                        template = TEMPLATES[template_name]
+                        template = available_templates[template_name]
                         # Applying a template starts a new entry — clear any existing selection
                         selected_config = None
                         is_dirty = False
                         config_name_input.value = template["name"]
                         config_type_select.value = template["type"]
 
-                        import json
                         content = template["content"]
                         content_str = content if isinstance(content, str) else json.dumps(content, indent=2)
                         set_editor_value(content_str, template["type"])
@@ -370,65 +393,105 @@ def render(instance_name: str, agent_identity: str):
                         delete_button.disable()
                         refresh_save_button()
                         status_label.set_text('Creating new config')
+                        show_editor()
 
                         template_select.value = None
                         ui.notify(f"Applied template: {template_name}", type="info")
 
                     template_select = ui.select(
-                        options=list(TEMPLATES.keys()),
+                        options=list(available_templates.keys()),
                         label='Insert Template',
                         on_change=lambda e: apply_template(e.value)
                     ).props('outlined dense').classes('w-full')
+
+                    async def load_package_templates():
+                        try:
+                            packaged = await config_store.list_packaged_configs(instance)
+                            added = 0
+                            for package_name, configs in packaged.items():
+                                if not isinstance(configs, dict):
+                                    continue
+                                for filename, content in configs.items():
+                                    template_name = f'{package_name}: {filename}'
+                                    if template_name in available_templates:
+                                        continue
+                                    content_type = 'application/json' if (
+                                        isinstance(content, (dict, list)) or filename.lower().endswith(('.json', '.config'))
+                                    ) else 'text/plain'
+                                    available_templates[template_name] = {
+                                        'name': filename,
+                                        'type': content_type,
+                                        'content': content,
+                                    }
+                                    added += 1
+                            template_select.options = list(available_templates.keys())
+                            template_select.update()
+                            ui.notify(f'Loaded {added} package template(s)', type='positive' if added else 'info')
+                        except Exception as e:
+                            ui.notify(f'Could not load package templates: {e}', type='warning')
+
+                    ui.button('Load Installed Package Templates', icon='refresh', on_click=load_package_templates).props('flat dense').classes('w-full')
+                    ui.timer(0, load_package_templates, once=True)
                     
                     ui.separator()
                     ui.label('Stored Configs').classes('font-bold')
-                    config_names_container = ui.column().classes('w-full gap-1 min-h-80')
+                    config_names_container = ui.column().classes('w-full gap-0.5 max-h-[320px] overflow-y-auto')
                     ui.space()
                     ui.button('Delete All Configs', icon='delete_sweep', on_click=delete_all_agent_configs).props('outline color="negative"').classes('w-full')
 
-                ui.separator().props('vertical')
+                with bento_card(padding='p-6', extra_classes='flex-grow min-w-0 gap-3 h-full'):
 
-                with ui.column().classes('gap-3 py-2 flex-grow min-w-0'):
-                    with ui.row().classes('w-full justify-between items-center'):
-                        status_label = ui.label('Creating new config').classes('text-grey-6')
-                        with ui.row().classes('gap-2'):
-                            delete_button = ui.button('Delete Config', icon='delete', on_click=delete_selected_config).props('outline color="negative"')
-                            save_button = ui.button('Save Config', icon='save', on_click=save_config).props('color="primary"')
-                            delete_button.disable()
-
-                    with ui.row().classes('w-full gap-3 no-wrap'):
-                        config_name_input = ui.input('Config Name', placeholder='e.g. devices/campus/building/fake').props('outlined dense').classes('flex-grow')
-                        config_type_select = ui.select(
-                            {
-                                'application/json': 'JSON',
-                                'text/csv': 'CSV',
-                                'text/plain': 'Raw Text',
-                            },
-                            value='application/json',
-                            label='Content Type',
-                            on_change=lambda e: update_editor_visibility(e.value),
-                        ).props('outlined dense').classes('w-44')
-                    ui.label('Device configurations for drivers typically require the "devices/" prefix.').classes('text-grey-6 text-xs')
+                    # 1. Placeholder Panel (Visible by default)
+                    with ui.column().classes('w-full h-full items-center justify-center text-center gap-4') as placeholder_panel:
+                        ui.icon('edit_note', size='6rem', color='gray')
+                        ui.label('No Configuration Selected').classes('text-2xl font-bold text-grey-7 dark:text-grey-3')
+                        ui.label('Choose an existing file from the sidebar, insert a template, or create a brand new file to begin editing.').classes('text-sm text-grey-6 max-w-md mb-4')
+                        ui.button('Create Blank Configuration', icon='add', on_click=clear_editor).props('color="primary" rounded unelevated')
                     
-                    with ui.column().classes('w-full flex-auto min-h-96') as editor_container:
-                        def handle_json_change(e):
-                            nonlocal editor_errors, current_json_content, is_dirty
-                            editor_errors = e.errors
-                            current_json_content = e.content   # live content from browser
-                            is_dirty = True
-                            refresh_save_button()
+                    # 2. Editor Panel (Hidden by default)
+                    with ui.column().classes('w-full h-full flex-grow gap-3') as editor_panel:
+                        editor_panel.set_visibility(False)
 
-                        json_editor = ui.json_editor(
-                            properties={'content': {'json': {}}, 'mode': 'tree'},
-                            on_change=handle_json_change,
-                        ).classes('w-full flex-auto min-h-96')
+                        with ui.row().classes('w-full justify-between items-center'):
+                            status_label = ui.label('Creating new config').classes('text-grey-6')
+                            with ui.row().classes('gap-2'):
+                                delete_button = ui.button('Delete Config', icon='delete', on_click=delete_selected_config).props('outline color="negative"')
+                                save_button = ui.button('Save Config', icon='save', on_click=save_config).props('color="primary"')
+                                delete_button.disable()
 
-                        def handle_text_change(_=None):
-                            nonlocal is_dirty
-                            is_dirty = True
-                            refresh_save_button()
+                        with ui.row().classes('w-full gap-3 no-wrap'):
+                            config_name_input = ui.input('Config Name', placeholder='e.g. devices/campus/building/fake').props('outlined dense').classes('flex-grow')
+                            config_type_select = ui.select(
+                                {
+                                    'application/json': 'JSON',
+                                    'text/csv': 'CSV',
+                                    'text/plain': 'Raw Text',
+                                },
+                                value='application/json',
+                                label='Content Type',
+                                on_change=lambda e: update_editor_visibility(e.value),
+                            ).props('outlined dense').classes('w-44')
+                        ui.label('Device configurations for drivers typically require the "devices/" prefix.').classes('text-grey-6 text-xs')
 
-                        text_editor = ui.textarea('Content', value='', on_change=handle_text_change).props('outlined').classes('w-full flex-auto min-h-96 font-mono')
-                        text_editor.set_visibility(False)
+                        with ui.column().classes('w-full flex-grow min-h-0') as editor_container:
+                            def handle_json_change(e):
+                                nonlocal editor_errors, current_json_content, is_dirty
+                                editor_errors = e.errors
+                                current_json_content = e.content   # live content from browser
+                                is_dirty = True
+                                refresh_save_button()
+
+                            json_editor = ui.json_editor(
+                                properties={'content': {'json': {}}, 'mode': 'tree'},
+                                on_change=handle_json_change,
+                            ).classes('w-full flex-grow min-h-0')
+
+                            def handle_text_change(_=None):
+                                nonlocal is_dirty
+                                is_dirty = True
+                                refresh_save_button()
+
+                            text_editor = ui.textarea('Content', value='', on_change=handle_text_change).props('outlined').classes('w-full flex-grow min-h-0 font-mono').style('height: 100%')
+                            text_editor.set_visibility(False)
 
     ui.timer(0.1, load_configs, once=True)

@@ -48,6 +48,11 @@ def _config_store_rpc_url(instance: dict, method_name: str) -> str:
     return f"{_base_url(instance)}/vui/platforms/{platform}/agents/platform.config_store/rpc/{quote(method_name, safe='')}"
 
 
+def _packaged_configs_url(instance: dict) -> str:
+    platform = quote(instance.get("name", ""), safe="")
+    return f"{_base_url(instance)}/vui/platforms/{platform}/packaged-configs"
+
+
 def _raise_for_api_error(response: httpx.Response, action: str) -> None:
     if response.status_code < 400:
         return
@@ -75,6 +80,19 @@ async def list_configs(instance: dict, agent_identity: str) -> list[str]:
         if isinstance(links, dict):
             return sorted(links.keys())
         return []
+
+
+async def list_packaged_configs(instance: dict) -> dict:
+    """Return example configs exposed by packages installed in the instance venv."""
+    async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
+        token = await _access_token(instance, client)
+        response = await client.get(
+            _packaged_configs_url(instance),
+            headers={"Authorization": f"BEARER {token}"},
+        )
+        _raise_for_api_error(response, "List packaged configs")
+        payload = response.json()
+        return payload if isinstance(payload, dict) else {}
 
 
 async def get_config(instance: dict, agent_identity: str, config_name: str) -> tuple[str, str]:
