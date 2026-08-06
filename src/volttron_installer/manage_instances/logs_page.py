@@ -190,7 +190,7 @@ def render(instance_name: str) -> None:
                 ui.button('No, cancel', on_click=lambda: cancel_large_lines()).props('flat dense')
                 ui.button('Yes, proceed', on_click=lambda: accept_large_lines()).props('unelevated dense color="warning"')
 
-        def handle_lines_change(value: float | None) -> None:
+        async def handle_lines_change(value: float | None) -> None:
             """Inspect line input changes and prompt warning dialog if over 2000."""
             if value is None:
                 return
@@ -199,20 +199,20 @@ def render(instance_name: str) -> None:
                 state['pending_large_lines'] = val
                 confirm_dialog.open()
             else:
-                load_logs(scroll_to_bottom=True)
+                await load_logs(scroll_to_bottom=True)
 
-        def cancel_large_lines() -> None:
+        async def cancel_large_lines() -> None:
             """Revert line input to 2,000 and load logs."""
             confirm_dialog.close()
             lines_input.value = 2000
-            load_logs(scroll_to_bottom=True)
+            await load_logs(scroll_to_bottom=True)
 
-        def accept_large_lines() -> None:
+        async def accept_large_lines() -> None:
             """Proceed with high line count and update verified cap."""
             confirm_dialog.close()
             val = state.get('pending_large_lines', 2000)
             state['confirmed_large_lines_cap'] = val
-            load_logs(scroll_to_bottom=True)
+            await load_logs(scroll_to_bottom=True)
 
         import datetime
 
