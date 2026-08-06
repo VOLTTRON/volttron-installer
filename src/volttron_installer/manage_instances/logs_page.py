@@ -101,6 +101,8 @@ def render(instance_name: str) -> None:
                     format='%d',
                     on_change=lambda: load_logs(scroll_to_bottom=True)
                 ).props('outlined dense').classes('w-32')
+                with lines_input:
+                    ui.tooltip('Loads the latest N lines of the active log. Adjusting this re-tails the file instantly.')
 
                 # Live Auto-Refresh Switch
                 live_switch = ui.switch(
@@ -108,6 +110,8 @@ def render(instance_name: str) -> None:
                     value=True,
                     on_change=lambda e: toggle_live(e.value)
                 ).classes('text-sm')
+                with live_switch:
+                    ui.tooltip('Automatically scrolls to the bottom and appends new log lines as they are written in real-time.')
 
             # Download Button (Triggers Dialog)
             ui.button(
