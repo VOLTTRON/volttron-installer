@@ -1,0 +1,47 @@
+[tool.poetry]
+name = "volttron-installer"
+version = "0.1.0rc0"
+description = "Web-based installer and management UI for VOLTTRON platform instances."
+authors = ["VOLTTRON Team <volttron@pnnl.gov>"]
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/eclipse-volttron/volttron-installer"
+homepage = "https://github.com/eclipse-volttron/volttron-installer"
+keywords = ["volttron", "installer", "nicegui"]
+packages = [ { include = "volttron_installer", from = "src" } ]
+include = [ { path = "src/volttron_installer/assets/**/*", format = ["sdist", "wheel"] } ]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+nicegui = ">=1.4.0"
+httpx = ">=0.24.0"
+pyzmq = ">=25.0.0"
+passlib = { version = ">=1.7.4", extras = ["argon2"] }
+argon2-cffi = ">=23.1.0"
+paramiko = ">=3.4.0"
+ansible = ">=9.0.0"
+PyYAML = ">=6.0.0"
+psycopg2-binary = ">=2.9.0"
+# BACnet stack — installed from personal forks until published to PyPI
+bacnet-scan-api = { git = "https://github.com/riley206-pnnl/eclipse-bacnet-scan-tool.git", branch = "develop" }
+protocol-proxy-bacnet = { git = "https://github.com/riley206-pnnl/lib-protocol-proxy-bacnet-fixed.git", branch = "new_merge_of_rileys_discovery_work" }
+protocol-proxy = { git = "https://github.com/riley206-pnnl/lib-protocol-proxy.git", branch = "develop" }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+
+[tool.poetry.scripts]
+volttron-installer = "volttron_installer.cli:main"
+
+[tool.yapf]
+based_on_style = "pep8"
+spaces_before_comment = 4
+column_limit = 99
+split_before_logical_operator = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core>=1.2.0"]
+build-backend = "poetry.core.masonry.api"
