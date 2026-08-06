@@ -352,6 +352,7 @@ def render(instance_name: str) -> None:
             # Actions row
             with ui.row().classes('w-full justify-end gap-2 border-t pt-3 border-neutral-100 dark:border-zinc-800'):
                 cancel_btn = ui.button('Cancel', on_click=download_dialog.close).props('flat dense')
+                download_all_btn = ui.button('Download All (ZIP)', on_click=lambda: start_download_all()).props('unelevated dense color="primary" outline')
                 download_confirm_btn = ui.button('Download', on_click=lambda: start_download()).props('unelevated dense color="primary"')
 
         async def open_download_dialog() -> None:
@@ -379,6 +380,7 @@ def render(instance_name: str) -> None:
                 progress_container.visible = False
                 file_select.enable()
                 download_confirm_btn.enable()
+                download_all_btn.enable()
                 cancel_btn.enable()
                 
                 download_dialog.open()
@@ -400,6 +402,7 @@ def render(instance_name: str) -> None:
             progress_container.visible = True
             file_select.disable()
             download_confirm_btn.disable()
+            download_all_btn.disable()
             cancel_btn.disable()
 
             try:
@@ -445,6 +448,83 @@ def render(instance_name: str) -> None:
                 download_dialog.close()
             except Exception as e:
                 ui.notify(f"Download failed: {e}", type='negative')
+                download_dialog.close()
+
+        async def start_download_all() -> None:
+            """Stream all log files, pack them into a compressed ZIP file, and download."""
+            import io
+            import zipfile
+
+            # Show progress bar and disable interaction
+            progress_container.visible = True
+            file_select.disable()
+            download_confirm_btn.disable()
+            download_all_btn.disable()
+            cancel_btn.disable()
+
+            try:
+                # Fetch fresh file metadata to get exact size of all files
+                info = await agent_management.list_log_info(instance)
+                files = info.get('logs', [])
+                if not files:
+                    ui.notify('No log files available to download', type='warning')
+                    download_dialog.close()
+                    return
+
+                total_size_bytes = sum(f.get('size_bytes', 0) for f in files)
+                progress_label.set_text("Initializing ZIP archive...")
+                progress_bar.value = 0.0
+
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                    total_downloaded_bytes = 0
+
+                    for f in files:
+                        file_id = f.get('id', '')
+                        file_size = f.get('size_bytes', 0)
+                        progress_label.set_text(f"Downloading {file_id} ({format_bytes(file_size)})...")
+
+                        file_chunks = []
+                        offset = 0
+                        max_chunk_bytes = 512 * 1024  # 512 KB chunks
+
+                        while True:
+                            result = await agent_management.read_log_after(instance, file_id, offset, max_chunk_bytes)
+                            lines_chunk = result.get('lines', [])
+                            next_offset = result.get('next_offset', offset)
+                            file_total_bytes = result.get('total_bytes', file_size)
+
+                            if not lines_chunk:
+                                break
+
+                            chunk_text = '\n'.join(lines_chunk) + '\n'
+                            chunk_bytes = chunk_text.encode('utf-8', errors='replace')
+                            file_chunks.append(chunk_bytes)
+
+                            total_downloaded_bytes += len(chunk_bytes)
+                            pct = clamp_progress(total_downloaded_bytes / (total_size_bytes or 1))
+                            progress_bar.value = pct
+                            progress_label.set_text(f"Overall Progress: {format_bytes(total_downloaded_bytes)} / {format_bytes(total_size_bytes)} ({round(pct*100)}%)")
+
+                            if next_offset >= file_total_bytes or next_offset <= offset:
+                                break
+                            offset = next_offset
+
+                        # Add the fully streamed file contents to the ZIP archive
+                        zip_file.writestr(file_id, b''.join(file_chunks))
+
+                zip_content = zip_buffer.getvalue()
+                if not zip_content:
+                    ui.notify('Logs are empty, nothing to download', type='warning')
+                    download_dialog.close()
+                    return
+
+                zip_filename = f"volttron_logs_{instance_name}.zip"
+                ui.download(zip_content, filename=zip_filename)
+                ui.notify(f"Download complete: {zip_filename}", type='positive')
+                download_dialog.close()
+            except Exception as e:
+                ui.notify(f"Download All failed: {e}", type='negative')
                 download_dialog.close()
 
         def clamp_progress(v: float) -> float:
